@@ -6,10 +6,14 @@
 -- Add tab_permissions column to users table
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS tab_permissions JSONB DEFAULT NULL;
 
--- Update role check to include bartender
-ALTER TABLE public.users DROP CONSTRAINT IF EXISTS users_role_check;
-ALTER TABLE public.users ADD CONSTRAINT users_role_check
-  CHECK (role IN ('owner', 'manager', 'staff', 'bartender'));
+-- Add bartender to the user_role enum (safe to run even if already exists)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'bartender'
+    AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'user_role')) THEN
+    ALTER TYPE user_role ADD VALUE 'bartender';
+  END IF;
+END $$;
 
 -- Set full permissions for existing owner/manager rows
 UPDATE public.users SET tab_permissions = '{
