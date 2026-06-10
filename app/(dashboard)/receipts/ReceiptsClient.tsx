@@ -8,7 +8,8 @@ import { formatCurrency, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
 import {
   Upload, FileText, ExternalLink, Loader2, User, Clock,
-  Link2, Calendar, Search, Filter, X, Trash2, Sparkles, AlertTriangle
+  Link2, Calendar, Search, Filter, X, Trash2, Sparkles,
+  AlertTriangle, LayoutGrid, List
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -16,6 +17,8 @@ type Receipt = Database['public']['Tables']['receipts']['Row'] & {
   expenses?: { description: string; amount: number; date: string; category: string } | null
   users?: { full_name: string } | null
   claimed_by?: string | null
+  ocr_amount?: number | null
+  ocr_extracted?: boolean
 }
 
 type Expense = { id: string; description: string; amount: number; date: string; category: string }
@@ -44,19 +47,32 @@ function formatDateTime(dt: string) {
   })
 }
 
+async function extractFromImage(imageUrl: string, fileType: string): Promise<ExtractedData | null> {
+  try {
+    const res = await fetch('/api/receipts/extract', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ imageUrl, fileType }),
+    })
+    const json = await res.json()
+    return json.success ? json.data : null
+  } catch {
+    return null
+  }
+}
+
 export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Props) {
   const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts)
   const [uploading, setUploading] = useState(false)
+  const [uploadingId, setUploadingId] = useState<string | null>(null)
   const [selected, setSelected] = useState<Receipt | null>(null)
   const [linkExpenseId, setLinkExpenseId] = useState('')
   const [claimedByInput, setClaimedByInput] = useState('')
   const [linking, setLinking] = useState(false)
   const [deleting, setDeleting] = useState(false)
-  const [extracting, setExtracting] = useState(false)
-  const [extracted, setExtracted] = useState<ExtractedData | null>(null)
   const [confirmDelete, setConfirmDelete] = useState(false)
+  const [viewMode, setViewMode] = useState<'grid' | 'list'>('grid')
 
-  // Filters
   const [searchName, setSearchName] = useState('')
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
@@ -94,13 +110,48 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
       uploaded_by: currentUserId || null,
     } as any).select('*, expenses(description, amount, date, category), users(full_name)').single()
 
-    if (error) { toast(error.message, 'error') }
-    else {
-      toast('Receipt uploaded', 'success')
-      setReceipts(prev => [data as Receipt, ...prev])
+    if (error) {
+      toast(error.message, 'error')
+      setUploading(false)
+      return
     }
+
+    const newReceipt = data as Receipt
+    setReceipts(prev => [newReceipt, ...prev])
     setUploading(false)
     if (fileRef.current) fileRef.current.value = ''
+
+    // Auto-extract if image
+    if (file.type.startsWith('image/')) {
+      setUploadingId(newReceipt.id)
+      toast('Extracting amounts with AI...', 'info')
+      const extracted = await extractFromImage(publicUrl, file.type)
+
+      if (extracted?.total != null) {
+        const { data: updated } = await supabase
+          .from('receipts')
+          .update({
+            ocr_amount: extracted.total,
+            ocr_extracted: true,
+            ocr_supplier_name: extracted.vendor ?? null,
+            ocr_date: extracted.date ?? null,
+            ocr_raw_text: JSON.stringify(extracted),
+          } as any)
+          .eq('id', newReceipt.id)
+          .select('*, expenses(description, amount, date, category), users(full_name)')
+          .single()
+
+        if (updated) {
+          setReceipts(prev => prev.map(r => r.id === newReceipt.id ? updated as Receipt : r))
+          toast(`Extracted: RM ${extracted.total!.toFixed(2)}`, 'success')
+        }
+      } else {
+        toast('Receipt uploaded (could not extract amount)', 'info')
+      }
+      setUploadingId(null)
+    } else {
+      toast('Receipt uploaded', 'success')
+    }
   }
 
   const handleSaveDetails = async () => {
@@ -110,13 +161,6 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
     const updates: any = {}
     if (linkExpenseId) updates.expense_id = linkExpenseId
     updates.claimed_by = claimedByInput || null
-    if (extracted?.total) {
-      updates.ocr_amount = extracted.total
-      updates.ocr_extracted = true
-      updates.ocr_supplier_name = extracted.vendor ?? null
-      updates.ocr_date = extracted.date ?? null
-      updates.ocr_raw_text = JSON.stringify(extracted)
-    }
 
     const { error, data } = await supabase
       .from('receipts')
@@ -128,10 +172,8 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
     if (error) { toast(error.message, 'error') }
     else {
       toast('Receipt saved', 'success')
-      const updated = data as Receipt
-      setReceipts(prev => prev.map(r => r.id === updated.id ? updated : r))
+      setReceipts(prev => prev.map(r => r.id === (data as Receipt).id ? data as Receipt : r))
       setSelected(null)
-      setExtracted(null)
     }
     setLinking(false)
   }
@@ -140,7 +182,6 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
     if (!selected) return
     setDeleting(true)
 
-    // Extract storage path from URL
     const url = selected.file_url
     const pathMatch = url.match(/receipts\/(.+)$/)
     if (pathMatch) {
@@ -148,44 +189,14 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
     }
 
     const { error } = await supabase.from('receipts').delete().eq('id', selected.id)
-
     if (error) { toast(error.message, 'error') }
     else {
       toast('Receipt deleted', 'success')
       setReceipts(prev => prev.filter(r => r.id !== selected.id))
       setSelected(null)
-      setExtracted(null)
       setConfirmDelete(false)
     }
     setDeleting(false)
-  }
-
-  const handleExtract = async () => {
-    if (!selected) return
-    if (!selected.file_type.startsWith('image/')) {
-      toast('AI extraction only works on image receipts (JPG, PNG)', 'error')
-      return
-    }
-    setExtracting(true)
-    setExtracted(null)
-
-    try {
-      const res = await fetch('/api/receipts/extract', {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ imageUrl: selected.file_url, fileType: selected.file_type }),
-      })
-      const json = await res.json()
-      if (json.success) {
-        setExtracted(json.data)
-        toast('Amounts extracted successfully', 'success')
-      } else {
-        toast(json.error ?? 'Extraction failed', 'error')
-      }
-    } catch {
-      toast('Extraction failed', 'error')
-    }
-    setExtracting(false)
   }
 
   const isImage = (type: string) => type.startsWith('image/')
@@ -201,42 +212,49 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
         const name = (r.claimed_by ?? r.users?.full_name ?? '').toLowerCase()
         if (!name.includes(searchName.toLowerCase())) return false
       }
-      if (filterDateFrom) {
-        if (r.created_at.split('T')[0] < filterDateFrom) return false
-      }
-      if (filterDateTo) {
-        if (r.created_at.split('T')[0] > filterDateTo) return false
-      }
+      if (filterDateFrom && r.created_at.split('T')[0] < filterDateFrom) return false
+      if (filterDateTo && r.created_at.split('T')[0] > filterDateTo) return false
       return true
     })
   }, [receipts, searchName, filterDateFrom, filterDateTo])
 
   const hasFilters = searchName || filterDateFrom || filterDateTo
-  const unlinked = filtered.filter(r => !r.expense_id)
-  const linked = filtered.filter(r => r.expense_id)
+  const totalExtracted = filtered.reduce((sum, r) => sum + (r.ocr_amount ? Number(r.ocr_amount) : 0), 0)
 
   return (
     <div className="space-y-5">
       <TopBar
         title="Receipts"
-        subtitle={`${receipts.length} total · ${receipts.filter(r => r.expense_id).length} linked`}
+        subtitle={`${receipts.length} total · ${receipts.filter(r => r.ocr_extracted).length} AI-extracted`}
+        actions={
+          <div className="flex items-center gap-1 bg-[#141417] border border-[#2A2A30] rounded-lg p-1">
+            <button onClick={() => setViewMode('grid')}
+              className={`p-1.5 rounded-md transition-all ${viewMode === 'grid' ? 'bg-[#8B5CF6] text-white' : 'text-[#5A5865] hover:text-[#F0EEF6]'}`}>
+              <LayoutGrid size={14} />
+            </button>
+            <button onClick={() => setViewMode('list')}
+              className={`p-1.5 rounded-md transition-all ${viewMode === 'list' ? 'bg-[#8B5CF6] text-white' : 'text-[#5A5865] hover:text-[#F0EEF6]'}`}>
+              <List size={14} />
+            </button>
+          </div>
+        }
       />
 
       {/* Upload area */}
       <div
         className="border-2 border-dashed border-[#2A2A30] rounded-xl p-6 text-center cursor-pointer hover:border-[#8B5CF6] transition-all"
-        onClick={() => fileRef.current?.click()}
+        onClick={() => !uploading && fileRef.current?.click()}
       >
         {uploading ? (
-          <div className="flex flex-col items-center gap-3">
+          <div className="flex flex-col items-center gap-2">
             <Loader2 size={28} className="text-[#8B5CF6] animate-spin" />
-            <p className="text-[#9896A4] text-sm">Uploading receipt...</p>
+            <p className="text-[#9896A4] text-sm">Uploading & extracting amounts...</p>
           </div>
         ) : (
           <div className="flex flex-col items-center gap-2">
             <Upload size={28} className="text-[#3A3A42]" />
             <p className="text-[#F0EEF6] font-medium text-sm">Upload Receipt</p>
-            <p className="text-[#5A5865] text-xs">JPG, PNG, PDF supported</p>
+            <p className="text-[#5A5865] text-xs">JPG, PNG, PDF · amounts auto-extracted with AI</p>
           </div>
         )}
         <input ref={fileRef} type="file" accept="image/*,.pdf" onChange={handleUpload} className="hidden" />
@@ -247,12 +265,15 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
         <div className="flex items-center gap-2 text-[#9896A4] text-xs font-medium">
           <Filter size={12} /> Filters
           {hasFilters && (
-            <button
-              onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }}
-              className="ml-auto flex items-center gap-1 text-[#8B5CF6] hover:text-[#A78BFA] text-xs"
-            >
+            <button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }}
+              className="ml-auto flex items-center gap-1 text-[#8B5CF6] hover:text-[#A78BFA] text-xs">
               <X size={11} /> Clear
             </button>
+          )}
+          {totalExtracted > 0 && (
+            <span className="ml-auto text-emerald-400 font-bold text-xs">
+              Total: {formatCurrency(totalExtracted)}
+            </span>
           )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
@@ -273,9 +294,7 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
             <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="input pl-8" />
           </div>
         </div>
-        {hasFilters && (
-          <p className="text-[#9896A4] text-xs">{filtered.length} of {receipts.length} receipts shown</p>
-        )}
+        {hasFilters && <p className="text-[#9896A4] text-xs">{filtered.length} of {receipts.length} receipts shown</p>}
       </div>
 
       {receipts.length === 0 ? (
@@ -283,50 +302,36 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
       ) : filtered.length === 0 ? (
         <EmptyState icon={<Search size={40} />} title="No receipts match your filters"
           action={<button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }} className="btn-secondary">Clear Filters</button>} />
+      ) : viewMode === 'grid' ? (
+        <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+          {filtered.map(r => (
+            <GridCard key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
+              onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false) }} />
+          ))}
+        </div>
       ) : (
-        <div className="space-y-6">
-          {unlinked.length > 0 && (
-            <div>
-              <p className="text-[#5A5865] text-xs font-medium uppercase tracking-wider mb-3">Unlinked ({unlinked.length})</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {unlinked.map(r => (
-                  <ReceiptCard key={r.id} receipt={r} isImage={isImage}
-                    onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setExtracted(null); setConfirmDelete(false) }} />
-                ))}
-              </div>
-            </div>
-          )}
-          {linked.length > 0 && (
-            <div>
-              <p className="text-[#5A5865] text-xs font-medium uppercase tracking-wider mb-3">Linked to Expenses ({linked.length})</p>
-              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {linked.map(r => (
-                  <ReceiptCard key={r.id} receipt={r} isImage={isImage}
-                    onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setExtracted(null); setConfirmDelete(false) }} />
-                ))}
-              </div>
-            </div>
-          )}
+        <div className="space-y-2">
+          {filtered.map(r => (
+            <ListRow key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
+              onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false) }} />
+          ))}
         </div>
       )}
 
       {/* Detail modal */}
       {selected && (
-        <Modal isOpen={!!selected} onClose={() => { setSelected(null); setExtracted(null); setConfirmDelete(false) }} title="Receipt Details" size="md">
+        <Modal isOpen={!!selected} onClose={() => { setSelected(null); setConfirmDelete(false) }} title="Receipt Details" size="md">
           <div className="space-y-4">
-            {/* Preview */}
             <div className="aspect-video rounded-xl overflow-hidden bg-[#1A1A1E] flex items-center justify-center">
               {isImage(selected.file_type) ? (
                 <img src={selected.file_url} alt={selected.file_name} className="w-full h-full object-contain" />
               ) : (
                 <div className="flex flex-col items-center gap-2 text-[#5A5865]">
-                  <FileText size={48} />
-                  <p className="text-sm">PDF Document</p>
+                  <FileText size={48} /><p className="text-sm">PDF Document</p>
                 </div>
               )}
             </div>
 
-            {/* Meta */}
             <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#1A1A1E] rounded-lg p-3">
                 <p className="text-[#5A5865] text-xs mb-1 flex items-center gap-1"><Clock size={10} /> Uploaded</p>
@@ -338,74 +343,44 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               </div>
             </div>
 
-            {/* AI Extract button */}
-            {isImage(selected.file_type) && (
-              <button
-                onClick={handleExtract}
-                disabled={extracting}
-                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-[#8B5CF6]/40 bg-[#8B5CF6]/10 text-[#A78BFA] text-sm font-medium hover:bg-[#8B5CF6]/20 transition-all disabled:opacity-50"
-              >
-                {extracting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
-                {extracting ? 'Extracting amounts with AI...' : 'Extract Amounts with AI'}
-              </button>
-            )}
-
-            {/* AI Results */}
-            {extracted && (
-              <div className="bg-[#0D0D0F] border border-[#8B5CF6]/30 rounded-xl p-4 space-y-2">
-                <div className="flex items-center gap-2 mb-3">
+            {/* AI extracted amount */}
+            {selected.ocr_amount != null && (
+              <div className="bg-[#0D0D0F] border border-[#8B5CF6]/30 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-1">
                   <Sparkles size={13} className="text-[#8B5CF6]" />
-                  <p className="text-[#A78BFA] text-xs font-medium uppercase tracking-wider">AI Extracted</p>
-                  {extracted.vendor && <span className="text-[#5A5865] text-xs ml-auto">{extracted.vendor}</span>}
+                  <p className="text-[#A78BFA] text-xs font-medium uppercase tracking-wider">AI Extracted Amount</p>
                 </div>
-                {extracted.items?.length > 0 && (
-                  <div className="space-y-1 max-h-40 overflow-y-auto">
-                    {extracted.items.map((item, i) => (
-                      <div key={i} className="flex items-center justify-between py-1 border-b border-[#1A1A1E] last:border-0">
-                        <span className="text-[#9896A4] text-xs truncate flex-1 mr-2">{item.description}</span>
-                        <span className="text-[#F0EEF6] text-xs font-medium whitespace-nowrap">
-                          {extracted.currency ?? 'RM'} {item.amount?.toFixed(2)}
-                        </span>
-                      </div>
-                    ))}
-                  </div>
+                <p className="text-emerald-400 font-bold text-2xl">RM {Number(selected.ocr_amount).toFixed(2)}</p>
+                {(selected as any).ocr_supplier_name && (
+                  <p className="text-[#5A5865] text-xs mt-1">{(selected as any).ocr_supplier_name}</p>
                 )}
-                <div className="pt-2 space-y-1">
-                  {extracted.tax != null && extracted.tax > 0 && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-[#5A5865]">Tax</span>
-                      <span className="text-[#9896A4]">{extracted.currency ?? 'RM'} {extracted.tax.toFixed(2)}</span>
-                    </div>
-                  )}
-                  {extracted.service_charge != null && extracted.service_charge > 0 && (
-                    <div className="flex justify-between text-xs">
-                      <span className="text-[#5A5865]">Service Charge</span>
-                      <span className="text-[#9896A4]">{extracted.currency ?? 'RM'} {extracted.service_charge.toFixed(2)}</span>
-                    </div>
-                  )}
-                  {extracted.total != null && (
-                    <div className="flex justify-between items-center pt-1 border-t border-[#2A2A30]">
-                      <span className="text-[#F0EEF6] font-semibold text-sm">Total</span>
-                      <span className="text-emerald-400 font-bold text-base">
-                        {extracted.currency ?? 'RM'} {extracted.total.toFixed(2)}
-                      </span>
-                    </div>
-                  )}
-                </div>
+                {(selected as any).ocr_raw_text && (() => {
+                  try {
+                    const d: ExtractedData = JSON.parse((selected as any).ocr_raw_text)
+                    return d.items?.length > 0 ? (
+                      <div className="mt-3 space-y-1 max-h-36 overflow-y-auto">
+                        {d.items.map((item, i) => (
+                          <div key={i} className="flex justify-between text-xs py-0.5 border-b border-[#1A1A1E] last:border-0">
+                            <span className="text-[#9896A4] truncate flex-1 mr-2">{item.description}</span>
+                            <span className="text-[#F0EEF6] whitespace-nowrap">RM {item.amount?.toFixed(2)}</span>
+                          </div>
+                        ))}
+                      </div>
+                    ) : null
+                  } catch { return null }
+                })()}
               </div>
             )}
 
-            {/* Belongs to */}
             <div>
               <label className="label">Belongs to (claimant)</label>
               <input type="text" value={claimedByInput} onChange={e => setClaimedByInput(e.target.value)}
-                className="input" placeholder="e.g. Rajiv, Ahmad, Partner name..." list="modal-known-names" />
-              <datalist id="modal-known-names">
+                className="input" placeholder="e.g. Rajiv, Ahmad, Partner name..." list="modal-names" />
+              <datalist id="modal-names">
                 {knownNames.map(n => <option key={n} value={n} />)}
               </datalist>
             </div>
 
-            {/* Linked expense */}
             {selected.expenses && (
               <div className="bg-[#1A1A1E] rounded-xl p-3 border border-[#2A2A30]">
                 <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-2">Linked Expense</p>
@@ -417,7 +392,6 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               </div>
             )}
 
-            {/* Link to expense */}
             <div>
               <label className="label">Link to Expense</label>
               <select value={linkExpenseId} onChange={e => setLinkExpenseId(e.target.value)} className="input">
@@ -430,8 +404,8 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               </select>
             </div>
 
-            <div className="flex gap-3 pt-1">
-              <button onClick={() => { setSelected(null); setExtracted(null); setConfirmDelete(false) }} className="btn-secondary flex-1">Cancel</button>
+            <div className="flex gap-3">
+              <button onClick={() => { setSelected(null); setConfirmDelete(false) }} className="btn-secondary flex-1">Cancel</button>
               <button onClick={handleSaveDetails} disabled={linking} className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
                 <Link2 size={13} /> {linking ? 'Saving...' : 'Save'}
               </button>
@@ -442,7 +416,6 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               <ExternalLink size={14} /> Open Full Size
             </a>
 
-            {/* Delete */}
             {!confirmDelete ? (
               <button onClick={() => setConfirmDelete(true)}
                 className="w-full flex items-center justify-center gap-2 text-rose-400 hover:text-rose-300 text-xs py-2 hover:bg-rose-500/10 rounded-lg transition-all">
@@ -450,15 +423,15 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               </button>
             ) : (
               <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4">
-                <div className="flex items-center gap-2 mb-3">
+                <div className="flex items-center gap-2 mb-2">
                   <AlertTriangle size={14} className="text-rose-400" />
                   <p className="text-rose-400 text-sm font-medium">Delete this receipt?</p>
                 </div>
-                <p className="text-[#9896A4] text-xs mb-3">This will permanently remove the file and cannot be undone.</p>
+                <p className="text-[#9896A4] text-xs mb-3">This cannot be undone.</p>
                 <div className="flex gap-2">
                   <button onClick={() => setConfirmDelete(false)} className="btn-secondary flex-1 text-xs">Cancel</button>
                   <button onClick={handleDelete} disabled={deleting}
-                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium py-2 px-4 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium py-2 px-4 rounded-lg disabled:opacity-50 flex items-center justify-center gap-1.5">
                     <Trash2 size={12} /> {deleting ? 'Deleting...' : 'Yes, Delete'}
                   </button>
                 </div>
@@ -471,24 +444,27 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
   )
 }
 
-function ReceiptCard({ receipt, isImage, onClick }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void }) {
+function GridCard({ receipt, isImage, onClick, extracting }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean }) {
   return (
     <div className="card-hover cursor-pointer" onClick={onClick}>
       <div className="aspect-square rounded-lg overflow-hidden bg-[#1A1A1E] mb-3 flex items-center justify-center relative">
-        {isImage(receipt.file_type) ? (
-          <img src={receipt.file_url} alt={receipt.file_name} className="w-full h-full object-cover" />
-        ) : (
-          <div className="flex flex-col items-center gap-2 text-[#5A5865]">
-            <FileText size={32} />
-            <p className="text-xs">PDF</p>
+        {isImage(receipt.file_type)
+          ? <img src={receipt.file_url} alt={receipt.file_name} className="w-full h-full object-cover" />
+          : <div className="flex flex-col items-center gap-2 text-[#5A5865]"><FileText size={32} /><p className="text-xs">PDF</p></div>}
+        {extracting && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <div className="flex flex-col items-center gap-1">
+              <Sparkles size={18} className="text-[#8B5CF6] animate-pulse" />
+              <p className="text-[10px] text-[#A78BFA]">Extracting...</p>
+            </div>
           </div>
         )}
-        {receipt.expense_id && (
+        {receipt.expense_id && !extracting && (
           <div className="absolute top-1.5 right-1.5 bg-emerald-500/80 rounded-full p-0.5">
             <Link2 size={10} className="text-white" />
           </div>
         )}
-        {(receipt as any).ocr_extracted && (
+        {receipt.ocr_extracted && !extracting && (
           <div className="absolute top-1.5 left-1.5 bg-[#8B5CF6]/80 rounded-full p-0.5">
             <Sparkles size={10} className="text-white" />
           </div>
@@ -499,23 +475,56 @@ function ReceiptCard({ receipt, isImage, onClick }: { receipt: Receipt; isImage:
         <Clock size={9} className="text-[#5A5865]" />
         <p className="text-[#5A5865] text-[10px]">{formatDateTime(receipt.created_at)}</p>
       </div>
-      {receipt.claimed_by ? (
-        <div className="flex items-center gap-1 mt-0.5">
-          <User size={9} className="text-[#8B5CF6]" />
-          <p className="text-[#A78BFA] text-[10px] font-medium truncate">{receipt.claimed_by}</p>
+      {receipt.claimed_by
+        ? <div className="flex items-center gap-1 mt-0.5"><User size={9} className="text-[#8B5CF6]" /><p className="text-[#A78BFA] text-[10px] font-medium truncate">{receipt.claimed_by}</p></div>
+        : <div className="flex items-center gap-1 mt-0.5"><User size={9} className="text-[#5A5865]" /><p className="text-[#5A5865] text-[10px] truncate">{receipt.users?.full_name ?? 'Unknown'}</p></div>}
+      {receipt.ocr_amount != null && (
+        <p className="text-emerald-400 text-xs font-bold mt-1">RM {Number(receipt.ocr_amount).toFixed(2)}</p>
+      )}
+    </div>
+  )
+}
+
+function ListRow({ receipt, isImage, onClick, extracting }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean }) {
+  return (
+    <div className="card-hover cursor-pointer flex items-center gap-4" onClick={onClick}>
+      <div className="w-14 h-14 rounded-lg overflow-hidden bg-[#1A1A1E] flex-shrink-0 flex items-center justify-center relative">
+        {isImage(receipt.file_type)
+          ? <img src={receipt.file_url} alt={receipt.file_name} className="w-full h-full object-cover" />
+          : <FileText size={20} className="text-[#5A5865]" />}
+        {extracting && (
+          <div className="absolute inset-0 bg-black/60 flex items-center justify-center">
+            <Sparkles size={12} className="text-[#8B5CF6] animate-pulse" />
+          </div>
+        )}
+      </div>
+      <div className="flex-1 min-w-0">
+        <div className="flex items-center gap-2">
+          <p className="text-[#F0EEF6] text-sm font-medium truncate">{receipt.file_name}</p>
+          {receipt.ocr_extracted && <Sparkles size={11} className="text-[#8B5CF6] flex-shrink-0" />}
+          {receipt.expense_id && <Link2 size={11} className="text-emerald-400 flex-shrink-0" />}
         </div>
-      ) : (
-        <div className="flex items-center gap-1 mt-0.5">
-          <User size={9} className="text-[#5A5865]" />
-          <p className="text-[#5A5865] text-[10px] truncate">{receipt.users?.full_name ?? 'Unknown'}</p>
+        <div className="flex items-center gap-3 mt-0.5">
+          <div className="flex items-center gap-1">
+            <Clock size={9} className="text-[#5A5865]" />
+            <p className="text-[#5A5865] text-xs">{formatDateTime(receipt.created_at)}</p>
+          </div>
+          <div className="flex items-center gap-1">
+            <User size={9} className={receipt.claimed_by ? 'text-[#8B5CF6]' : 'text-[#5A5865]'} />
+            <p className={`text-xs ${receipt.claimed_by ? 'text-[#A78BFA] font-medium' : 'text-[#5A5865]'}`}>
+              {receipt.claimed_by ?? receipt.users?.full_name ?? 'Unknown'}
+            </p>
+          </div>
+          {receipt.expenses && (
+            <p className="text-[#9896A4] text-xs truncate">{receipt.expenses.description}</p>
+          )}
         </div>
-      )}
-      {(receipt as any).ocr_amount && (
-        <p className="text-emerald-400 text-[10px] font-bold mt-1">RM {Number((receipt as any).ocr_amount).toFixed(2)}</p>
-      )}
-      {receipt.expenses && (
-        <p className="text-[#9896A4] text-[10px] mt-0.5 truncate">{receipt.expenses.description}</p>
-      )}
+      </div>
+      <div className="flex-shrink-0 text-right">
+        {receipt.ocr_amount != null
+          ? <p className="text-emerald-400 font-bold text-sm">RM {Number(receipt.ocr_amount).toFixed(2)}</p>
+          : <p className="text-[#5A5865] text-xs">No amount</p>}
+      </div>
     </div>
   )
 }
