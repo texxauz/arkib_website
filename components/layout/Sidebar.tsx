@@ -127,7 +127,7 @@ export function Sidebar() {
 
       {/* Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0D0D0F] border-t border-[#2A2A30] flex items-center justify-around px-2 py-2">
-        {[navItems[0], navItems[1], navItems[2], navItems[4], navItems[11]].map(({ href, label, icon: Icon }) => {
+        {[navItems[0], navItems[1], navItems[2], navItems[3], navItems[9]].map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href
           return (
             <Link key={href} href={href} className="flex flex-col items-center gap-1 px-3 py-1">
