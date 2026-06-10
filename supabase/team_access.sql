@@ -6,15 +6,6 @@
 -- Add tab_permissions column to users table
 ALTER TABLE public.users ADD COLUMN IF NOT EXISTS tab_permissions JSONB DEFAULT NULL;
 
--- Add bartender to the user_role enum (safe to run even if already exists)
-DO $$
-BEGIN
-  IF NOT EXISTS (SELECT 1 FROM pg_enum WHERE enumlabel = 'bartender'
-    AND enumtypid = (SELECT oid FROM pg_type WHERE typname = 'user_role')) THEN
-    ALTER TYPE user_role ADD VALUE 'bartender';
-  END IF;
-END $$;
-
 -- Set full permissions for existing owner/manager rows
 UPDATE public.users SET tab_permissions = '{
   "dashboard": "edit",

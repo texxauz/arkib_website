@@ -43,7 +43,7 @@ const PERM_COLOR: Record<string, string> = {
   none: 'bg-[#1A1A1E] text-[#5A5865] border-[#2A2A30]',
 }
 
-const emptyInvite = { email: '', full_name: '', role: 'bartender' as string }
+const emptyInvite = { email: '', full_name: '', role: 'staff' as string }
 
 export function TeamClient({ members, currentUserId }: { members: UserProfile[], currentUserId: string }) {
   const [list, setList] = useState<UserProfile[]>(members)
@@ -66,7 +66,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setEditTarget(m)
     setEditRole(m.role)
     setEditName(m.full_name)
-    setEditPerms(m.tab_permissions ?? (m.role === 'owner' ? OWNER_FULL : DEFAULT_BARTENDER))
+    setEditPerms(m.tab_permissions ?? (['owner', 'manager'].includes(m.role) ? OWNER_FULL : DEFAULT_BARTENDER))
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -163,7 +163,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                   {isMe && <span className="text-[9px] bg-[#8B5CF6]/20 text-[#A78BFA] px-2 py-0.5 rounded-full border border-[#8B5CF6]/20">YOU</span>}
                   <span className={`text-[9px] px-2 py-0.5 rounded-full border capitalize
                     ${m.role === 'owner' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-[#1A1A1E] text-[#9896A4] border-[#2A2A30]'}`}>
-                    {m.role}
+                    {m.role === 'staff' ? 'Bartender' : m.role}
                   </span>
                   {!m.is_active && <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full">Suspended</span>}
                 </div>
@@ -215,7 +215,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             <div>
               <label className="label">Role</label>
               <select className="input" value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value }))}>
-                <option value="bartender">Bartender</option>
+                <option value="staff">Bartender</option>
                 <option value="manager">Manager</option>
               </select>
             </div>
@@ -246,7 +246,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             <div>
               <label className="label">Role</label>
               <select className="input" value={editRole} onChange={e => setEditRole(e.target.value)}>
-                <option value="bartender">Bartender</option>
+                <option value="staff">Bartender</option>
                 <option value="manager">Manager</option>
                 <option value="owner">Owner</option>
               </select>
