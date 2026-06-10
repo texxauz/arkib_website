@@ -3,6 +3,17 @@
 -- Run this in Supabase SQL Editor
 -- ============================================================
 
+-- Add unique constraints if missing (safe to run multiple times)
+DO $$
+BEGIN
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'ingredients_name_unique') THEN
+    ALTER TABLE public.ingredients ADD CONSTRAINT ingredients_name_unique UNIQUE (name);
+  END IF;
+  IF NOT EXISTS (SELECT 1 FROM pg_constraint WHERE conname = 'cocktails_name_unique') THEN
+    ALTER TABLE public.cocktails ADD CONSTRAINT cocktails_name_unique UNIQUE (name);
+  END IF;
+END $$;
+
 -- ── INGREDIENTS ───────────────────────────────────────────
 -- cost_per_unit is auto-computed as cost_per_bottle / bottle_size_ml
 
