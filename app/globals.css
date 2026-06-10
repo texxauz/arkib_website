@@ -1,0 +1,219 @@
+@import "tailwindcss";
+
+@theme {
+  --color-background: #0A0A0B;
+  --color-background-secondary: #111113;
+  --color-background-tertiary: #1A1A1E;
+  --color-background-card: #141417;
+  --color-border: #2A2A30;
+  --color-border-light: #3A3A42;
+  --color-text-primary: #F0EEF6;
+  --color-text-secondary: #9896A4;
+  --color-text-muted: #5A5865;
+  --color-accent-purple: #8B5CF6;
+  --color-accent-purple-light: #A78BFA;
+  --color-accent-purple-dark: #6D28D9;
+  --color-accent-gold: #D4AF37;
+  --font-sans: 'Inter', system-ui, sans-serif;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: #0A0A0B;
+  color: #F0EEF6;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+/* Scrollbar */
+::-webkit-scrollbar { width: 4px; height: 4px; }
+::-webkit-scrollbar-track { background: #111113; }
+::-webkit-scrollbar-thumb { background: #3A3A42; border-radius: 2px; }
+::-webkit-scrollbar-thumb:hover { background: #8B5CF6; }
+
+/* Input autofill */
+input:-webkit-autofill,
+input:-webkit-autofill:hover,
+input:-webkit-autofill:focus {
+  -webkit-box-shadow: 0 0 0px 1000px #1A1A1E inset;
+  -webkit-text-fill-color: #F0EEF6;
+}
+
+/* Recharts */
+.recharts-text { fill: #9896A4 !important; font-size: 11px !important; }
+.recharts-cartesian-axis-line,
+.recharts-cartesian-axis-tick-line { stroke: #2A2A30 !important; }
+.recharts-cartesian-grid-horizontal line,
+.recharts-cartesian-grid-vertical line { stroke: #1A1A1E !important; }
+.recharts-tooltip-wrapper { outline: none !important; }
+
+/* Reusable component classes using inline styles approach */
+.card {
+  background-color: #141417;
+  border: 1px solid #2A2A30;
+  border-radius: 0.75rem;
+  padding: 1rem;
+}
+
+.card-hover {
+  background-color: #141417;
+  border: 1px solid #2A2A30;
+  border-radius: 0.75rem;
+  padding: 1rem;
+  transition: all 0.2s;
+  cursor: pointer;
+}
+
+.card-hover:hover {
+  border-color: #3A3A42;
+}
+
+.btn-primary {
+  background-color: #8B5CF6;
+  color: white;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-primary:hover {
+  background-color: #6D28D9;
+}
+
+.btn-secondary {
+  background-color: #1A1A1E;
+  color: #F0EEF6;
+  font-weight: 500;
+  padding: 0.5rem 1rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  border: 1px solid #2A2A30;
+  cursor: pointer;
+}
+
+.btn-secondary:hover {
+  background-color: #2A2A30;
+}
+
+.btn-ghost {
+  color: #9896A4;
+  font-weight: 500;
+  padding: 0.5rem 0.75rem;
+  border-radius: 0.5rem;
+  transition: all 0.2s;
+  font-size: 0.875rem;
+  background: transparent;
+  border: none;
+  cursor: pointer;
+}
+
+.btn-ghost:hover {
+  background-color: #1A1A1E;
+  color: #F0EEF6;
+}
+
+.input {
+  background-color: #1A1A1E;
+  border: 1px solid #2A2A30;
+  color: #F0EEF6;
+  border-radius: 0.5rem;
+  padding: 0.5rem 0.75rem;
+  font-size: 0.875rem;
+  width: 100%;
+  transition: all 0.2s;
+  outline: none;
+}
+
+.input:focus {
+  border-color: #8B5CF6;
+  box-shadow: 0 0 0 2px rgba(139, 92, 246, 0.2);
+}
+
+.input::placeholder {
+  color: #5A5865;
+}
+
+.label {
+  display: block;
+  color: #9896A4;
+  font-size: 0.75rem;
+  font-weight: 500;
+  margin-bottom: 0.375rem;
+}
+
+.badge {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+}
+
+.badge-green {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background-color: rgba(16, 185, 129, 0.2);
+  color: #34d399;
+}
+
+.badge-red {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background-color: rgba(244, 63, 94, 0.2);
+  color: #fb7185;
+}
+
+.badge-yellow {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background-color: rgba(245, 158, 11, 0.2);
+  color: #fbbf24;
+}
+
+.badge-purple {
+  display: inline-flex;
+  align-items: center;
+  padding: 0.125rem 0.5rem;
+  border-radius: 9999px;
+  font-size: 0.75rem;
+  font-weight: 500;
+  background-color: rgba(139, 92, 246, 0.2);
+  color: #a78bfa;
+}
+
+.section-title {
+  color: #F0EEF6;
+  font-weight: 600;
+  font-size: 1rem;
+}
+
+.page-title {
+  color: #F0EEF6;
+  font-weight: 700;
+  font-size: 1.25rem;
+}
