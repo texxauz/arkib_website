@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, FileText,
-  Package, GlassWater, Truck, Building, BarChart3, Settings,
+  GlassWater, Building, BarChart3, Settings,
   LogOut, ChevronRight, Menu, X, FlaskConical, Users
 } from 'lucide-react'
 import { useState } from 'react'
@@ -16,10 +16,8 @@ const ALL_NAV_ITEMS = [
   { href: '/sales', label: 'Sales', icon: TrendingUp, key: 'sales' },
   { href: '/expenses', label: 'Expenses', icon: Receipt, key: 'expenses' },
   { href: '/receipts', label: 'Receipts', icon: FileText, key: 'receipts' },
-  { href: '/inventory', label: 'Inventory', icon: Package, key: 'inventory' },
   { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical, key: 'bar-inventory' },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater, key: 'cocktails' },
-  { href: '/suppliers', label: 'Suppliers', icon: Truck, key: 'suppliers' },
   { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
   { href: '/reports', label: 'Reports', icon: BarChart3, key: 'reports' },
   { href: '/settings', label: 'Settings', icon: Settings, key: 'settings' },

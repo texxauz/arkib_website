@@ -13,10 +13,8 @@ const ALL_TABS = [
   { key: 'sales', label: 'Sales' },
   { key: 'expenses', label: 'Expenses' },
   { key: 'receipts', label: 'Receipts' },
-  { key: 'inventory', label: 'Inventory' },
   { key: 'bar-inventory', label: 'Bar Stock' },
   { key: 'cocktails', label: 'Cocktails' },
-  { key: 'suppliers', label: 'Suppliers' },
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
 ]
