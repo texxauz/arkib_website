@@ -15,6 +15,10 @@ type Spirit = {
   id: string; name: string; category: string; bottle_size_ml: number
   full_bottles: number; open_ml: number; used_classics_ml: number
 }
+type Recipe = {
+  id: string; premix_name: string; ingredient_name: string
+  ingredient_type: 'infusion' | 'spirit'; ml_per_serve: number
+}
 type Infusion = {
   id: string; name: string; base_spirit: string | null; notes: string | null
   opening_ml: number; produced_ml: number; used_premix_ml: number; wasted_ml: number
@@ -65,12 +69,13 @@ const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function BarInventoryClient({
-  initialSpirits, initialInfusions, initialPremixes, initialActivities,
+  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes,
 }: {
   initialSpirits: Spirit[]
   initialInfusions: Infusion[]
   initialPremixes: Premix[]
   initialActivities: Activity[]
+  recipes: Recipe[]
 }) {
   const supabase = createClient()
   const { toast } = useToast()
@@ -191,6 +196,35 @@ export function BarInventoryClient({
             .update({ produced_serves: premix.produced_serves + qty })
             .eq('id', premix.id)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: p.produced_serves + qty } : p))
+        }
+
+        // Auto-deduct ingredients based on recipe
+        const premixRecipes = recipes.filter(r => r.premix_name.toLowerCase() === logForm.product.toLowerCase())
+        const deductionSummary: string[] = []
+        for (const r of premixRecipes) {
+          const totalMl = r.ml_per_serve * qty
+          if (r.ingredient_type === 'infusion') {
+            const infusion = infusions.find(i => i.name.toLowerCase() === r.ingredient_name.toLowerCase())
+            if (infusion) {
+              await supabase.from('bar_infusions')
+                .update({ used_premix_ml: infusion.used_premix_ml + totalMl })
+                .eq('id', infusion.id)
+              setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, used_premix_ml: i.used_premix_ml + totalMl } : i))
+              deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
+            }
+          } else if (r.ingredient_type === 'spirit') {
+            const spirit = spirits.find(s => s.name.toLowerCase() === r.ingredient_name.toLowerCase())
+            if (spirit) {
+              await supabase.from('bar_spirits')
+                .update({ used_classics_ml: spirit.used_classics_ml + totalMl })
+                .eq('id', spirit.id)
+              setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
+              deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
+            }
+          }
+        }
+        if (deductionSummary.length > 0) {
+          toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
         }
       } else if (logForm.activity_type === 'Classic') {
         // Update used_classics_ml for each spirit
