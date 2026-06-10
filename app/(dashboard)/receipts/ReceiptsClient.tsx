@@ -6,7 +6,10 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Upload, FileText, ExternalLink, Loader2, User, Clock, Link2, Calendar, Search, Filter, X } from 'lucide-react'
+import {
+  Upload, FileText, ExternalLink, Loader2, User, Clock,
+  Link2, Calendar, Search, Filter, X, Trash2, Sparkles, AlertTriangle
+} from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type Receipt = Database['public']['Tables']['receipts']['Row'] & {
@@ -16,6 +19,17 @@ type Receipt = Database['public']['Tables']['receipts']['Row'] & {
 }
 
 type Expense = { id: string; description: string; amount: number; date: string; category: string }
+
+interface ExtractedData {
+  items: { description: string; amount: number }[]
+  subtotal: number | null
+  tax: number | null
+  service_charge: number | null
+  total: number | null
+  currency: string | null
+  date: string | null
+  vendor: string | null
+}
 
 interface Props {
   initialReceipts: Receipt[]
@@ -37,6 +51,10 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
   const [linkExpenseId, setLinkExpenseId] = useState('')
   const [claimedByInput, setClaimedByInput] = useState('')
   const [linking, setLinking] = useState(false)
+  const [deleting, setDeleting] = useState(false)
+  const [extracting, setExtracting] = useState(false)
+  const [extracted, setExtracted] = useState<ExtractedData | null>(null)
+  const [confirmDelete, setConfirmDelete] = useState(false)
 
   // Filters
   const [searchName, setSearchName] = useState('')
@@ -92,6 +110,13 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
     const updates: any = {}
     if (linkExpenseId) updates.expense_id = linkExpenseId
     updates.claimed_by = claimedByInput || null
+    if (extracted?.total) {
+      updates.ocr_amount = extracted.total
+      updates.ocr_extracted = true
+      updates.ocr_supplier_name = extracted.vendor ?? null
+      updates.ocr_date = extracted.date ?? null
+      updates.ocr_raw_text = JSON.stringify(extracted)
+    }
 
     const { error, data } = await supabase
       .from('receipts')
@@ -102,23 +127,74 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
 
     if (error) { toast(error.message, 'error') }
     else {
-      toast('Receipt updated', 'success')
+      toast('Receipt saved', 'success')
       const updated = data as Receipt
       setReceipts(prev => prev.map(r => r.id === updated.id ? updated : r))
-      setSelected(updated)
+      setSelected(null)
+      setExtracted(null)
     }
     setLinking(false)
   }
 
+  const handleDelete = async () => {
+    if (!selected) return
+    setDeleting(true)
+
+    // Extract storage path from URL
+    const url = selected.file_url
+    const pathMatch = url.match(/receipts\/(.+)$/)
+    if (pathMatch) {
+      await supabase.storage.from('receipts').remove([`receipts/${pathMatch[1]}`])
+    }
+
+    const { error } = await supabase.from('receipts').delete().eq('id', selected.id)
+
+    if (error) { toast(error.message, 'error') }
+    else {
+      toast('Receipt deleted', 'success')
+      setReceipts(prev => prev.filter(r => r.id !== selected.id))
+      setSelected(null)
+      setExtracted(null)
+      setConfirmDelete(false)
+    }
+    setDeleting(false)
+  }
+
+  const handleExtract = async () => {
+    if (!selected) return
+    if (!selected.file_type.startsWith('image/')) {
+      toast('AI extraction only works on image receipts (JPG, PNG)', 'error')
+      return
+    }
+    setExtracting(true)
+    setExtracted(null)
+
+    try {
+      const res = await fetch('/api/receipts/extract', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ imageUrl: selected.file_url, fileType: selected.file_type }),
+      })
+      const json = await res.json()
+      if (json.success) {
+        setExtracted(json.data)
+        toast('Amounts extracted successfully', 'success')
+      } else {
+        toast(json.error ?? 'Extraction failed', 'error')
+      }
+    } catch {
+      toast('Extraction failed', 'error')
+    }
+    setExtracting(false)
+  }
+
   const isImage = (type: string) => type.startsWith('image/')
 
-  // All unique claimed_by names for suggestions
   const knownNames = useMemo(() => {
     const names = new Set(receipts.map(r => r.claimed_by).filter(Boolean) as string[])
     return Array.from(names)
   }, [receipts])
 
-  // Filtered receipts
   const filtered = useMemo(() => {
     return receipts.filter(r => {
       if (searchName) {
@@ -126,12 +202,10 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
         if (!name.includes(searchName.toLowerCase())) return false
       }
       if (filterDateFrom) {
-        const uploaded = r.created_at.split('T')[0]
-        if (uploaded < filterDateFrom) return false
+        if (r.created_at.split('T')[0] < filterDateFrom) return false
       }
       if (filterDateTo) {
-        const uploaded = r.created_at.split('T')[0]
-        if (uploaded > filterDateTo) return false
+        if (r.created_at.split('T')[0] > filterDateTo) return false
       }
       return true
     })
@@ -175,47 +249,28 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
           {hasFilters && (
             <button
               onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }}
-              className="ml-auto flex items-center gap-1 text-[#8B5CF6] hover:text-[#A78BFA]"
+              className="ml-auto flex items-center gap-1 text-[#8B5CF6] hover:text-[#A78BFA] text-xs"
             >
               <X size={11} /> Clear
             </button>
           )}
         </div>
         <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-          {/* Name filter */}
           <div className="relative">
             <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
-            <input
-              type="text"
-              value={searchName}
-              onChange={e => setSearchName(e.target.value)}
-              placeholder="Filter by name..."
-              className="input pl-8"
-              list="known-names"
-            />
+            <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
+              placeholder="Filter by name..." className="input pl-8" list="known-names" />
             <datalist id="known-names">
               {knownNames.map(n => <option key={n} value={n} />)}
             </datalist>
           </div>
-          {/* Date from */}
           <div className="relative">
             <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
-            <input
-              type="date"
-              value={filterDateFrom}
-              onChange={e => setFilterDateFrom(e.target.value)}
-              className="input pl-8"
-            />
+            <input type="date" value={filterDateFrom} onChange={e => setFilterDateFrom(e.target.value)} className="input pl-8" />
           </div>
-          {/* Date to */}
           <div className="relative">
             <Calendar size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
-            <input
-              type="date"
-              value={filterDateTo}
-              onChange={e => setFilterDateTo(e.target.value)}
-              className="input pl-8"
-            />
+            <input type="date" value={filterDateTo} onChange={e => setFilterDateTo(e.target.value)} className="input pl-8" />
           </div>
         </div>
         {hasFilters && (
@@ -226,16 +281,17 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
       {receipts.length === 0 ? (
         <EmptyState icon={<FileText size={40} />} title="No receipts uploaded" description="Upload your first receipt above" />
       ) : filtered.length === 0 ? (
-        <EmptyState icon={<Search size={40} />} title="No receipts match your filters" action={<button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }} className="btn-secondary">Clear Filters</button>} />
+        <EmptyState icon={<Search size={40} />} title="No receipts match your filters"
+          action={<button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo('') }} className="btn-secondary">Clear Filters</button>} />
       ) : (
         <div className="space-y-6">
           {unlinked.length > 0 && (
             <div>
               <p className="text-[#5A5865] text-xs font-medium uppercase tracking-wider mb-3">Unlinked ({unlinked.length})</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {unlinked.map(receipt => (
-                  <ReceiptCard key={receipt.id} receipt={receipt} isImage={isImage}
-                    onClick={() => { setSelected(receipt); setLinkExpenseId(receipt.expense_id ?? ''); setClaimedByInput(receipt.claimed_by ?? '') }} />
+                {unlinked.map(r => (
+                  <ReceiptCard key={r.id} receipt={r} isImage={isImage}
+                    onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setExtracted(null); setConfirmDelete(false) }} />
                 ))}
               </div>
             </div>
@@ -244,9 +300,9 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
             <div>
               <p className="text-[#5A5865] text-xs font-medium uppercase tracking-wider mb-3">Linked to Expenses ({linked.length})</p>
               <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-                {linked.map(receipt => (
-                  <ReceiptCard key={receipt.id} receipt={receipt} isImage={isImage}
-                    onClick={() => { setSelected(receipt); setLinkExpenseId(receipt.expense_id ?? ''); setClaimedByInput(receipt.claimed_by ?? '') }} />
+                {linked.map(r => (
+                  <ReceiptCard key={r.id} receipt={r} isImage={isImage}
+                    onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setExtracted(null); setConfirmDelete(false) }} />
                 ))}
               </div>
             </div>
@@ -256,8 +312,9 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
 
       {/* Detail modal */}
       {selected && (
-        <Modal isOpen={!!selected} onClose={() => setSelected(null)} title="Receipt Details" size="md">
+        <Modal isOpen={!!selected} onClose={() => { setSelected(null); setExtracted(null); setConfirmDelete(false) }} title="Receipt Details" size="md">
           <div className="space-y-4">
+            {/* Preview */}
             <div className="aspect-video rounded-xl overflow-hidden bg-[#1A1A1E] flex items-center justify-center">
               {isImage(selected.file_type) ? (
                 <img src={selected.file_url} alt={selected.file_name} className="w-full h-full object-contain" />
@@ -269,7 +326,8 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               )}
             </div>
 
-            <div className="grid grid-cols-2 gap-3 text-sm">
+            {/* Meta */}
+            <div className="grid grid-cols-2 gap-3">
               <div className="bg-[#1A1A1E] rounded-lg p-3">
                 <p className="text-[#5A5865] text-xs mb-1 flex items-center gap-1"><Clock size={10} /> Uploaded</p>
                 <p className="text-[#F0EEF6] text-xs">{formatDateTime(selected.created_at)}</p>
@@ -280,23 +338,74 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               </div>
             </div>
 
+            {/* AI Extract button */}
+            {isImage(selected.file_type) && (
+              <button
+                onClick={handleExtract}
+                disabled={extracting}
+                className="w-full flex items-center justify-center gap-2 py-2.5 px-4 rounded-xl border border-[#8B5CF6]/40 bg-[#8B5CF6]/10 text-[#A78BFA] text-sm font-medium hover:bg-[#8B5CF6]/20 transition-all disabled:opacity-50"
+              >
+                {extracting ? <Loader2 size={15} className="animate-spin" /> : <Sparkles size={15} />}
+                {extracting ? 'Extracting amounts with AI...' : 'Extract Amounts with AI'}
+              </button>
+            )}
+
+            {/* AI Results */}
+            {extracted && (
+              <div className="bg-[#0D0D0F] border border-[#8B5CF6]/30 rounded-xl p-4 space-y-2">
+                <div className="flex items-center gap-2 mb-3">
+                  <Sparkles size={13} className="text-[#8B5CF6]" />
+                  <p className="text-[#A78BFA] text-xs font-medium uppercase tracking-wider">AI Extracted</p>
+                  {extracted.vendor && <span className="text-[#5A5865] text-xs ml-auto">{extracted.vendor}</span>}
+                </div>
+                {extracted.items?.length > 0 && (
+                  <div className="space-y-1 max-h-40 overflow-y-auto">
+                    {extracted.items.map((item, i) => (
+                      <div key={i} className="flex items-center justify-between py-1 border-b border-[#1A1A1E] last:border-0">
+                        <span className="text-[#9896A4] text-xs truncate flex-1 mr-2">{item.description}</span>
+                        <span className="text-[#F0EEF6] text-xs font-medium whitespace-nowrap">
+                          {extracted.currency ?? 'RM'} {item.amount?.toFixed(2)}
+                        </span>
+                      </div>
+                    ))}
+                  </div>
+                )}
+                <div className="pt-2 space-y-1">
+                  {extracted.tax != null && extracted.tax > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#5A5865]">Tax</span>
+                      <span className="text-[#9896A4]">{extracted.currency ?? 'RM'} {extracted.tax.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {extracted.service_charge != null && extracted.service_charge > 0 && (
+                    <div className="flex justify-between text-xs">
+                      <span className="text-[#5A5865]">Service Charge</span>
+                      <span className="text-[#9896A4]">{extracted.currency ?? 'RM'} {extracted.service_charge.toFixed(2)}</span>
+                    </div>
+                  )}
+                  {extracted.total != null && (
+                    <div className="flex justify-between items-center pt-1 border-t border-[#2A2A30]">
+                      <span className="text-[#F0EEF6] font-semibold text-sm">Total</span>
+                      <span className="text-emerald-400 font-bold text-base">
+                        {extracted.currency ?? 'RM'} {extracted.total.toFixed(2)}
+                      </span>
+                    </div>
+                  )}
+                </div>
+              </div>
+            )}
+
             {/* Belongs to */}
             <div>
               <label className="label">Belongs to (claimant)</label>
-              <input
-                type="text"
-                value={claimedByInput}
-                onChange={e => setClaimedByInput(e.target.value)}
-                className="input"
-                placeholder="e.g. Rajiv, Ahmad, Partner name..."
-                list="modal-known-names"
-              />
+              <input type="text" value={claimedByInput} onChange={e => setClaimedByInput(e.target.value)}
+                className="input" placeholder="e.g. Rajiv, Ahmad, Partner name..." list="modal-known-names" />
               <datalist id="modal-known-names">
                 {knownNames.map(n => <option key={n} value={n} />)}
               </datalist>
             </div>
 
-            {/* Linked expense info */}
+            {/* Linked expense */}
             {selected.expenses && (
               <div className="bg-[#1A1A1E] rounded-xl p-3 border border-[#2A2A30]">
                 <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-2">Linked Expense</p>
@@ -322,7 +431,7 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
             </div>
 
             <div className="flex gap-3 pt-1">
-              <button onClick={() => setSelected(null)} className="btn-secondary flex-1">Cancel</button>
+              <button onClick={() => { setSelected(null); setExtracted(null); setConfirmDelete(false) }} className="btn-secondary flex-1">Cancel</button>
               <button onClick={handleSaveDetails} disabled={linking} className="btn-primary flex-1 disabled:opacity-50 flex items-center justify-center gap-2">
                 <Link2 size={13} /> {linking ? 'Saving...' : 'Save'}
               </button>
@@ -332,6 +441,29 @@ export function ReceiptsClient({ initialReceipts, expenses, currentUserId }: Pro
               className="btn-secondary w-full flex items-center justify-center gap-2 text-sm">
               <ExternalLink size={14} /> Open Full Size
             </a>
+
+            {/* Delete */}
+            {!confirmDelete ? (
+              <button onClick={() => setConfirmDelete(true)}
+                className="w-full flex items-center justify-center gap-2 text-rose-400 hover:text-rose-300 text-xs py-2 hover:bg-rose-500/10 rounded-lg transition-all">
+                <Trash2 size={13} /> Delete Receipt
+              </button>
+            ) : (
+              <div className="bg-rose-500/10 border border-rose-500/20 rounded-xl p-4">
+                <div className="flex items-center gap-2 mb-3">
+                  <AlertTriangle size={14} className="text-rose-400" />
+                  <p className="text-rose-400 text-sm font-medium">Delete this receipt?</p>
+                </div>
+                <p className="text-[#9896A4] text-xs mb-3">This will permanently remove the file and cannot be undone.</p>
+                <div className="flex gap-2">
+                  <button onClick={() => setConfirmDelete(false)} className="btn-secondary flex-1 text-xs">Cancel</button>
+                  <button onClick={handleDelete} disabled={deleting}
+                    className="flex-1 bg-rose-600 hover:bg-rose-700 text-white text-xs font-medium py-2 px-4 rounded-lg transition-all disabled:opacity-50 flex items-center justify-center gap-1.5">
+                    <Trash2 size={12} /> {deleting ? 'Deleting...' : 'Yes, Delete'}
+                  </button>
+                </div>
+              </div>
+            )}
           </div>
         </Modal>
       )}
@@ -356,6 +488,11 @@ function ReceiptCard({ receipt, isImage, onClick }: { receipt: Receipt; isImage:
             <Link2 size={10} className="text-white" />
           </div>
         )}
+        {(receipt as any).ocr_extracted && (
+          <div className="absolute top-1.5 left-1.5 bg-[#8B5CF6]/80 rounded-full p-0.5">
+            <Sparkles size={10} className="text-white" />
+          </div>
+        )}
       </div>
       <p className="text-[#F0EEF6] text-xs font-medium truncate">{receipt.file_name}</p>
       <div className="flex items-center gap-1 mt-1">
@@ -373,8 +510,11 @@ function ReceiptCard({ receipt, isImage, onClick }: { receipt: Receipt; isImage:
           <p className="text-[#5A5865] text-[10px] truncate">{receipt.users?.full_name ?? 'Unknown'}</p>
         </div>
       )}
+      {(receipt as any).ocr_amount && (
+        <p className="text-emerald-400 text-[10px] font-bold mt-1">RM {Number((receipt as any).ocr_amount).toFixed(2)}</p>
+      )}
       {receipt.expenses && (
-        <p className="text-emerald-400 text-[10px] mt-1 truncate">{receipt.expenses.description}</p>
+        <p className="text-[#9896A4] text-[10px] mt-0.5 truncate">{receipt.expenses.description}</p>
       )}
     </div>
   )
