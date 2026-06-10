@@ -16,7 +16,7 @@ const navItems = [
   { href: '/sales', label: 'Sales', icon: TrendingUp },
   { href: '/expenses', label: 'Expenses', icon: Receipt },
   { href: '/receipts', label: 'Receipts', icon: FileText },
-  { href: '/salary', label: 'Salary', icon: DollarSign },
+
   { href: '/inventory', label: 'Inventory', icon: Package },
   { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater },
