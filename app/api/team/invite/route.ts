@@ -17,9 +17,13 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {
+    return NextResponse.json({ error: 'Server not configured: missing SUPABASE_SERVICE_ROLE_KEY' }, { status: 500 })
+  }
+
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
-    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY,
   )
 
   const { data: created, error: createError } = await adminClient.auth.admin.createUser({
