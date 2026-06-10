@@ -3,30 +3,44 @@ import Link from 'next/link'
 import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
-  LayoutDashboard, TrendingUp, Receipt, FileText, Users, DollarSign,
-  Package, GlassWater, Truck, Building, PieChart, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X, FlaskConical
+  LayoutDashboard, TrendingUp, Receipt, FileText,
+  Package, GlassWater, Truck, Building, BarChart3, Settings,
+  LogOut, ChevronRight, Menu, X, FlaskConical, Users
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
 import { useRouter } from 'next/navigation'
 
-const navItems = [
-  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard },
-  { href: '/sales', label: 'Sales', icon: TrendingUp },
-  { href: '/expenses', label: 'Expenses', icon: Receipt },
-  { href: '/receipts', label: 'Receipts', icon: FileText },
-
-  { href: '/inventory', label: 'Inventory', icon: Package },
-  { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical },
-  { href: '/cocktails', label: 'Cocktails', icon: GlassWater },
-  { href: '/suppliers', label: 'Suppliers', icon: Truck },
-  { href: '/rent', label: 'Rent & Fixed', icon: Building },
-  { href: '/reports', label: 'Reports', icon: BarChart3 },
-  { href: '/settings', label: 'Settings', icon: Settings },
+const ALL_NAV_ITEMS = [
+  { href: '/dashboard', label: 'Dashboard', icon: LayoutDashboard, key: 'dashboard' },
+  { href: '/sales', label: 'Sales', icon: TrendingUp, key: 'sales' },
+  { href: '/expenses', label: 'Expenses', icon: Receipt, key: 'expenses' },
+  { href: '/receipts', label: 'Receipts', icon: FileText, key: 'receipts' },
+  { href: '/inventory', label: 'Inventory', icon: Package, key: 'inventory' },
+  { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical, key: 'bar-inventory' },
+  { href: '/cocktails', label: 'Cocktails', icon: GlassWater, key: 'cocktails' },
+  { href: '/suppliers', label: 'Suppliers', icon: Truck, key: 'suppliers' },
+  { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
+  { href: '/reports', label: 'Reports', icon: BarChart3, key: 'reports' },
+  { href: '/settings', label: 'Settings', icon: Settings, key: 'settings' },
+  { href: '/settings/team', label: 'Team Access', icon: Users, key: 'team' },
 ]
 
-export function Sidebar() {
+function getVisibleItems(userRole: string, tabPermissions: Record<string, string> | null) {
+  const isAdmin = userRole === 'owner' || userRole === 'manager'
+  return ALL_NAV_ITEMS.filter(item => {
+    if (item.key === 'team') return isAdmin
+    if (item.key === 'settings') return isAdmin
+    if (isAdmin || !tabPermissions) return true
+    return (tabPermissions[item.key] ?? 'none') !== 'none'
+  })
+}
+
+export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
+  userRole?: string
+  tabPermissions?: Record<string, string> | null
+}) {
+  const navItems = getVisibleItems(userRole, tabPermissions)
   const pathname = usePathname()
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
@@ -36,6 +50,11 @@ export function Sidebar() {
     await supabase.auth.signOut()
     router.push('/login')
   }
+
+  // Mobile bottom nav: pick first 4 visible items + settings (if admin)
+  const mobileItems = navItems.slice(0, 4).concat(
+    navItems.find(i => i.key === 'settings') ?? navItems[navItems.length - 1]
+  ).slice(0, 5)
 
   const SidebarContent = () => (
     <div className="flex flex-col h-full">
@@ -55,8 +74,8 @@ export function Sidebar() {
       {/* Navigation */}
       <nav className="flex-1 overflow-y-auto py-3 px-2">
         <ul className="space-y-0.5">
-          {navItems.map(({ href, label, icon: Icon }) => {
-            const isActive = pathname === href || pathname.startsWith(href + '/')
+          {navItems.map(({ href, label, icon: Icon, key }) => {
+            const isActive = pathname === href || (href !== '/settings' && pathname.startsWith(href + '/'))
             return (
               <li key={href}>
                 <Link
@@ -66,10 +85,11 @@ export function Sidebar() {
                     'flex items-center gap-3 px-3 py-2.5 rounded-lg text-sm font-medium transition-all duration-150',
                     isActive
                       ? 'bg-[#8B5CF6]/15 text-[#A78BFA] border border-[#8B5CF6]/20'
-                      : 'text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E]'
+                      : 'text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E]',
+                    key === 'team' ? 'ml-2 text-xs' : ''
                   )}
                 >
-                  <Icon size={16} className={isActive ? 'text-[#8B5CF6]' : ''} />
+                  <Icon size={key === 'team' ? 14 : 16} className={isActive ? 'text-[#8B5CF6]' : ''} />
                   <span>{label}</span>
                   {isActive && <ChevronRight size={12} className="ml-auto text-[#8B5CF6]" />}
                 </Link>
@@ -127,7 +147,7 @@ export function Sidebar() {
 
       {/* Mobile bottom nav */}
       <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0D0D0F] border-t border-[#2A2A30] flex items-center justify-around px-2 py-2">
-        {[navItems[0], navItems[1], navItems[2], navItems[3], navItems[9]].map(({ href, label, icon: Icon }) => {
+        {mobileItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href
           return (
             <Link key={href} href={href} className="flex flex-col items-center gap-1 px-3 py-1">
