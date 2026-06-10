@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
-import { Users, Plus, Mail, Shield, Check, X, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type UserProfile = Database['public']['Tables']['users']['Row'] & { tab_permissions?: Record<string, string> | null }
@@ -43,7 +43,7 @@ const PERM_COLOR: Record<string, string> = {
   none: 'bg-[#1A1A1E] text-[#5A5865] border-[#2A2A30]',
 }
 
-const emptyInvite = { email: '', full_name: '', role: 'staff' as string }
+const emptyInvite = { email: '', full_name: '', password: '', role: 'staff' as string }
 
 export function TeamClient({ members, currentUserId }: { members: UserProfile[], currentUserId: string }) {
   const [list, setList] = useState<UserProfile[]>(members)
@@ -82,8 +82,8 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     })
     const data = await res.json()
     setLoading(false)
-    if (!res.ok) { toast(data.error ?? 'Failed to invite', 'error'); return }
-    toast(`Invite sent to ${inviteForm.email}`, 'success')
+    if (!res.ok) { toast(data.error ?? 'Failed to create account', 'error'); return }
+    toast(`Account created for ${inviteForm.full_name}`, 'success')
     setInviteOpen(false)
     window.location.reload()
   }
@@ -137,7 +137,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
         subtitle={`${list.length} member${list.length !== 1 ? 's' : ''} · Manage who can see and edit each section`}
         actions={
           <button onClick={openInvite} className="btn-primary flex items-center gap-2">
-            <Plus size={14} /> Invite Member
+            <Plus size={14} /> Add Member
           </button>
         }
       />
@@ -201,7 +201,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       </div>
 
       {/* Invite Modal */}
-      <Modal isOpen={inviteOpen} onClose={() => setInviteOpen(false)} title="Invite Team Member" size="lg">
+      <Modal isOpen={inviteOpen} onClose={() => setInviteOpen(false)} title="Create Team Account" size="lg">
         <form onSubmit={handleInvite} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
@@ -211,6 +211,10 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             <div>
               <label className="label">Email</label>
               <input className="input" type="email" value={inviteForm.email} onChange={e => setInviteForm(p => ({ ...p, email: e.target.value }))} required placeholder="ali@email.com" />
+            </div>
+            <div>
+              <label className="label">Password</label>
+              <input className="input" type="password" value={inviteForm.password} onChange={e => setInviteForm(p => ({ ...p, password: e.target.value }))} required placeholder="Min 6 characters" minLength={6} />
             </div>
             <div>
               <label className="label">Role</label>
@@ -229,7 +233,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setInviteOpen(false)} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={loading} className="btn-primary flex-1 flex items-center justify-center gap-2 disabled:opacity-50">
-              <Mail size={14} /> {loading ? 'Sending...' : 'Send Invite'}
+              <UserPlus size={14} /> {loading ? 'Creating...' : 'Create Account'}
             </button>
           </div>
         </form>

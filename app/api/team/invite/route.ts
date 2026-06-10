@@ -12,8 +12,8 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { email, full_name, role, tab_permissions } = await request.json()
-  if (!email || !full_name || !role) {
+  const { email, full_name, password, role, tab_permissions } = await request.json()
+  if (!email || !full_name || !password || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
@@ -22,16 +22,19 @@ export async function POST(request: Request) {
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
-  const { data: invited, error: inviteError } = await adminClient.auth.admin.inviteUserByEmail(email, {
-    data: { full_name },
+  const { data: created, error: createError } = await adminClient.auth.admin.createUser({
+    email,
+    password,
+    email_confirm: true,
+    user_metadata: { full_name },
   })
 
-  if (inviteError) {
-    return NextResponse.json({ error: inviteError.message }, { status: 400 })
+  if (createError) {
+    return NextResponse.json({ error: createError.message }, { status: 400 })
   }
 
   const { error: insertError } = await adminClient.from('users').upsert({
-    id: invited.user.id,
+    id: created.user.id,
     email,
     full_name,
     role,
