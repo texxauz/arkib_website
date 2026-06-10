@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, FileText, Users, DollarSign,
   Package, GlassWater, Truck, Building, PieChart, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X
+  LogOut, ChevronRight, Menu, X, FlaskConical
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -19,6 +19,7 @@ const navItems = [
   { href: '/staff', label: 'Staff', icon: Users },
   { href: '/salary', label: 'Salary', icon: DollarSign },
   { href: '/inventory', label: 'Inventory', icon: Package },
+  { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater },
   { href: '/suppliers', label: 'Suppliers', icon: Truck },
   { href: '/rent', label: 'Rent & Fixed', icon: Building },
