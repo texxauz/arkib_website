@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, EXPENSE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Receipt, Filter } from 'lucide-react'
+import { Plus, Receipt, Filter, Trash2 } from 'lucide-react'
 import type { Database, ExpenseCategory, PaymentMethod } from '@/types/database'
 
 type Expense = Database['public']['Tables']['expenses']['Row']
@@ -49,6 +49,8 @@ export function ExpensesClient({
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [deleteId, setDeleteId] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -110,6 +112,24 @@ export function ExpensesClient({
       setModalOpen(false)
     }
     setLoading(false)
+  }
+
+  const handleDelete = async () => {
+    if (!deleteId) return
+    setDeleteLoading(true)
+    const { error } = await supabase
+      .from('expenses')
+      .update({ deleted_at: new Date().toISOString() })
+      .eq('id', deleteId)
+    if (error) {
+      toast(error.message, 'error')
+    } else {
+      toast('Expense deleted', 'success')
+      setExpenses(prev => prev.filter(e => e.id !== deleteId))
+      setDeleteId(null)
+      setModalOpen(false)
+    }
+    setDeleteLoading(false)
   }
 
   const f = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
@@ -178,13 +198,12 @@ export function ExpensesClient({
           </div>
           <div className="space-y-2">
             {filtered.map(expense => (
-              <button
-                key={expense.id}
-                onClick={() => openEdit(expense)}
-                className="card-hover w-full flex items-center justify-between gap-4 text-left"
-              >
-                <div className="flex items-center gap-3 min-w-0">
-                  <span className={`badge text-[10px] ${CATEGORY_COLORS[expense.category] ?? CATEGORY_COLORS.others}`}>
+              <div key={expense.id} className="card-hover flex items-center justify-between gap-4">
+                <button
+                  onClick={() => openEdit(expense)}
+                  className="flex items-center gap-3 min-w-0 flex-1 text-left"
+                >
+                  <span className={`badge text-[10px] flex-shrink-0 ${CATEGORY_COLORS[expense.category] ?? CATEGORY_COLORS.others}`}>
                     {EXPENSE_CATEGORY_LABELS[expense.category]}
                   </span>
                   <div className="min-w-0">
@@ -193,9 +212,17 @@ export function ExpensesClient({
                       {formatDate(expense.date)} · {expense.supplier_name ?? 'No supplier'} · {PAYMENT_METHOD_LABELS[expense.payment_method]}
                     </p>
                   </div>
+                </button>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <p className="text-[#F0EEF6] font-bold">{formatCurrency(expense.amount)}</p>
+                  <button
+                    onClick={() => setDeleteId(expense.id)}
+                    className="btn-ghost p-2 text-rose-400 hover:bg-rose-500/10"
+                  >
+                    <Trash2 size={14} />
+                  </button>
                 </div>
-                <p className="text-[#F0EEF6] font-bold flex-shrink-0">{formatCurrency(expense.amount)}</p>
-              </button>
+              </div>
             ))}
           </div>
         </>
@@ -259,11 +286,39 @@ export function ExpensesClient({
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            {editId && (
+              <button
+                type="button"
+                onClick={() => { setDeleteId(editId); setModalOpen(false) }}
+                className="px-4 py-2 rounded-lg text-sm font-medium bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 transition-all"
+              >
+                <Trash2 size={14} />
+              </button>
+            )}
             <button type="submit" disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
               {loading ? 'Saving...' : (editId ? 'Update' : 'Add Expense')}
             </button>
           </div>
         </form>
+      </Modal>
+
+      {/* Delete confirm modal */}
+      <Modal isOpen={!!deleteId} onClose={() => setDeleteId(null)} title="Delete Expense" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">
+            Are you sure you want to delete this expense? This action cannot be undone.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setDeleteId(null)} className="btn-secondary flex-1">Cancel</button>
+            <button
+              onClick={handleDelete}
+              disabled={deleteLoading}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 disabled:opacity-50 transition-all"
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
       </Modal>
     </div>
   )

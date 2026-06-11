@@ -6,13 +6,14 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp } from 'lucide-react'
+import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp, Moon, Trash2 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type DailySale = Database['public']['Tables']['daily_sales']['Row']
 
 interface SalesClientProps {
   initialSales: DailySale[]
+  initialEonSales: any[]
 }
 
 const emptyForm = {
@@ -30,14 +31,72 @@ const emptyForm = {
   notes: '',
 }
 
-export function SalesClient({ initialSales }: SalesClientProps) {
+export function SalesClient({ initialSales, initialEonSales }: SalesClientProps) {
   const [sales, setSales] = useState<DailySale[]>(initialSales)
+  const [eonSales, setEonSales] = useState<any[]>(initialEonSales)
+  const [activeTab, setActiveTab] = useState<'daily' | 'eon'>('daily')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
+  const [deleteConfirmDate, setDeleteConfirmDate] = useState<string | null>(null)
+  const [deleteLoading, setDeleteLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
+
+  // Group EON sales by date
+  const eonByDate = eonSales.reduce<Record<string, any[]>>((acc, row) => {
+    acc[row.date] = acc[row.date] ?? []
+    acc[row.date].push(row)
+    return acc
+  }, {})
+  const eonDates = Object.keys(eonByDate).sort((a, b) => b.localeCompare(a))
+
+  const handleDeleteEON = async (date: string) => {
+    setDeleteLoading(true)
+    const rows = eonByDate[date]
+    const totalCocktailRevenue = rows.reduce((s: number, r: any) => s + (r.total_revenue ?? 0), 0)
+
+    // Delete cocktail_sales rows for this date
+    const { error: delErr } = await supabase.from('cocktail_sales').delete().eq('date', date)
+    if (delErr) {
+      toast(delErr.message, 'error')
+      setDeleteLoading(false)
+      return
+    }
+
+    // Find the matching daily_sales row
+    const dsRow = sales.find(s => s.date === date)
+    if (dsRow) {
+      const newCocktails = (dsRow.cocktails_revenue ?? 0) - totalCocktailRevenue
+      const newTotal = (dsRow.total_revenue ?? 0) - totalCocktailRevenue
+      const newCollected = (dsRow.total_collected ?? 0) - totalCocktailRevenue
+
+      if (newTotal <= 0.005) {
+        // Row was EON-only — delete it entirely
+        await supabase.from('daily_sales').delete().eq('id', dsRow.id)
+        setSales(prev => prev.filter(s => s.id !== dsRow.id))
+      } else {
+        // Subtract EON contribution
+        const { data: updated } = await supabase
+          .from('daily_sales')
+          .update({
+            cocktails_revenue: Math.max(0, newCocktails),
+            total_revenue: Math.max(0, newTotal),
+            total_collected: Math.max(0, newCollected),
+          })
+          .eq('id', dsRow.id)
+          .select()
+          .single()
+        if (updated) setSales(prev => prev.map(s => s.id === dsRow.id ? updated : s))
+      }
+    }
+
+    setEonSales(prev => prev.filter(r => r.date !== date))
+    setDeleteConfirmDate(null)
+    toast(`EON for ${formatDate(date)} deleted`, 'success')
+    setDeleteLoading(false)
+  }
 
   const totalRevenue = [form.cocktails_revenue, form.beer_revenue, form.wine_revenue, form.food_revenue, form.others_revenue]
     .map(v => parseFloat(v) || 0).reduce((a, b) => a + b, 0)
@@ -120,61 +179,166 @@ export function SalesClient({ initialSales }: SalesClientProps) {
   return (
     <div className="space-y-6">
       <TopBar
-        title="Daily Sales"
-        subtitle="Enter nightly closing figures"
+        title="Sales"
+        subtitle="Daily revenue and End of Night submissions"
         actions={
-          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus size={14} /> New Entry
-          </button>
+          activeTab === 'daily' && (
+            <button onClick={openCreate} className="btn-primary flex items-center gap-2">
+              <Plus size={14} /> New Entry
+            </button>
+          )
         }
       />
 
-      {sales.length === 0 ? (
-        <EmptyState
-          icon={<TrendingUp size={40} />}
-          title="No sales entries yet"
-          description="Start tracking your daily revenue by adding your first entry"
-          action={<button onClick={openCreate} className="btn-primary">Add Today's Sales</button>}
-        />
-      ) : (
-        <div className="space-y-2">
-          {sales.map(sale => (
-            <div key={sale.id} className="card-hover flex items-center justify-between gap-4">
-              <div className="flex items-center gap-3 min-w-0">
-                <div className={`w-2 h-8 rounded-full flex-shrink-0 ${sale.is_balanced ? 'bg-emerald-400' : 'bg-amber-400'}`} />
-                <div className="min-w-0">
-                  <div className="flex items-center gap-2">
-                    <p className="text-[#F0EEF6] font-medium text-sm">{formatDate(sale.date)}</p>
-                    {sale.is_balanced
-                      ? <span className="badge-green text-[10px]"><CheckCircle2 size={10} className="mr-0.5" />Balanced</span>
-                      : <span className="badge-yellow text-[10px]"><AlertTriangle size={10} className="mr-0.5" />Mismatch</span>}
+      {/* Tab switcher */}
+      <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit">
+        {([
+          { key: 'daily', label: 'Daily Sales', icon: TrendingUp },
+          { key: 'eon', label: 'EON History', icon: Moon },
+        ] as const).map(({ key, label, icon: Icon }) => (
+          <button
+            key={key}
+            onClick={() => setActiveTab(key)}
+            className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${
+              activeTab === key
+                ? 'bg-[#8B5CF6]/20 text-[#A78BFA] border border-[#8B5CF6]/30'
+                : 'text-[#9896A4] hover:text-[#F0EEF6]'
+            }`}
+          >
+            <Icon size={14} />
+            {label}
+            {key === 'eon' && eonDates.length > 0 && (
+              <span className="bg-[#8B5CF6]/30 text-[#A78BFA] text-[10px] px-1.5 py-0.5 rounded-full">
+                {eonDates.length}
+              </span>
+            )}
+          </button>
+        ))}
+      </div>
+
+      {activeTab === 'daily' && (
+        <>
+          {sales.length === 0 ? (
+            <EmptyState
+              icon={<TrendingUp size={40} />}
+              title="No sales entries yet"
+              description="Start tracking your daily revenue by adding your first entry"
+              action={<button onClick={openCreate} className="btn-primary">Add Today's Sales</button>}
+            />
+          ) : (
+            <div className="space-y-2">
+              {sales.map(sale => (
+                <div key={sale.id} className="card-hover flex items-center justify-between gap-4">
+                  <div className="flex items-center gap-3 min-w-0">
+                    <div className={`w-2 h-8 rounded-full flex-shrink-0 ${sale.is_balanced ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    <div className="min-w-0">
+                      <div className="flex items-center gap-2">
+                        <p className="text-[#F0EEF6] font-medium text-sm">{formatDate(sale.date)}</p>
+                        {sale.is_balanced
+                          ? <span className="badge-green text-[10px]"><CheckCircle2 size={10} className="mr-0.5" />Balanced</span>
+                          : <span className="badge-yellow text-[10px]"><AlertTriangle size={10} className="mr-0.5" />Mismatch</span>}
+                      </div>
+                      <p className="text-[#9896A4] text-xs mt-0.5">
+                        {sale.transaction_count} transactions · {[
+                          sale.cocktails_revenue > 0 && `Cocktails ${formatCurrency(sale.cocktails_revenue)}`,
+                          sale.beer_revenue > 0 && `Beer ${formatCurrency(sale.beer_revenue)}`,
+                          sale.food_revenue > 0 && `Food ${formatCurrency(sale.food_revenue)}`,
+                        ].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
                   </div>
-                  <p className="text-[#9896A4] text-xs mt-0.5">
-                    {sale.transaction_count} transactions · {[
-                      sale.cocktails_revenue > 0 && `Cocktails ${formatCurrency(sale.cocktails_revenue)}`,
-                      sale.beer_revenue > 0 && `Beer ${formatCurrency(sale.beer_revenue)}`,
-                      sale.food_revenue > 0 && `Food ${formatCurrency(sale.food_revenue)}`,
-                    ].filter(Boolean).join(' · ')}
-                  </p>
+                  <div className="flex items-center gap-3 flex-shrink-0">
+                    <div className="text-right">
+                      <p className="text-[#F0EEF6] font-bold">{formatCurrency(sale.total_revenue)}</p>
+                      {!sale.is_balanced && (
+                        <p className="text-amber-400 text-xs">
+                          Diff: {formatCurrency(Math.abs(sale.total_revenue - sale.total_collected))}
+                        </p>
+                      )}
+                    </div>
+                    <button onClick={() => openEdit(sale)} className="btn-ghost p-2">
+                      <Edit2 size={14} />
+                    </button>
+                  </div>
                 </div>
-              </div>
-              <div className="flex items-center gap-3 flex-shrink-0">
-                <div className="text-right">
-                  <p className="text-[#F0EEF6] font-bold">{formatCurrency(sale.total_revenue)}</p>
-                  {!sale.is_balanced && (
-                    <p className="text-amber-400 text-xs">
-                      Diff: {formatCurrency(Math.abs(sale.total_revenue - sale.total_collected))}
-                    </p>
-                  )}
-                </div>
-                <button onClick={() => openEdit(sale)} className="btn-ghost p-2">
-                  <Edit2 size={14} />
-                </button>
-              </div>
+              ))}
             </div>
-          ))}
-        </div>
+          )}
+        </>
       )}
+
+      {activeTab === 'eon' && (
+        <>
+          {eonDates.length === 0 ? (
+            <EmptyState
+              icon={<Moon size={40} />}
+              title="No EON submissions yet"
+              description="End of Night cocktail sales submissions will appear here"
+            />
+          ) : (
+            <div className="space-y-3">
+              {eonDates.map(date => {
+                const rows = eonByDate[date]
+                const total = rows.reduce((s: number, r: any) => s + (r.total_revenue ?? 0), 0)
+                return (
+                  <div key={date} className="bg-[#111113] border border-[#2A2A30] rounded-xl p-4">
+                    <div className="flex items-start justify-between gap-4">
+                      <div className="flex-1 min-w-0">
+                        <div className="flex items-center gap-2 mb-2">
+                          <Moon size={14} className="text-[#8B5CF6]" />
+                          <p className="text-[#F0EEF6] font-medium text-sm">{formatDate(date)}</p>
+                          <span className="text-[#5A5865] text-xs">· {rows.length} cocktail{rows.length !== 1 ? 's' : ''}</span>
+                        </div>
+                        <div className="flex flex-wrap gap-1.5">
+                          {rows.map((r: any) => (
+                            <span key={r.id} className="bg-[#1A1A1E] border border-[#2A2A30] rounded-lg px-2 py-1 text-xs text-[#9896A4]">
+                              {r.cocktail_name} <span className="text-[#F0EEF6] font-medium">×{r.quantity_sold}</span>
+                              {r.total_revenue > 0 && <span className="text-[#8B5CF6] ml-1">{formatCurrency(r.total_revenue)}</span>}
+                            </span>
+                          ))}
+                        </div>
+                      </div>
+                      <div className="flex items-center gap-3 flex-shrink-0">
+                        <div className="text-right">
+                          <p className="text-[#F0EEF6] font-bold">{formatCurrency(total)}</p>
+                          <p className="text-[#5A5865] text-xs">EON total</p>
+                        </div>
+                        <button
+                          onClick={() => setDeleteConfirmDate(date)}
+                          className="btn-ghost p-2 text-rose-400 hover:bg-rose-500/10"
+                        >
+                          <Trash2 size={14} />
+                        </button>
+                      </div>
+                    </div>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </>
+      )}
+
+      {/* Delete confirm modal */}
+      <Modal isOpen={!!deleteConfirmDate} onClose={() => setDeleteConfirmDate(null)} title="Delete EON Submission" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">
+            This will permanently delete the End of Night submission for{' '}
+            <span className="text-[#F0EEF6] font-medium">{deleteConfirmDate ? formatDate(deleteConfirmDate) : ''}</span>{' '}
+            and reverse its contribution to that day's sales total.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setDeleteConfirmDate(null)} className="btn-secondary flex-1">Cancel</button>
+            <button
+              onClick={() => deleteConfirmDate && handleDeleteEON(deleteConfirmDate)}
+              disabled={deleteLoading}
+              className="flex-1 px-4 py-2 rounded-lg text-sm font-medium bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 disabled:opacity-50 transition-all"
+            >
+              {deleteLoading ? 'Deleting...' : 'Delete'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Edit Sales Entry' : 'New Sales Entry'} size="lg">
         <form onSubmit={handleSubmit} className="space-y-5">
