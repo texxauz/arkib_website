@@ -10,7 +10,7 @@ import {
   Upload, FileText, ExternalLink, Loader2, User, Clock,
   Link2, Calendar, Search, Filter, X, Trash2, Sparkles,
   AlertTriangle, LayoutGrid, List, BookOpen, Plus, Download,
-  CheckCircle2, Tag,
+  CheckCircle2, Tag, TrendingUp, TrendingDown, Minus,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -46,6 +46,8 @@ interface Props {
   initialReceipts: Receipt[]
   expenses: Expense[]
   currentUserId: string
+  salesData: { date: string; total_revenue: number }[]
+  cogsData: { date: string; total_cogs: number }[]
 }
 
 function formatDateTime(dt: string) {
@@ -72,7 +74,7 @@ async function extractFromImage(imageUrl: string, fileType: string): Promise<Ext
 const CURRENT_YEAR = new Date().getFullYear()
 const MONTHS = ['Jan', 'Feb', 'Mar', 'Apr', 'May', 'Jun', 'Jul', 'Aug', 'Sep', 'Oct', 'Nov', 'Dec']
 
-export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, currentUserId }: Props) {
+export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, currentUserId, salesData, cogsData }: Props) {
   const [receipts, setReceipts] = useState<Receipt[]>(initialReceipts)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
   const [activeTab, setActiveTab] = useState<'receipts' | 'accounting'>('receipts')
@@ -317,21 +319,46 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
 
   const accountingData = useMemo(() => computeAccountingData(expenses, accountingYear), [expenses, accountingYear])
 
+  const pnlData = useMemo(() => computePnLData(expenses, salesData, cogsData, accountingYear), [expenses, salesData, cogsData, accountingYear])
+
   const exportCSV = () => {
     const { categories, monthlyData, monthlyTotals, categoryTotals, grandTotal } = accountingData
-    const header = ['Month', ...categories.map(c => EXPENSE_CATEGORY_LABELS[c] ?? c), 'Total']
-    const rows = MONTHS.map((label, i) => {
+
+    // Sheet 1: P&L
+    const pnlHeader = ['Month', 'Revenue', 'COGS', 'Gross Profit', 'Expenses', 'Net Profit', 'Net Margin %']
+    const pnlRows = pnlData.map((r, i) => [
+      MONTHS[i], r.revenue.toFixed(2), r.cogs.toFixed(2),
+      r.grossProfit.toFixed(2), r.expenses.toFixed(2),
+      r.netProfit.toFixed(2), r.revenue > 0 ? r.margin.toFixed(1) : '—',
+    ])
+    const pnlTotals = ['TOTAL',
+      pnlData.reduce((s, r) => s + r.revenue, 0).toFixed(2),
+      pnlData.reduce((s, r) => s + r.cogs, 0).toFixed(2),
+      pnlData.reduce((s, r) => s + r.grossProfit, 0).toFixed(2),
+      pnlData.reduce((s, r) => s + r.expenses, 0).toFixed(2),
+      pnlData.reduce((s, r) => s + r.netProfit, 0).toFixed(2), '',
+    ]
+
+    // Sheet 2: Expense breakdown
+    const expHeader = ['Month', ...categories.map(c => EXPENSE_CATEGORY_LABELS[c] ?? c), 'Total']
+    const expRows = MONTHS.map((label, i) => {
       const m = i + 1
       return [label, ...categories.map(c => (monthlyData[m][c] ?? 0).toFixed(2)), (monthlyTotals[m] ?? 0).toFixed(2)]
     })
-    const totalsRow = ['TOTAL', ...categories.map(c => (categoryTotals[c] ?? 0).toFixed(2)), grandTotal.toFixed(2)]
+    const expTotals = ['TOTAL', ...categories.map(c => (categoryTotals[c] ?? 0).toFixed(2)), grandTotal.toFixed(2)]
 
-    const csv = [header, ...rows, totalsRow].map(r => r.join(',')).join('\n')
+    const csv = [
+      [`ARKIB BAR — ${accountingYear} P&L SUMMARY`], [],
+      pnlHeader, ...pnlRows, pnlTotals,
+      [], [`EXPENSE BREAKDOWN BY CATEGORY`], [],
+      expHeader, ...expRows, expTotals,
+    ].map(r => r.join(',')).join('\n')
+
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
     a.href = url
-    a.download = `ARKIB_Expenses_${accountingYear}.csv`
+    a.download = `ARKIB_Accounting_${accountingYear}.csv`
     a.click()
     URL.revokeObjectURL(url)
   }
@@ -470,6 +497,9 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
           accountingYear={accountingYear}
           setAccountingYear={setAccountingYear}
           accountingData={accountingData}
+          pnlData={pnlData}
+          unlinkedCount={receipts.filter(r => !r.expense_id).length}
+          onGoToReceipts={() => setActiveTab('receipts')}
           exportCSV={exportCSV}
         />
       )}
@@ -717,17 +747,25 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
 
 // ─── Accounting Tab ───────────────────────────────────────────────────────────
 
+type PnLRow = { month: number; revenue: number; cogs: number; grossProfit: number; expenses: number; netProfit: number; margin: number }
+
 function AccountingTab({
   expenses,
   accountingYear,
   setAccountingYear,
   accountingData,
+  pnlData,
+  unlinkedCount,
+  onGoToReceipts,
   exportCSV,
 }: {
   expenses: Expense[]
   accountingYear: number
   setAccountingYear: (y: number) => void
   accountingData: { categories: string[]; monthlyData: Record<number, Record<string, number>>; monthlyTotals: Record<string, number>; categoryTotals: Record<string, number>; grandTotal: number }
+  pnlData: PnLRow[]
+  unlinkedCount: number
+  onGoToReceipts: () => void
   exportCSV: () => void
 }) {
   const { categories, monthlyData, monthlyTotals, categoryTotals, grandTotal } = accountingData
@@ -737,95 +775,231 @@ function AccountingTab({
     return Array.from(ys).sort((a, b) => b - a)
   }, [expenses])
 
+  const totalRevenue = pnlData.reduce((s, r) => s + r.revenue, 0)
+  const totalCOGS = pnlData.reduce((s, r) => s + r.cogs, 0)
+  const totalGrossProfit = pnlData.reduce((s, r) => s + r.grossProfit, 0)
+  const totalExpenses = pnlData.reduce((s, r) => s + r.expenses, 0)
+  const totalNetProfit = pnlData.reduce((s, r) => s + r.netProfit, 0)
+  const netMargin = totalRevenue > 0 ? (totalNetProfit / totalRevenue) * 100 : 0
+  const hasPnL = totalRevenue > 0 || grandTotal > 0
+
   return (
-    <div className="space-y-4">
+    <div className="space-y-5">
+      {/* Toolbar */}
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-3">
           <select value={accountingYear} onChange={e => setAccountingYear(parseInt(e.target.value))} className="input w-28 text-sm">
             {years.map(y => <option key={y} value={y}>{y}</option>)}
           </select>
-          <div className="text-[#9896A4] text-sm">
-            Total expenses: <span className="text-[#F0EEF6] font-semibold">{formatCurrency(grandTotal)}</span>
-          </div>
         </div>
         <button onClick={exportCSV} className="btn-secondary flex items-center gap-2 text-xs">
           <Download size={13} /> Export CSV
         </button>
       </div>
 
-      {grandTotal === 0 ? (
+      {/* Unlinked receipts alert */}
+      {unlinkedCount > 0 && (
+        <div className="bg-amber-500/5 border border-amber-500/20 rounded-xl p-4 flex items-center justify-between gap-4">
+          <div className="flex items-center gap-3">
+            <AlertTriangle size={16} className="text-amber-400 flex-shrink-0" />
+            <div>
+              <p className="text-amber-400 text-sm font-medium">{unlinkedCount} receipt{unlinkedCount > 1 ? 's' : ''} not linked to an expense</p>
+              <p className="text-[#9896A4] text-xs mt-0.5">Unlinked receipts won't appear in your accounting records. Link them to expenses for accurate filing.</p>
+            </div>
+          </div>
+          <button onClick={onGoToReceipts} className="btn-secondary text-xs whitespace-nowrap flex-shrink-0">
+            Fix now
+          </button>
+        </div>
+      )}
+
+      {!hasPnL ? (
         <div className="card text-center py-12">
           <BookOpen size={40} className="text-[#3A3A42] mx-auto mb-3" />
-          <p className="text-[#9896A4] text-sm">No expenses recorded for {accountingYear}</p>
+          <p className="text-[#9896A4] text-sm">No data recorded for {accountingYear}</p>
         </div>
       ) : (
         <>
-          {/* Category summary cards */}
-          <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
-            {categories.map(cat => (
-              <div key={cat} className="card">
-                <p className="text-[#9896A4] text-xs mb-1">{EXPENSE_CATEGORY_LABELS[cat] ?? cat}</p>
-                <p className="text-[#F0EEF6] font-bold text-lg">{formatCurrency(categoryTotals[cat] ?? 0)}</p>
-                <p className="text-[#5A5865] text-xs mt-1">
-                  {grandTotal > 0 ? ((categoryTotals[cat] ?? 0) / grandTotal * 100).toFixed(1) : '0.0'}% of total
-                </p>
-              </div>
-            ))}
-          </div>
+          {/* ── P&L SUMMARY ── */}
+          {totalRevenue > 0 && (
+            <div className="space-y-3">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">P&L Summary — {accountingYear}</p>
 
-          {/* Monthly breakdown table */}
-          <div className="card overflow-x-auto">
-            <table className="w-full text-xs min-w-[600px]">
-              <thead>
-                <tr className="border-b border-[#2A2A30]">
-                  <th className="text-left py-2 pr-4 text-[#9896A4] font-medium w-16">Month</th>
-                  {categories.map(c => (
-                    <th key={c} className="text-right py-2 px-2 text-[#9896A4] font-medium whitespace-nowrap">
-                      {EXPENSE_CATEGORY_LABELS[c] ?? c}
-                    </th>
-                  ))}
-                  <th className="text-right py-2 pl-4 text-[#F0EEF6] font-semibold">Total</th>
-                </tr>
-              </thead>
-              <tbody>
-                {MONTHS.map((label, i) => {
-                  const m = i + 1
-                  const rowTotal = monthlyTotals[m] ?? 0
-                  const hasData = rowTotal > 0
-                  return (
-                    <tr key={m} className={`border-b border-[#1A1A1E] last:border-0 ${hasData ? '' : 'opacity-40'}`}>
-                      <td className="py-2 pr-4 text-[#9896A4] font-medium">{label}</td>
+              {/* Annual KPI cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-3">
+                {[
+                  { label: 'Revenue', value: totalRevenue, color: 'text-[#F0EEF6]', sub: null },
+                  { label: 'COGS', value: totalCOGS, color: 'text-rose-400', sub: `${totalRevenue > 0 ? (totalCOGS / totalRevenue * 100).toFixed(1) : 0}% of rev` },
+                  { label: 'Gross Profit', value: totalGrossProfit, color: 'text-emerald-400', sub: `${totalRevenue > 0 ? (totalGrossProfit / totalRevenue * 100).toFixed(1) : 0}% margin` },
+                  { label: 'Expenses', value: totalExpenses, color: 'text-amber-400', sub: null },
+                  { label: 'Net Profit', value: totalNetProfit, color: totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400', sub: null },
+                  { label: 'Net Margin', value: null, display: `${netMargin.toFixed(1)}%`, color: netMargin >= 0 ? 'text-[#A78BFA]' : 'text-rose-400', sub: null },
+                ].map(({ label, value, display, color, sub }) => (
+                  <div key={label} className="card">
+                    <p className="text-[#9896A4] text-xs mb-1">{label}</p>
+                    <p className={`font-bold text-base ${color}`}>{display ?? formatCurrency(value ?? 0)}</p>
+                    {sub && <p className="text-[#5A5865] text-[10px] mt-0.5">{sub}</p>}
+                  </div>
+                ))}
+              </div>
+
+              {/* Monthly P&L table */}
+              <div className="card overflow-x-auto">
+                <table className="w-full text-xs min-w-[560px]">
+                  <thead>
+                    <tr className="border-b border-[#2A2A30]">
+                      {['Month', 'Revenue', 'COGS', 'Gross Profit', 'Expenses', 'Net Profit', 'Margin'].map(h => (
+                        <th key={h} className="text-right py-2 px-3 first:text-left text-[#9896A4] font-medium whitespace-nowrap">{h}</th>
+                      ))}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {pnlData.map((row, i) => {
+                      const hasData = row.revenue > 0 || row.expenses > 0
+                      return (
+                        <tr key={row.month} className={`border-b border-[#1A1A1E] last:border-0 ${hasData ? '' : 'opacity-30'}`}>
+                          <td className="py-2 px-3 text-[#9896A4] font-medium">{MONTHS[i]}</td>
+                          <td className="py-2 px-3 text-right text-[#F0EEF6]">{row.revenue > 0 ? formatCurrency(row.revenue) : '—'}</td>
+                          <td className="py-2 px-3 text-right text-rose-400">{row.cogs > 0 ? formatCurrency(row.cogs) : '—'}</td>
+                          <td className="py-2 px-3 text-right text-emerald-400">{row.grossProfit > 0 ? formatCurrency(row.grossProfit) : '—'}</td>
+                          <td className="py-2 px-3 text-right text-amber-400">{row.expenses > 0 ? formatCurrency(row.expenses) : '—'}</td>
+                          <td className={`py-2 px-3 text-right font-semibold ${!hasData ? 'text-[#5A5865]' : row.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                            {hasData ? (
+                              <span className="flex items-center justify-end gap-1">
+                                {row.netProfit > 0 ? <TrendingUp size={10} /> : row.netProfit < 0 ? <TrendingDown size={10} /> : <Minus size={10} />}
+                                {formatCurrency(row.netProfit)}
+                              </span>
+                            ) : '—'}
+                          </td>
+                          <td className={`py-2 px-3 text-right ${!hasData ? 'text-[#5A5865]' : row.margin >= 0 ? 'text-[#A78BFA]' : 'text-rose-400'}`}>
+                            {row.revenue > 0 ? `${row.margin.toFixed(1)}%` : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-[#2A2A30]">
+                      <td className="py-3 px-3 text-[#F0EEF6] font-semibold">TOTAL</td>
+                      <td className="py-3 px-3 text-right text-[#F0EEF6] font-semibold">{formatCurrency(totalRevenue)}</td>
+                      <td className="py-3 px-3 text-right text-rose-400 font-semibold">{formatCurrency(totalCOGS)}</td>
+                      <td className="py-3 px-3 text-right text-emerald-400 font-semibold">{formatCurrency(totalGrossProfit)}</td>
+                      <td className="py-3 px-3 text-right text-amber-400 font-semibold">{formatCurrency(totalExpenses)}</td>
+                      <td className={`py-3 px-3 text-right font-bold text-sm ${totalNetProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(totalNetProfit)}</td>
+                      <td className={`py-3 px-3 text-right font-semibold ${netMargin >= 0 ? 'text-[#A78BFA]' : 'text-rose-400'}`}>{netMargin.toFixed(1)}%</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* ── EXPENSE BREAKDOWN ── */}
+          {grandTotal > 0 && (
+            <div className="space-y-3">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Expense Breakdown — {accountingYear}</p>
+
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
+                {categories.map(cat => (
+                  <div key={cat} className="card">
+                    <p className="text-[#9896A4] text-xs mb-1">{EXPENSE_CATEGORY_LABELS[cat] ?? cat}</p>
+                    <p className="text-[#F0EEF6] font-bold text-lg">{formatCurrency(categoryTotals[cat] ?? 0)}</p>
+                    <p className="text-[#5A5865] text-xs mt-1">
+                      {grandTotal > 0 ? ((categoryTotals[cat] ?? 0) / grandTotal * 100).toFixed(1) : '0.0'}% of expenses
+                    </p>
+                  </div>
+                ))}
+              </div>
+
+              <div className="card overflow-x-auto">
+                <table className="w-full text-xs min-w-[600px]">
+                  <thead>
+                    <tr className="border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4 text-[#9896A4] font-medium w-16">Month</th>
                       {categories.map(c => (
-                        <td key={c} className="text-right py-2 px-2 text-[#F0EEF6]">
-                          {monthlyData[m][c] ? formatCurrency(monthlyData[m][c]) : '—'}
+                        <th key={c} className="text-right py-2 px-2 text-[#9896A4] font-medium whitespace-nowrap">
+                          {EXPENSE_CATEGORY_LABELS[c] ?? c}
+                        </th>
+                      ))}
+                      <th className="text-right py-2 pl-4 text-[#F0EEF6] font-semibold">Total</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {MONTHS.map((label, i) => {
+                      const m = i + 1
+                      const rowTotal = monthlyTotals[m] ?? 0
+                      const hasData = rowTotal > 0
+                      return (
+                        <tr key={m} className={`border-b border-[#1A1A1E] last:border-0 ${hasData ? '' : 'opacity-40'}`}>
+                          <td className="py-2 pr-4 text-[#9896A4] font-medium">{label}</td>
+                          {categories.map(c => (
+                            <td key={c} className="text-right py-2 px-2 text-[#F0EEF6]">
+                              {monthlyData[m][c] ? formatCurrency(monthlyData[m][c]) : '—'}
+                            </td>
+                          ))}
+                          <td className={`text-right py-2 pl-4 font-semibold ${hasData ? 'text-amber-400' : 'text-[#5A5865]'}`}>
+                            {hasData ? formatCurrency(rowTotal) : '—'}
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t-2 border-[#2A2A30]">
+                      <td className="py-3 pr-4 text-[#F0EEF6] font-semibold">TOTAL</td>
+                      {categories.map(c => (
+                        <td key={c} className="text-right py-3 px-2 text-[#A78BFA] font-semibold">
+                          {formatCurrency(categoryTotals[c] ?? 0)}
                         </td>
                       ))}
-                      <td className={`text-right py-2 pl-4 font-semibold ${hasData ? 'text-emerald-400' : 'text-[#5A5865]'}`}>
-                        {hasData ? formatCurrency(rowTotal) : '—'}
+                      <td className="text-right py-3 pl-4 text-amber-400 font-bold text-sm">
+                        {formatCurrency(grandTotal)}
                       </td>
                     </tr>
-                  )
-                })}
-              </tbody>
-              <tfoot>
-                <tr className="border-t-2 border-[#2A2A30]">
-                  <td className="py-3 pr-4 text-[#F0EEF6] font-semibold">TOTAL</td>
-                  {categories.map(c => (
-                    <td key={c} className="text-right py-3 px-2 text-[#A78BFA] font-semibold">
-                      {formatCurrency(categoryTotals[c] ?? 0)}
-                    </td>
-                  ))}
-                  <td className="text-right py-3 pl-4 text-emerald-400 font-bold text-sm">
-                    {formatCurrency(grandTotal)}
-                  </td>
-                </tr>
-              </tfoot>
-            </table>
-          </div>
+                  </tfoot>
+                </table>
+              </div>
+            </div>
+          )}
         </>
       )}
     </div>
   )
+}
+
+function computePnLData(
+  expenses: Expense[],
+  salesData: { date: string; total_revenue: number }[],
+  cogsData: { date: string; total_cogs: number }[],
+  year: number
+): PnLRow[] {
+  const monthlyRevenue: Record<number, number> = {}
+  const monthlyCOGS: Record<number, number> = {}
+  const monthlyExpenses: Record<number, number> = {}
+
+  for (const s of salesData.filter(s => s.date.startsWith(String(year)))) {
+    const m = parseInt(s.date.split('-')[1])
+    monthlyRevenue[m] = (monthlyRevenue[m] ?? 0) + s.total_revenue
+  }
+  for (const c of cogsData.filter(c => c.date.startsWith(String(year)))) {
+    const m = parseInt(c.date.split('-')[1])
+    monthlyCOGS[m] = (monthlyCOGS[m] ?? 0) + c.total_cogs
+  }
+  for (const e of expenses.filter(e => e.date.startsWith(String(year)))) {
+    const m = parseInt(e.date.split('-')[1])
+    monthlyExpenses[m] = (monthlyExpenses[m] ?? 0) + e.amount
+  }
+
+  return Array.from({ length: 12 }, (_, i) => {
+    const m = i + 1
+    const revenue = monthlyRevenue[m] ?? 0
+    const cogs = monthlyCOGS[m] ?? 0
+    const grossProfit = revenue - cogs
+    const exp = monthlyExpenses[m] ?? 0
+    const netProfit = grossProfit - exp
+    const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0
+    return { month: m, revenue, cogs, grossProfit, expenses: exp, netProfit, margin }
+  })
 }
 
 function computeAccountingData(expenses: Expense[], year: number) {
