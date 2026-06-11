@@ -10,7 +10,7 @@ import {
   Upload, FileText, ExternalLink, Loader2, User, Clock,
   Link2, Calendar, Search, Filter, X, Trash2, Sparkles,
   AlertTriangle, LayoutGrid, List, BookOpen, Plus, Download,
-  CheckCircle2, Tag, TrendingUp, TrendingDown, Minus,
+  CheckCircle2, Tag, TrendingUp, TrendingDown, Minus, ChevronDown, ChevronUp,
 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
@@ -347,11 +347,26 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
     })
     const expTotals = ['TOTAL', ...categories.map(c => (categoryTotals[c] ?? 0).toFixed(2)), grandTotal.toFixed(2)]
 
+    // Sheet 3: Individual expense lines
+    const lineHeader = ['Date', 'Description', 'Category', 'Amount', 'Payment Method']
+    const lineRows = expenses
+      .filter(e => e.date.startsWith(String(accountingYear)))
+      .sort((a, b) => a.date.localeCompare(b.date))
+      .map(e => [
+        e.date,
+        `"${e.description.replace(/"/g, '""')}"`,
+        EXPENSE_CATEGORY_LABELS[e.category] ?? e.category,
+        e.amount.toFixed(2),
+        PAYMENT_METHOD_LABELS[e.payment_method] ?? e.payment_method,
+      ])
+
     const csv = [
       [`ARKIB BAR — ${accountingYear} P&L SUMMARY`], [],
       pnlHeader, ...pnlRows, pnlTotals,
       [], [`EXPENSE BREAKDOWN BY CATEGORY`], [],
       expHeader, ...expRows, expTotals,
+      [], [`INDIVIDUAL EXPENSE LINES`], [],
+      lineHeader, ...lineRows,
     ].map(r => r.join(',')).join('\n')
 
     const blob = new Blob([csv], { type: 'text/csv' })
@@ -494,6 +509,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
       {activeTab === 'accounting' && (
         <AccountingTab
           expenses={expenses}
+          receipts={receipts}
           accountingYear={accountingYear}
           setAccountingYear={setAccountingYear}
           accountingData={accountingData}
@@ -751,6 +767,7 @@ type PnLRow = { month: number; revenue: number; cogs: number; grossProfit: numbe
 
 function AccountingTab({
   expenses,
+  receipts,
   accountingYear,
   setAccountingYear,
   accountingData,
@@ -760,6 +777,7 @@ function AccountingTab({
   exportCSV,
 }: {
   expenses: Expense[]
+  receipts: Receipt[]
   accountingYear: number
   setAccountingYear: (y: number) => void
   accountingData: { categories: string[]; monthlyData: Record<number, Record<string, number>>; monthlyTotals: Record<string, number>; categoryTotals: Record<string, number>; grandTotal: number }
@@ -769,6 +787,8 @@ function AccountingTab({
   exportCSV: () => void
 }) {
   const { categories, monthlyData, monthlyTotals, categoryTotals, grandTotal } = accountingData
+  const [selectedMonth, setSelectedMonth] = useState<number | null>(null)
+
   const years = useMemo(() => {
     const ys = new Set(expenses.map(e => parseInt(e.date.split('-')[0])).filter(Boolean))
     ys.add(CURRENT_YEAR)
@@ -856,9 +876,17 @@ function AccountingTab({
                   <tbody>
                     {pnlData.map((row, i) => {
                       const hasData = row.revenue > 0 || row.expenses > 0
+                      const isSelected = selectedMonth === row.month
                       return (
-                        <tr key={row.month} className={`border-b border-[#1A1A1E] last:border-0 ${hasData ? '' : 'opacity-30'}`}>
-                          <td className="py-2 px-3 text-[#9896A4] font-medium">{MONTHS[i]}</td>
+                        <tr
+                          key={row.month}
+                          onClick={() => setSelectedMonth(isSelected ? null : row.month)}
+                          className={`border-b border-[#1A1A1E] last:border-0 cursor-pointer transition-colors ${hasData ? 'hover:bg-[#1A1A1E]' : 'opacity-30'} ${isSelected ? 'bg-[#8B5CF6]/10' : ''}`}
+                        >
+                          <td className="py-2 px-3 text-[#9896A4] font-medium flex items-center gap-1">
+                            {MONTHS[i]}
+                            {hasData && (isSelected ? <ChevronUp size={10} className="text-[#8B5CF6]" /> : <ChevronDown size={10} className="text-[#5A5865]" />)}
+                          </td>
                           <td className="py-2 px-3 text-right text-[#F0EEF6]">{row.revenue > 0 ? formatCurrency(row.revenue) : '—'}</td>
                           <td className="py-2 px-3 text-right text-rose-400">{row.cogs > 0 ? formatCurrency(row.cogs) : '—'}</td>
                           <td className="py-2 px-3 text-right text-emerald-400">{row.grossProfit > 0 ? formatCurrency(row.grossProfit) : '—'}</td>
@@ -893,6 +921,84 @@ function AccountingTab({
               </div>
             </div>
           )}
+
+          {/* ── MONTH CLOSE PANEL ── */}
+          {selectedMonth !== null && (() => {
+            const row = pnlData[selectedMonth - 1]
+            const monthStr = `${accountingYear}-${String(selectedMonth).padStart(2, '0')}`
+            const monthExpenses = expenses.filter(e => e.date.startsWith(monthStr))
+            const monthReceipts = receipts.filter(r => r.created_at.startsWith(monthStr))
+            const unlinkedThisMonth = monthReceipts.filter(r => !r.expense_id).length
+            const hasSalary = monthExpenses.some(e => e.category === 'salary')
+            const hasRent = monthExpenses.some(e => e.category === 'rental')
+            const hasClaims = monthExpenses.some(e => e.category === 'claims')
+
+            const checks = [
+              { label: 'Salary logged', ok: hasSalary, warn: !hasSalary },
+              { label: 'Rent logged', ok: hasRent, warn: !hasRent },
+              { label: hasClaims ? 'Claims logged' : 'No claims this month', ok: true, warn: false },
+              { label: unlinkedThisMonth === 0 ? 'All receipts linked' : `${unlinkedThisMonth} receipt${unlinkedThisMonth > 1 ? 's' : ''} unlinked`, ok: unlinkedThisMonth === 0, warn: unlinkedThisMonth > 0 },
+            ]
+
+            return (
+              <div className="bg-[#0D0D0F] border border-[#8B5CF6]/20 rounded-xl p-4 space-y-4">
+                <div className="flex items-center justify-between">
+                  <p className="text-[#A78BFA] text-sm font-semibold">{MONTHS[selectedMonth - 1]} {accountingYear} — Month Close</p>
+                  <button onClick={() => setSelectedMonth(null)} className="text-[#5A5865] hover:text-[#F0EEF6]"><X size={14} /></button>
+                </div>
+
+                {/* KPIs */}
+                <div className="grid grid-cols-2 sm:grid-cols-4 gap-2">
+                  {[
+                    { label: 'Revenue', value: row.revenue, color: 'text-[#F0EEF6]' },
+                    { label: 'Expenses', value: row.expenses, color: 'text-amber-400' },
+                    { label: 'Net Profit', value: row.netProfit, color: row.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                    { label: 'Net Margin', value: null, display: row.revenue > 0 ? `${row.margin.toFixed(1)}%` : '—', color: row.margin >= 0 ? 'text-[#A78BFA]' : 'text-rose-400' },
+                  ].map(({ label, value, display, color }) => (
+                    <div key={label} className="bg-[#111113] rounded-lg p-3 border border-[#2A2A30]">
+                      <p className="text-[#5A5865] text-xs mb-1">{label}</p>
+                      <p className={`font-bold text-sm ${color}`}>{display ?? formatCurrency(value ?? 0)}</p>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Checklist */}
+                <div className="space-y-1.5">
+                  <p className="text-[#5A5865] text-xs uppercase tracking-wider font-medium">Month-end Checklist</p>
+                  {checks.map(({ label, ok, warn }) => (
+                    <div key={label} className="flex items-center gap-2">
+                      {ok
+                        ? <CheckCircle2 size={13} className="text-emerald-400 flex-shrink-0" />
+                        : <AlertTriangle size={13} className={`flex-shrink-0 ${warn ? 'text-amber-400' : 'text-[#5A5865]'}`} />}
+                      <span className={`text-xs ${ok ? 'text-[#9896A4]' : warn ? 'text-amber-400' : 'text-[#5A5865]'}`}>{label}</span>
+                    </div>
+                  ))}
+                </div>
+
+                {/* Expense list */}
+                {monthExpenses.length > 0 && (
+                  <div className="space-y-1.5">
+                    <p className="text-[#5A5865] text-xs uppercase tracking-wider font-medium">Expenses this month</p>
+                    <div className="space-y-1 max-h-48 overflow-y-auto">
+                      {monthExpenses.sort((a, b) => a.date.localeCompare(b.date)).map(e => (
+                        <div key={e.id} className="flex items-center justify-between gap-3 py-1.5 border-b border-[#1A1A1E] last:border-0">
+                          <div className="min-w-0">
+                            <p className="text-[#F0EEF6] text-xs truncate">{e.description}</p>
+                            <p className="text-[#5A5865] text-[10px]">{e.date} · {EXPENSE_CATEGORY_LABELS[e.category] ?? e.category}</p>
+                          </div>
+                          <p className="text-amber-400 text-xs font-medium flex-shrink-0">{formatCurrency(e.amount)}</p>
+                        </div>
+                      ))}
+                    </div>
+                    <div className="flex justify-between pt-1">
+                      <p className="text-[#5A5865] text-xs">Total</p>
+                      <p className="text-amber-400 text-xs font-bold">{formatCurrency(row.expenses)}</p>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )
+          })()}
 
           {/* ── EXPENSE BREAKDOWN ── */}
           {grandTotal > 0 && (
