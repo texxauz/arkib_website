@@ -7,7 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import {
   BarChart3, AlertTriangle, Plus, Wine, Beaker, Package2, ClipboardList, Moon,
-  Truck, Search, X, ChevronDown,
+  Truck, Search, X,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
