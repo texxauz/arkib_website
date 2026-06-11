@@ -4,9 +4,9 @@ import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { createClient } from '@/lib/supabase/client'
+import { formatCurrency } from '@/lib/utils'
 import {
-  FlaskConical, Layers, BarChart3, BookOpen, AlertTriangle,
-  Plus, ChevronDown, Wine, Beaker, Package2, ClipboardList,
+  BarChart3, AlertTriangle, Plus, Wine, Beaker, Package2, ClipboardList, Moon,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -28,6 +28,9 @@ type Premix = {
   id: string; name: string; cocktail_name: string | null; category: string | null
   opening_serves: number; produced_serves: number; sold_serves: number
   ml_per_serve: number; storage: string | null
+}
+type Cocktail = {
+  id: string; name: string; selling_price: number; total_cost: number
 }
 type Activity = {
   id: string; logged_at: string; week_number: number | null
@@ -61,6 +64,7 @@ const TABS = [
   { key: 'infusions', label: 'Infusions', icon: Beaker },
   { key: 'premixes', label: 'Premixes', icon: Package2 },
   { key: 'activity', label: 'Activity', icon: ClipboardList },
+  { key: 'eod', label: 'End of Night', icon: Moon },
 ] as const
 type Tab = typeof TABS[number]['key']
 
@@ -69,13 +73,14 @@ const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function BarInventoryClient({
-  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes,
+  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes, cocktails,
 }: {
   initialSpirits: Spirit[]
   initialInfusions: Infusion[]
   initialPremixes: Premix[]
   initialActivities: Activity[]
   recipes: Recipe[]
+  cocktails: Cocktail[]
 }) {
   const supabase = createClient()
   const { toast } = useToast()
@@ -102,6 +107,73 @@ export function BarInventoryClient({
     spirit_1: '', vol_1: '', spirit_2: '', vol_2: '', spirit_3: '', vol_3: '',
     logged_at: new Date().toISOString().slice(0, 16),
   })
+
+  // ── EON state ───────────────────────────────────────────────────────────────
+  const [eonDate, setEonDate] = useState(new Date().toISOString().split('T')[0])
+  const [eonQty, setEonQty] = useState<Record<string, number>>({})
+  const [eonLoading, setEonLoading] = useState(false)
+
+  const eonEntries = cocktails.filter(c => (eonQty[c.id] ?? 0) > 0)
+  const eonTotalRevenue = eonEntries.reduce((s, c) => s + c.selling_price * eonQty[c.id], 0)
+  const eonTotalCOGS = eonEntries.reduce((s, c) => s + c.total_cost * eonQty[c.id], 0)
+  const eonGrossProfit = eonTotalRevenue - eonTotalCOGS
+  const eonMargin = eonTotalRevenue > 0 ? (eonGrossProfit / eonTotalRevenue) * 100 : 0
+  const eonTotalQty = eonEntries.reduce((s, c) => s + eonQty[c.id], 0)
+
+  const handleEON = async () => {
+    if (eonEntries.length === 0) return
+    setEonLoading(true)
+    try {
+      // Insert cocktail sales rows
+      const { error: salesErr } = await supabase.from('cocktail_sales').insert(
+        eonEntries.map(c => ({
+          date: eonDate,
+          cocktail_name: c.name,
+          cocktail_id: c.id,
+          quantity: eonQty[c.id],
+          unit_price: c.selling_price,
+          unit_cost: c.total_cost,
+        }))
+      )
+      if (salesErr) throw salesErr
+
+      // Update bar_premixes sold_serves
+      for (const c of eonEntries) {
+        const qty = eonQty[c.id]
+        const premix = premixes.find(p => p.cocktail_name?.toLowerCase() === c.name.toLowerCase())
+        if (premix) {
+          await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
+          setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
+        }
+      }
+
+      // Upsert daily_sales
+      const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
+      if (existing) {
+        await supabase.from('daily_sales').update({
+          total_revenue: existing.total_revenue + eonTotalRevenue,
+          cocktails_revenue: (existing.cocktails_revenue ?? 0) + eonTotalRevenue,
+          transaction_count: existing.transaction_count + eonTotalQty,
+        }).eq('date', eonDate)
+      } else {
+        await supabase.from('daily_sales').insert({
+          date: eonDate,
+          total_revenue: eonTotalRevenue,
+          cocktails_revenue: eonTotalRevenue,
+          beer_revenue: 0,
+          food_revenue: 0,
+          transaction_count: eonTotalQty,
+          is_balanced: true,
+        })
+      }
+
+      toast(`End of night logged — ${eonEntries.length} cocktails · ${formatCurrency(eonTotalRevenue)}`, 'success')
+      setEonQty({})
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to submit', 'error')
+    }
+    setEonLoading(false)
+  }
 
   // ── Computed stats ──────────────────────────────────────────────────────────
 
@@ -597,6 +669,79 @@ export function BarInventoryClient({
               </tbody>
             </table>
           </div>
+        </div>
+      )}
+
+      {/* ── END OF NIGHT ── */}
+      {tab === 'eod' && (
+        <div className="space-y-4">
+          <div className="flex items-center gap-3">
+            <div>
+              <label className="label">Date</label>
+              <input type="date" className="input" value={eonDate} onChange={e => setEonDate(e.target.value)} />
+            </div>
+          </div>
+
+          <div className="space-y-2">
+            {cocktails.map(c => {
+              const qty = eonQty[c.id] ?? 0
+              return (
+                <div key={c.id} className="card flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <p className="text-[#F0EEF6] text-sm font-medium truncate">{c.name}</p>
+                    <p className="text-[#5A5865] text-xs">{formatCurrency(c.selling_price)} · Cost {formatCurrency(c.total_cost)}</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button type="button" onClick={() => setEonQty(p => ({ ...p, [c.id]: Math.max(0, (p[c.id] ?? 0) - 1) }))}
+                      className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                    <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                    <button type="button" onClick={() => setEonQty(p => ({ ...p, [c.id]: (p[c.id] ?? 0) + 1 }))}
+                      className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                  </div>
+                  {qty > 0 && (
+                    <div className="text-right w-24 flex-shrink-0">
+                      <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(c.selling_price * qty)}</p>
+                      <p className="text-[#5A5865] text-[10px]">COGS {formatCurrency(c.total_cost * qty)}</p>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
+          </div>
+
+          {eonTotalRevenue > 0 && (
+            <div className="card border-[#8B5CF6]/20 space-y-3">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider">Tonight's Summary</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#1A1A1E] rounded-xl p-3">
+                  <p className="text-[#5A5865] text-xs">Revenue</p>
+                  <p className="text-[#F0EEF6] font-bold text-lg">{formatCurrency(eonTotalRevenue)}</p>
+                </div>
+                <div className="bg-[#1A1A1E] rounded-xl p-3">
+                  <p className="text-[#5A5865] text-xs">COGS</p>
+                  <p className="text-rose-400 font-bold text-lg">{formatCurrency(eonTotalCOGS)}</p>
+                </div>
+                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-3">
+                  <p className="text-[#5A5865] text-xs">Gross Profit</p>
+                  <p className="text-emerald-400 font-bold text-lg">{formatCurrency(eonGrossProfit)}</p>
+                </div>
+                <div className="bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 rounded-xl p-3">
+                  <p className="text-[#5A5865] text-xs">Margin</p>
+                  <p className="text-[#A78BFA] font-bold text-lg">{eonMargin.toFixed(1)}%</p>
+                </div>
+              </div>
+              <button onClick={handleEON} disabled={eonLoading} className="btn-primary w-full disabled:opacity-50">
+                {eonLoading ? 'Submitting...' : `Submit End of Night · ${eonTotalQty} cocktails sold`}
+              </button>
+            </div>
+          )}
+
+          {eonTotalRevenue === 0 && (
+            <div className="flex flex-col items-center justify-center py-12 text-[#5A5865] gap-2">
+              <Moon size={32} />
+              <p className="text-sm">Tap + on each cocktail sold tonight</p>
+            </div>
+          )}
         </div>
       )}
 

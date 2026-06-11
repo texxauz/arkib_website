@@ -22,11 +22,13 @@ interface DashboardClientProps {
   } | null
   monthlyRevenue: number
   monthlyExpenses: number
+  monthlyCOGS: number
   netProfit: number
   targetRevenue: number
   chartData: { date: string; revenue: number }[]
   expenseByCategory: Record<string, number>
   monthlySales: { date: string; total_revenue: number; cocktails_revenue: number; beer_revenue: number; food_revenue: number }[]
+  weeklyPnL: { week: string; revenue: number; expenses: number; profit: number }[]
   lowStock: { name: string; current_stock: number; min_stock_level: number }[]
   month: number
   year: number
@@ -51,8 +53,8 @@ const CustomTooltip = ({ active, payload, label }: any) => {
 }
 
 export function DashboardClient({
-  todaySales, monthlyRevenue, monthlyExpenses, netProfit,
-  targetRevenue, chartData, expenseByCategory, monthlySales,
+  todaySales, monthlyRevenue, monthlyExpenses, monthlyCOGS, netProfit,
+  targetRevenue, chartData, expenseByCategory, monthlySales, weeklyPnL,
   lowStock, month, year
 }: DashboardClientProps) {
   const targetProgress = targetRevenue > 0 ? Math.min((monthlyRevenue / targetRevenue) * 100, 100) : 0
@@ -163,6 +165,25 @@ export function DashboardClient({
         </div>
       </div>
 
+      {/* COGS + Gross Profit */}
+      {monthlyCOGS > 0 && (
+        <div>
+          <p className="text-[#5A5865] text-xs font-medium uppercase tracking-wider mb-3">Cost of Goods Sold</p>
+          <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+            <StatCard title="Cocktail Revenue" value={monthlyRevenue} currency icon={<TrendingUp size={14} />} accent="purple" />
+            <StatCard title="COGS" value={monthlyCOGS} currency icon={<ArrowDownCircle size={14} />} accent="red" subtitle="Ingredient cost" />
+            <StatCard title="Gross Profit" value={monthlyRevenue - monthlyCOGS} currency icon={<DollarSign size={14} />} accent="green" />
+            <div className="card">
+              <p className="text-[#9896A4] text-xs mb-1">Gross Margin</p>
+              <p className={`text-2xl font-bold ${(monthlyRevenue - monthlyCOGS) / monthlyRevenue >= 0.65 ? 'text-emerald-400' : 'text-amber-400'}`}>
+                {monthlyRevenue > 0 ? (((monthlyRevenue - monthlyCOGS) / monthlyRevenue) * 100).toFixed(1) : '0.0'}%
+              </p>
+              <p className="text-[#5A5865] text-[10px] mt-0.5">Before other expenses</p>
+            </div>
+          </div>
+        </div>
+      )}
+
       {/* Target progress */}
       {targetRevenue > 0 && (
         <div className="card">
@@ -241,6 +262,40 @@ export function DashboardClient({
           )}
         </div>
       </div>
+
+      {/* Weekly P&L */}
+      {weeklyPnL.length > 0 && (
+        <div className="card">
+          <p className="section-title mb-4">Weekly P&L — Last 8 Weeks</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-[#2A2A30]">
+                  {['Week of', 'Revenue', 'Expenses', 'Net Profit', 'Margin'].map(h => (
+                    <th key={h} className="text-left pb-2 px-2 text-[#5A5865] text-xs font-medium">{h}</th>
+                  ))}
+                </tr>
+              </thead>
+              <tbody>
+                {[...weeklyPnL].reverse().map((w, i) => {
+                  const margin = w.revenue > 0 ? (w.profit / w.revenue) * 100 : 0
+                  return (
+                    <tr key={i} className="border-b border-[#1A1A1E]">
+                      <td className="py-2.5 px-2 text-[#9896A4] text-xs whitespace-nowrap">{w.week}</td>
+                      <td className="py-2.5 px-2 text-[#F0EEF6] font-medium">{formatCurrency(w.revenue)}</td>
+                      <td className="py-2.5 px-2 text-rose-400">{formatCurrency(w.expenses)}</td>
+                      <td className={`py-2.5 px-2 font-semibold ${w.profit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>{formatCurrency(w.profit)}</td>
+                      <td className={`py-2.5 px-2 text-xs font-medium ${margin >= 50 ? 'text-emerald-400' : margin >= 20 ? 'text-amber-400' : 'text-rose-400'}`}>
+                        {w.revenue > 0 ? `${margin.toFixed(1)}%` : '—'}
+                      </td>
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
 
       {/* Sales breakdown + low stock */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
