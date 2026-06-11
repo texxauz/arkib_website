@@ -89,6 +89,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [expenseSearch, setExpenseSearch] = useState('')
 
   // Create expense form state
   const [showCreateExpense, setShowCreateExpense] = useState(false)
@@ -448,14 +449,14 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {filtered.map(r => (
                 <GridCard key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
-                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false) }} />
+                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
               ))}
             </div>
           ) : (
             <div className="space-y-2">
               {filtered.map(r => (
                 <ListRow key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
-                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false) }} />
+                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
               ))}
             </div>
           )}
@@ -611,16 +612,64 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
 
             {/* Link existing expense */}
             {!showCreateExpense && (
-              <div>
+              <div className="space-y-2">
                 <label className="label">Or link existing expense</label>
-                <select value={linkExpenseId} onChange={e => setLinkExpenseId(e.target.value)} className="input">
-                  <option value="">None</option>
-                  {expenses.map(exp => (
-                    <option key={exp.id} value={exp.id}>
-                      {new Date(exp.date).toLocaleDateString('en-MY', { day: '2-digit', month: 'short' })} — {exp.description} ({formatCurrency(exp.amount)})
-                    </option>
-                  ))}
-                </select>
+                <div className="relative">
+                  <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+                  <input
+                    type="text"
+                    value={expenseSearch}
+                    onChange={e => setExpenseSearch(e.target.value)}
+                    placeholder="Search by description, category..."
+                    className="input pl-8 text-sm"
+                  />
+                  {expenseSearch && (
+                    <button onClick={() => setExpenseSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#F0EEF6]">
+                      <X size={12} />
+                    </button>
+                  )}
+                </div>
+                {(() => {
+                  const q = expenseSearch.toLowerCase()
+                  const filtered = expenses.filter(e =>
+                    !q ||
+                    e.description.toLowerCase().includes(q) ||
+                    (EXPENSE_CATEGORY_LABELS[e.category] ?? e.category).toLowerCase().includes(q) ||
+                    e.date.includes(q)
+                  ).slice(0, 30)
+                  const selected_exp = linkExpenseId ? expenses.find(e => e.id === linkExpenseId) : null
+                  return (
+                    <div className="max-h-48 overflow-y-auto rounded-xl border border-[#2A2A30] bg-[#0D0D0F] divide-y divide-[#1A1A1E]">
+                      <button
+                        onClick={() => setLinkExpenseId('')}
+                        className={`w-full text-left px-3 py-2.5 text-xs transition-colors ${!linkExpenseId ? 'bg-[#8B5CF6]/10 text-[#A78BFA]' : 'text-[#5A5865] hover:bg-[#1A1A1E]'}`}>
+                        None
+                      </button>
+                      {filtered.length === 0 ? (
+                        <p className="px-3 py-3 text-[#5A5865] text-xs text-center">No expenses match</p>
+                      ) : filtered.map(exp => (
+                        <button
+                          key={exp.id}
+                          onClick={() => setLinkExpenseId(exp.id)}
+                          className={`w-full text-left px-3 py-2.5 transition-colors ${linkExpenseId === exp.id ? 'bg-[#8B5CF6]/10' : 'hover:bg-[#1A1A1E]'}`}>
+                          <div className="flex items-center justify-between gap-2">
+                            <div className="min-w-0">
+                              <p className={`text-xs font-medium truncate ${linkExpenseId === exp.id ? 'text-[#A78BFA]' : 'text-[#F0EEF6]'}`}>{exp.description}</p>
+                              <div className="flex items-center gap-2 mt-0.5">
+                                <span className="text-[#5A5865] text-[10px]">{new Date(exp.date + 'T00:00:00').toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })}</span>
+                                <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-[#2A2A30] text-[#9896A4]">{EXPENSE_CATEGORY_LABELS[exp.category] ?? exp.category}</span>
+                              </div>
+                            </div>
+                            <span className={`text-xs font-bold flex-shrink-0 ${linkExpenseId === exp.id ? 'text-emerald-400' : 'text-[#F0EEF6]'}`}>{formatCurrency(exp.amount)}</span>
+                          </div>
+                        </button>
+                      ))}
+                      {!expenseSearch && expenses.length > 30 && (
+                        <p className="px-3 py-2 text-[#5A5865] text-[10px] text-center">Showing 30 most recent · search to find more</p>
+                      )}
+                    </div>
+                  )
+                })()}
               </div>
             )}
 
