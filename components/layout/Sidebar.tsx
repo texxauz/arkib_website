@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, BookOpen,
   GlassWater, Building, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X, FlaskConical, Users
+  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -18,6 +18,7 @@ const ALL_NAV_ITEMS = [
   { href: '/receipts', label: 'Accounting', icon: BookOpen, key: 'receipts' },
   { href: '/bar-inventory', label: 'Bar Stock', icon: FlaskConical, key: 'bar-inventory' },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater, key: 'cocktails' },
+  { href: '/shifts', label: 'Shifts', icon: Clock, key: 'shifts' },
   { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
   { href: '/reports', label: 'Reports', icon: BarChart3, key: 'reports' },
   { href: '/settings', label: 'Settings', icon: Settings, key: 'settings' },
