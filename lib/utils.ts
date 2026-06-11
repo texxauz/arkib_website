@@ -45,6 +45,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   cleaning: 'Cleaning',
   marketing: 'Marketing',
   salary: 'Salary',
+  claims: 'Claims',
   rental: 'Rental',
   utilities: 'Utilities',
   others: 'Others',

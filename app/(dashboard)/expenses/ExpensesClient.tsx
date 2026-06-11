@@ -18,6 +18,7 @@ const CATEGORY_COLORS: Record<string, string> = {
   alcohol: 'bg-violet-500/20 text-violet-400',
   fresh_ingredients: 'bg-emerald-500/20 text-emerald-400',
   salary: 'bg-blue-500/20 text-blue-400',
+  claims: 'bg-teal-500/20 text-teal-400',
   rental: 'bg-amber-500/20 text-amber-400',
   utilities: 'bg-cyan-500/20 text-cyan-400',
   marketing: 'bg-pink-500/20 text-pink-400',
