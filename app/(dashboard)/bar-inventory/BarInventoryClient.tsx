@@ -7,6 +7,7 @@ import { createClient } from '@/lib/supabase/client'
 import { formatCurrency } from '@/lib/utils'
 import {
   BarChart3, AlertTriangle, Plus, Wine, Beaker, Package2, ClipboardList, Moon,
+  Truck, Search, X, ChevronDown,
 } from 'lucide-react'
 
 // ── Types ────────────────────────────────────────────────────────────────────
@@ -65,8 +66,21 @@ const TABS = [
   { key: 'premixes', label: 'Premixes', icon: Package2 },
   { key: 'activity', label: 'Activity', icon: ClipboardList },
   { key: 'eod', label: 'End of Night', icon: Moon },
+  { key: 'receive', label: 'Receive Stock', icon: Truck },
 ] as const
 type Tab = typeof TABS[number]['key']
+
+const SPIRIT_CATEGORIES = ['Whisky', 'Gin', 'Rum', 'Vodka', 'Tequila', 'Brandy', 'Liqueur', 'Wine', 'Beer', 'Vermouth', 'Bitters', 'Other']
+
+type DeliveryLine = {
+  localId: string
+  spiritId: string | null
+  spiritName: string
+  category: string
+  bottleSizeML: number
+  qty: number
+  isNew: boolean
+}
 
 const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic'] as const
 
@@ -107,6 +121,88 @@ export function BarInventoryClient({
     spirit_1: '', vol_1: '', spirit_2: '', vol_2: '', spirit_3: '', vol_3: '',
     logged_at: new Date().toISOString().slice(0, 16),
   })
+
+  // ── Receive Stock state ─────────────────────────────────────────────────────
+  const [deliveryDate, setDeliveryDate] = useState(new Date().toISOString().split('T')[0])
+  const [deliveryLines, setDeliveryLines] = useState<DeliveryLine[]>([])
+  const [deliveryLoading, setDeliveryLoading] = useState(false)
+  const [addSearch, setAddSearch] = useState('')
+  const [addNewForm, setAddNewForm] = useState<{ name: string; category: string; bottleSize: number } | null>(null)
+
+  const addSearchResults = addSearch.length > 1
+    ? spirits.filter(s => s.name.toLowerCase().includes(addSearch.toLowerCase())).slice(0, 8)
+    : []
+  const alreadyAdded = new Set(deliveryLines.map(l => l.spiritId).filter(Boolean))
+  const filteredAddResults = addSearchResults.filter(s => !alreadyAdded.has(s.id))
+  const showCreateOption = addSearch.length > 1 && !spirits.some(s => s.name.toLowerCase() === addSearch.toLowerCase())
+
+  const addExistingLine = (spirit: Spirit) => {
+    setDeliveryLines(prev => [...prev, {
+      localId: Math.random().toString(36).slice(2),
+      spiritId: spirit.id,
+      spiritName: spirit.name,
+      category: spirit.category,
+      bottleSizeML: spirit.bottle_size_ml,
+      qty: 1,
+      isNew: false,
+    }])
+    setAddSearch('')
+    setAddNewForm(null)
+  }
+
+  const startCreateLine = () => {
+    setAddNewForm({ name: addSearch, category: 'Gin', bottleSize: 700 })
+  }
+
+  const confirmNewLine = () => {
+    if (!addNewForm?.name) return
+    setDeliveryLines(prev => [...prev, {
+      localId: Math.random().toString(36).slice(2),
+      spiritId: null,
+      spiritName: addNewForm.name,
+      category: addNewForm.category,
+      bottleSizeML: addNewForm.bottleSize,
+      qty: 1,
+      isNew: true,
+    }])
+    setAddSearch('')
+    setAddNewForm(null)
+  }
+
+  const handleReceiveDelivery = async () => {
+    if (deliveryLines.length === 0) return
+    setDeliveryLoading(true)
+    try {
+      for (const line of deliveryLines) {
+        if (line.isNew) {
+          const { data: newSpirit, error } = await supabase.from('bar_spirits').insert({
+            name: line.spiritName,
+            category: line.category,
+            bottle_size_ml: line.bottleSizeML,
+            full_bottles: line.qty,
+            open_ml: 0,
+            used_classics_ml: 0,
+          }).select().single()
+          if (error) throw error
+          setSpirits(prev => [...prev, newSpirit as Spirit])
+        } else {
+          const spirit = spirits.find(s => s.id === line.spiritId)
+          if (!spirit) continue
+          const { error } = await supabase.from('bar_spirits')
+            .update({ full_bottles: spirit.full_bottles + line.qty })
+            .eq('id', spirit.id)
+          if (error) throw error
+          setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles + line.qty } : s))
+        }
+      }
+      toast(`Delivery received — ${deliveryLines.length} spirit${deliveryLines.length > 1 ? 's' : ''} updated`, 'success')
+      setDeliveryLines([])
+      setDeliveryDate(new Date().toISOString().split('T')[0])
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to receive delivery', 'error')
+    }
+    setDeliveryLoading(false)
+  }
 
   // ── EON state ───────────────────────────────────────────────────────────────
   const [eonDate, setEonDate] = useState(new Date().toISOString().split('T')[0])
@@ -740,6 +836,146 @@ export function BarInventoryClient({
             <div className="flex flex-col items-center justify-center py-12 text-[#5A5865] gap-2">
               <Moon size={32} />
               <p className="text-sm">Tap + on each cocktail sold tonight</p>
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* ── RECEIVE STOCK ── */}
+      {tab === 'receive' && (
+        <div className="space-y-5">
+          <div className="flex items-center gap-3">
+            <div>
+              <label className="label">Delivery Date</label>
+              <input type="date" className="input" value={deliveryDate} onChange={e => setDeliveryDate(e.target.value)} />
+            </div>
+          </div>
+
+          {/* Line items */}
+          {deliveryLines.length > 0 && (
+            <div className="space-y-2">
+              {deliveryLines.map(line => (
+                <div key={line.localId} className="card flex items-center gap-3">
+                  <div className="flex-1 min-w-0">
+                    <div className="flex items-center gap-2">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{line.spiritName}</p>
+                      {line.isNew && <span className="text-[10px] px-1.5 py-0.5 rounded-full bg-emerald-500/10 text-emerald-400 border border-emerald-500/20">New</span>}
+                    </div>
+                    <p className="text-[#5A5865] text-xs">{line.category} · {line.bottleSizeML}ml bottles</p>
+                  </div>
+                  <div className="flex items-center gap-2 flex-shrink-0">
+                    <button onClick={() => setDeliveryLines(prev => prev.map(l => l.localId === line.localId ? { ...l, qty: Math.max(1, l.qty - 1) } : l))}
+                      className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                    <span className="w-10 text-center text-[#F0EEF6] font-bold">{line.qty}</span>
+                    <button onClick={() => setDeliveryLines(prev => prev.map(l => l.localId === line.localId ? { ...l, qty: l.qty + 1 } : l))}
+                      className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                  </div>
+                  <p className="text-[#9896A4] text-xs flex-shrink-0 w-16 text-right">{line.qty} btl</p>
+                  <button onClick={() => setDeliveryLines(prev => prev.filter(l => l.localId !== line.localId))}
+                    className="text-[#5A5865] hover:text-rose-400 flex-shrink-0">
+                    <X size={14} />
+                  </button>
+                </div>
+              ))}
+            </div>
+          )}
+
+          {/* Add spirit search */}
+          {!addNewForm ? (
+            <div className="relative">
+              <div className="relative">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+                <input
+                  type="text"
+                  value={addSearch}
+                  onChange={e => setAddSearch(e.target.value)}
+                  placeholder="Search or type a spirit name to add..."
+                  className="input pl-8"
+                />
+                {addSearch && (
+                  <button onClick={() => setAddSearch('')} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#F0EEF6]">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+
+              {(filteredAddResults.length > 0 || showCreateOption) && (
+                <div className="absolute z-10 w-full mt-1 bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden shadow-xl">
+                  {filteredAddResults.map(s => (
+                    <button key={s.id} onClick={() => addExistingLine(s)}
+                      className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#1A1A1E] transition-colors text-left">
+                      <div>
+                        <p className="text-[#F0EEF6] text-sm font-medium">{s.name}</p>
+                        <p className="text-[#5A5865] text-xs">{s.category} · {s.bottle_size_ml}ml · {s.full_bottles} btl in stock</p>
+                      </div>
+                      <Plus size={14} className="text-[#8B5CF6] flex-shrink-0" />
+                    </button>
+                  ))}
+                  {showCreateOption && (
+                    <button onClick={startCreateLine}
+                      className="w-full flex items-center gap-3 px-4 py-3 hover:bg-emerald-500/5 transition-colors text-left border-t border-[#2A2A30]">
+                      <Plus size={14} className="text-emerald-400 flex-shrink-0" />
+                      <div>
+                        <p className="text-emerald-400 text-sm font-medium">Create "{addSearch}"</p>
+                        <p className="text-[#5A5865] text-xs">Add as a new spirit</p>
+                      </div>
+                    </button>
+                  )}
+                </div>
+              )}
+            </div>
+          ) : (
+            /* Inline new spirit form */
+            <div className="bg-[#1A1A1E] border border-emerald-500/20 rounded-xl p-4 space-y-3">
+              <p className="text-emerald-400 text-sm font-medium flex items-center gap-2">
+                <Plus size={13} /> New Spirit — {addNewForm.name}
+              </p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Category</label>
+                  <select value={addNewForm.category} onChange={e => setAddNewForm(f => f ? { ...f, category: e.target.value } : f)} className="input">
+                    {SPIRIT_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Bottle Size (ml)</label>
+                  <input type="number" min="100" value={addNewForm.bottleSize}
+                    onChange={e => setAddNewForm(f => f ? { ...f, bottleSize: parseInt(e.target.value) || 700 } : f)}
+                    className="input" placeholder="700" />
+                </div>
+              </div>
+              <div className="flex gap-2">
+                <button onClick={() => { setAddNewForm(null); setAddSearch('') }} className="btn-secondary flex-1 text-xs">Cancel</button>
+                <button onClick={confirmNewLine} className="flex-1 bg-emerald-600 hover:bg-emerald-700 text-white text-xs font-medium py-2 px-4 rounded-lg flex items-center justify-center gap-1.5">
+                  <Plus size={13} /> Add to Delivery
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Submit */}
+          {deliveryLines.length > 0 && !addNewForm && (
+            <div className="card border-[#8B5CF6]/20 space-y-3">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider">Delivery Summary</p>
+              <div className="space-y-1">
+                {deliveryLines.map(line => (
+                  <div key={line.localId} className="flex items-center justify-between text-sm">
+                    <span className="text-[#9896A4]">{line.spiritName}</span>
+                    <span className="text-[#F0EEF6] font-medium">+{line.qty} bottle{line.qty > 1 ? 's' : ''}</span>
+                  </div>
+                ))}
+              </div>
+              <button onClick={handleReceiveDelivery} disabled={deliveryLoading} className="btn-primary w-full disabled:opacity-50 flex items-center justify-center gap-2">
+                <Truck size={14} /> {deliveryLoading ? 'Receiving...' : `Confirm Delivery · ${deliveryLines.length} spirit${deliveryLines.length > 1 ? 's' : ''}`}
+              </button>
+            </div>
+          )}
+
+          {deliveryLines.length === 0 && !addNewForm && !addSearch && (
+            <div className="flex flex-col items-center justify-center py-12 text-[#5A5865] gap-2">
+              <Truck size={32} />
+              <p className="text-sm">Search for spirits above to add them to this delivery</p>
+              <p className="text-xs text-[#3A3A42]">New spirits not in your list can be created on the spot</p>
             </div>
           )}
         </div>
