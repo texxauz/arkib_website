@@ -172,7 +172,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
 
               {/* Perm preview */}
               <div className="flex flex-wrap gap-1">
-                {ALL_TABS.slice(0, 6).map(tab => {
+                {ALL_TABS.map(tab => {
                   const p = perms[tab.key] ?? 'none'
                   if (p === 'none') return null
                   return (
