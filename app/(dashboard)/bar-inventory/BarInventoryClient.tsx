@@ -15,6 +15,7 @@ import {
 type Spirit = {
   id: string; name: string; category: string; bottle_size_ml: number
   full_bottles: number; open_ml: number; used_classics_ml: number
+  min_bottles: number
 }
 type Recipe = {
   id: string; premix_name: string; ingredient_name: string
@@ -1069,6 +1070,7 @@ export function BarInventoryClient({
               { label: 'Full Bottles', key: 'full_bottles' },
               { label: 'Open ml', key: 'open_ml' },
               { label: 'Used in Classics (ml)', key: 'used_classics_ml' },
+              { label: 'Min Stock (bottles)', key: 'min_bottles' },
             ].map(({ label, key }) => (
               <div key={key}>
                 <label className="label">{label}</label>

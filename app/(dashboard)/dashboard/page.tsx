@@ -30,6 +30,7 @@ export default async function DashboardPage() {
     { data: weeklySalesRaw },
     { data: weeklyExpensesRaw },
     { data: monthlyCOGSRaw },
+    { data: allSpirits },
   ] = await Promise.all([
     supabase.from('daily_sales').select('*').eq('date', today).single(),
     supabase.from('daily_sales').select('*').gte('date', firstOfMonth).lte('date', lastOfMonth).order('date', { ascending: true }),
@@ -39,6 +40,7 @@ export default async function DashboardPage() {
     supabase.from('daily_sales').select('date, total_revenue').gte('date', eightWeeksAgoStr).order('date'),
     supabase.from('expenses').select('date, amount').gte('date', eightWeeksAgoStr).is('deleted_at', null),
     supabase.from('cocktail_sales').select('date, total_cogs, total_revenue').gte('date', firstOfMonth).lte('date', lastOfMonth),
+    supabase.from('bar_spirits').select('name, full_bottles, min_bottles'),
   ])
 
   const monthlySales = (monthlySalesRaw ?? []) as any[]
@@ -110,7 +112,7 @@ export default async function DashboardPage() {
       expenseByCategory={expenseByCategory}
       monthlySales={monthlySales}
       weeklyPnL={weeklyPnL}
-      lowStock={[]}
+      lowStock={(allSpirits ?? []).filter((s: any) => s.full_bottles < s.min_bottles).map((s: any) => ({ name: s.name, current_stock: s.full_bottles, min_stock_level: s.min_bottles }))}
       month={month}
       year={year}
     />
