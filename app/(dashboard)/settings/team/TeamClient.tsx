@@ -15,6 +15,7 @@ const ALL_TABS = [
   { key: 'receipts', label: 'Receipts' },
   { key: 'bar-inventory', label: 'Bar Stock' },
   { key: 'cocktails', label: 'Cocktails' },
+  { key: 'shifts', label: 'Shifts' },
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
 ]
