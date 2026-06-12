@@ -110,6 +110,7 @@ export function BarInventoryClient({
   const [premixes, setPremixes] = useState(initialPremixes)
   const [activities, setActivities] = useState(initialActivities)
   const [logOpen, setLogOpen] = useState(false)
+  const [editActivityId, setEditActivityId] = useState<string | null>(null)
   const [editSpirit, setEditSpirit] = useState<Spirit | null>(null)
   const [editInfusion, setEditInfusion] = useState<Infusion | null>(null)
   const [editPremix, setEditPremix] = useState<Premix | null>(null)
@@ -498,6 +499,46 @@ export function BarInventoryClient({
     setLoading(false)
   }
 
+  const openEditActivity = (a: Activity) => {
+    setEditActivityId(a.id)
+    setLogForm({
+      activity_type: a.activity_type as any,
+      product: a.product,
+      qty: String(a.qty),
+      vol_ml: a.vol_ml ? String(a.vol_ml) : '',
+      notes: a.notes ?? '',
+      spirit_1: a.spirit_1 ?? '', vol_1: a.vol_1 ? String(a.vol_1) : '',
+      spirit_2: a.spirit_2 ?? '', vol_2: a.vol_2 ? String(a.vol_2) : '',
+      spirit_3: a.spirit_3 ?? '', vol_3: a.vol_3 ? String(a.vol_3) : '',
+      logged_at: new Date(a.logged_at).toISOString().slice(0, 16),
+    })
+    setLogOpen(true)
+  }
+
+  const handleUpdateActivity = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!editActivityId) return
+    setLoading(true)
+    const { data, error } = await supabase.from('bar_activity_log').update({
+      activity_type: logForm.activity_type,
+      product: logForm.product,
+      qty: parseInt(logForm.qty) || 1,
+      vol_ml: parseInt(logForm.vol_ml) || null,
+      notes: logForm.notes || null,
+      spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
+      spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
+      spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
+    }).eq('id', editActivityId).select().single()
+    if (error) { toast(error.message, 'error') }
+    else {
+      setActivities(prev => prev.map(a => a.id === editActivityId ? data as Activity : a))
+      toast('Activity updated', 'success')
+      setLogOpen(false)
+      setEditActivityId(null)
+    }
+    setLoading(false)
+  }
+
   // ── Edit Spirit ─────────────────────────────────────────────────────────────
   const saveSpirit = async (s: Spirit) => {
     setLoading(true)
@@ -806,7 +847,7 @@ export function BarInventoryClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A30] bg-[#0D0D0F]">
-                  {['Date & Time', 'Week', 'Type', 'Product', 'Qty', 'Vol (ml)', 'Notes', 'Spirits Used'].map(h => (
+                  {['Date & Time', 'Week', 'Type', 'Product', 'Qty', 'Vol (ml)', 'Notes', 'Spirits Used', ...(isAdmin ? [''] : [])].map(h => (
                     <th key={h} className="text-left px-3 py-2.5 text-[#5A5865] text-xs font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
@@ -836,6 +877,11 @@ export function BarInventoryClient({
                     <td className="px-3 py-2.5 text-[#9896A4] text-xs whitespace-nowrap">
                       {[a.spirit_1 && `${a.spirit_1} ${a.vol_1}ml`, a.spirit_2 && `${a.spirit_2} ${a.vol_2}ml`, a.spirit_3 && `${a.spirit_3} ${a.vol_3}ml`].filter(Boolean).join(' · ') || '—'}
                     </td>
+                    {isAdmin && (
+                      <td className="px-3 py-2.5">
+                        <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
+                      </td>
+                    )}
                   </tr>
                 ))}
               </tbody>
@@ -1220,8 +1266,8 @@ export function BarInventoryClient({
       )}
 
       {/* ── LOG ACTIVITY MODAL ── */}
-      <Modal isOpen={logOpen} onClose={() => setLogOpen(false)} title="Log Activity" size="md">
-        <form onSubmit={handleLogActivity} className="space-y-4">
+      <Modal isOpen={logOpen} onClose={() => { setLogOpen(false); setEditActivityId(null) }} title={editActivityId ? 'Edit Activity' : 'Log Activity'} size="md">
+        <form onSubmit={editActivityId ? handleUpdateActivity : handleLogActivity} className="space-y-4">
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="label">Date & Time</label>
@@ -1291,9 +1337,9 @@ export function BarInventoryClient({
           </div>
 
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={() => setLogOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            <button type="button" onClick={() => { setLogOpen(false); setEditActivityId(null) }} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={loading || !logForm.product} className="btn-primary flex-1 disabled:opacity-50">
-              {loading ? 'Saving...' : 'Log Activity'}
+              {loading ? 'Saving...' : editActivityId ? 'Update Activity' : 'Log Activity'}
             </button>
           </div>
         </form>
