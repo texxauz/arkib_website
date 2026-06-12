@@ -34,6 +34,9 @@ type Premix = {
 type Cocktail = {
   id: string; name: string; selling_price: number; total_cost: number
 }
+type MenuItem = {
+  id: string; name: string; category: string; price: number; is_active: boolean; sort_order: number
+}
 type Activity = {
   id: string; logged_at: string; week_number: number | null
   activity_type: string; product: string; qty: number; vol_ml: number | null
@@ -88,7 +91,7 @@ const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function BarInventoryClient({
-  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes, cocktails,
+  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes, cocktails, initialMenuItems, isAdmin,
 }: {
   initialSpirits: Spirit[]
   initialInfusions: Infusion[]
@@ -96,6 +99,8 @@ export function BarInventoryClient({
   initialActivities: Activity[]
   recipes: Recipe[]
   cocktails: Cocktail[]
+  initialMenuItems: MenuItem[]
+  isAdmin: boolean
 }) {
   const supabase = createClient()
   const { toast } = useToast()
@@ -111,6 +116,11 @@ export function BarInventoryClient({
   const [loading, setLoading] = useState(false)
   const [spiritFilter, setSpiritFilter] = useState('')
   const [categoryFilter, setCategoryFilter] = useState('All')
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems)
+  const [eonMenuQty, setEonMenuQty] = useState<Record<string, number>>({})
+  const [menuItemModal, setMenuItemModal] = useState(false)
+  const [editMenuItem, setEditMenuItem] = useState<MenuItem | null>(null)
+  const [menuItemForm, setMenuItemForm] = useState({ name: '', category: 'classic', price: '' })
 
   // Log activity form
   const [logForm, setLogForm] = useState({
@@ -211,28 +221,50 @@ export function BarInventoryClient({
   const [eonLoading, setEonLoading] = useState(false)
 
   const eonEntries = cocktails.filter(c => (eonQty[c.id] ?? 0) > 0)
-  const eonTotalRevenue = eonEntries.reduce((s, c) => s + c.selling_price * eonQty[c.id], 0)
+  const eonMenuEntries = menuItems.filter(m => m.is_active && (eonMenuQty[m.id] ?? 0) > 0)
+  const eonCocktailRevenue = eonEntries.reduce((s, c) => s + c.selling_price * eonQty[c.id], 0)
+  const eonMenuRevenue = eonMenuEntries.reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+  const eonTotalRevenue = eonCocktailRevenue + eonMenuRevenue
   const eonTotalCOGS = eonEntries.reduce((s, c) => s + c.total_cost * eonQty[c.id], 0)
   const eonGrossProfit = eonTotalRevenue - eonTotalCOGS
   const eonMargin = eonTotalRevenue > 0 ? (eonGrossProfit / eonTotalRevenue) * 100 : 0
-  const eonTotalQty = eonEntries.reduce((s, c) => s + eonQty[c.id], 0)
+  const eonTotalQty = eonEntries.reduce((s, c) => s + eonQty[c.id], 0) + eonMenuEntries.reduce((s, m) => s + eonMenuQty[m.id], 0)
 
   const handleEON = async () => {
-    if (eonEntries.length === 0) return
+    if (eonEntries.length === 0 && eonMenuEntries.length === 0) return
     setEonLoading(true)
     try {
-      // Insert cocktail sales rows
-      const { error: salesErr } = await supabase.from('cocktail_sales').insert(
-        eonEntries.map(c => ({
-          date: eonDate,
-          cocktail_name: c.name,
-          cocktail_id: c.id,
-          quantity: eonQty[c.id],
-          unit_price: c.selling_price,
-          unit_cost: c.total_cost,
-        }))
-      )
-      if (salesErr) throw salesErr
+      // Insert house cocktail sales
+      if (eonEntries.length > 0) {
+        const { error: salesErr } = await supabase.from('cocktail_sales').insert(
+          eonEntries.map(c => ({
+            date: eonDate,
+            cocktail_name: c.name,
+            cocktail_id: c.id,
+            quantity: eonQty[c.id],
+            unit_price: c.selling_price,
+            unit_cost: c.total_cost,
+            category: 'house_cocktail',
+          }))
+        )
+        if (salesErr) throw salesErr
+      }
+
+      // Insert menu item sales (classics, wine, whisky)
+      if (eonMenuEntries.length > 0) {
+        const { error: menuSalesErr } = await supabase.from('cocktail_sales').insert(
+          eonMenuEntries.map(m => ({
+            date: eonDate,
+            cocktail_name: m.name,
+            cocktail_id: null,
+            quantity: eonMenuQty[m.id],
+            unit_price: m.price,
+            unit_cost: 0,
+            category: m.category,
+          }))
+        )
+        if (menuSalesErr) throw menuSalesErr
+      }
 
       // Update bar_premixes sold_serves
       for (const c of eonEntries) {
@@ -244,19 +276,28 @@ export function BarInventoryClient({
         }
       }
 
+      // Revenue buckets
+      const wineRevenue = eonMenuEntries.filter(m => m.category === 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const cocktailsRevenue = eonCocktailRevenue
+
       // Upsert daily_sales
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
       if (existing) {
         await supabase.from('daily_sales').update({
           total_revenue: existing.total_revenue + eonTotalRevenue,
-          cocktails_revenue: (existing.cocktails_revenue ?? 0) + eonTotalRevenue,
+          cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
+          wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
+          others_revenue: (existing.others_revenue ?? 0) + othersRevenue,
           transaction_count: existing.transaction_count + eonTotalQty,
         }).eq('date', eonDate)
       } else {
         await supabase.from('daily_sales').insert({
           date: eonDate,
           total_revenue: eonTotalRevenue,
-          cocktails_revenue: eonTotalRevenue,
+          cocktails_revenue: cocktailsRevenue,
+          wine_revenue: wineRevenue,
+          others_revenue: othersRevenue,
           beer_revenue: 0,
           food_revenue: 0,
           transaction_count: eonTotalQty,
@@ -264,12 +305,46 @@ export function BarInventoryClient({
         })
       }
 
-      toast(`End of night logged — ${eonEntries.length} cocktails · ${formatCurrency(eonTotalRevenue)}`, 'success')
+      toast(`End of night logged · ${formatCurrency(eonTotalRevenue)}`, 'success')
       setEonQty({})
+      setEonMenuQty({})
     } catch (err: any) {
       toast(err.message ?? 'Failed to submit', 'error')
     }
     setEonLoading(false)
+  }
+
+  // ── Menu item CRUD ────────────────────────────────────────────────────────────
+  const openAddMenuItem = () => {
+    setEditMenuItem(null)
+    setMenuItemForm({ name: '', category: 'classic', price: '' })
+    setMenuItemModal(true)
+  }
+  const openEditMenuItem = (m: MenuItem) => {
+    setEditMenuItem(m)
+    setMenuItemForm({ name: m.name, category: m.category, price: String(m.price) })
+    setMenuItemModal(true)
+  }
+  const handleSaveMenuItem = async () => {
+    const payload = { name: menuItemForm.name, category: menuItemForm.category, price: parseFloat(menuItemForm.price) || 0 }
+    if (editMenuItem) {
+      const { data, error } = await supabase.from('menu_items').update(payload).eq('id', editMenuItem.id).select().single()
+      if (error) { toast(error.message, 'error'); return }
+      setMenuItems(prev => prev.map(m => m.id === editMenuItem.id ? data as MenuItem : m))
+      toast('Item updated', 'success')
+    } else {
+      const { data, error } = await supabase.from('menu_items').insert({ ...payload, is_active: true, sort_order: 0 }).select().single()
+      if (error) { toast(error.message, 'error'); return }
+      setMenuItems(prev => [...prev, data as MenuItem])
+      toast('Item added', 'success')
+    }
+    setMenuItemModal(false)
+  }
+  const handleDeleteMenuItem = async (id: string) => {
+    const { error } = await supabase.from('menu_items').delete().eq('id', id)
+    if (error) { toast(error.message, 'error'); return }
+    setMenuItems(prev => prev.filter(m => m.id !== id))
+    toast('Item removed', 'success')
   }
 
   // ── Computed stats ──────────────────────────────────────────────────────────
@@ -771,15 +846,22 @@ export function BarInventoryClient({
 
       {/* ── END OF NIGHT ── */}
       {tab === 'eod' && (
-        <div className="space-y-4">
-          <div className="flex items-center gap-3">
+        <div className="space-y-6">
+          <div className="flex items-center justify-between">
             <div>
               <label className="label">Date</label>
               <input type="date" className="input" value={eonDate} onChange={e => setEonDate(e.target.value)} />
             </div>
+            {isAdmin && (
+              <button onClick={openAddMenuItem} className="btn-secondary flex items-center gap-2 text-xs">
+                <Plus size={13} /> Manage Items
+              </button>
+            )}
           </div>
 
+          {/* House Cocktails */}
           <div className="space-y-2">
+            <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">House Cocktails</p>
             {cocktails.map(c => {
               const qty = eonQty[c.id] ?? 0
               return (
@@ -806,6 +888,96 @@ export function BarInventoryClient({
             })}
           </div>
 
+          {/* Classics */}
+          {menuItems.filter(m => m.is_active && m.category === 'classic').length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Classic Cocktails</p>
+              {menuItems.filter(m => m.is_active && m.category === 'classic').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
+                const qty = eonMenuQty[m.id] ?? 0
+                return (
+                  <div key={m.id} className="card flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                    </div>
+                    {qty > 0 && (
+                      <div className="text-right w-24 flex-shrink-0">
+                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Wine */}
+          {menuItems.filter(m => m.is_active && m.category === 'wine').length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Wine</p>
+              {menuItems.filter(m => m.is_active && m.category === 'wine').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
+                const qty = eonMenuQty[m.id] ?? 0
+                return (
+                  <div key={m.id} className="card flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                    </div>
+                    {qty > 0 && (
+                      <div className="text-right w-24 flex-shrink-0">
+                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Whisky */}
+          {menuItems.filter(m => m.is_active && m.category === 'whisky').length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Whisky</p>
+              {menuItems.filter(m => m.is_active && m.category === 'whisky').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
+                const qty = eonMenuQty[m.id] ?? 0
+                return (
+                  <div key={m.id} className="card flex items-center gap-3">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2 flex-shrink-0">
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                    </div>
+                    {qty > 0 && (
+                      <div className="text-right w-24 flex-shrink-0">
+                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {eonTotalRevenue > 0 && (
             <div className="card border-[#8B5CF6]/20 space-y-3">
               <p className="text-[#9896A4] text-xs uppercase tracking-wider">Tonight's Summary</p>
@@ -828,7 +1000,7 @@ export function BarInventoryClient({
                 </div>
               </div>
               <button onClick={handleEON} disabled={eonLoading} className="btn-primary w-full disabled:opacity-50">
-                {eonLoading ? 'Submitting...' : `Submit End of Night · ${eonTotalQty} cocktails sold`}
+                {eonLoading ? 'Submitting...' : `Submit End of Night · ${eonTotalQty} items · ${formatCurrency(eonTotalRevenue)}`}
               </button>
             </div>
           )}
@@ -836,11 +1008,76 @@ export function BarInventoryClient({
           {eonTotalRevenue === 0 && (
             <div className="flex flex-col items-center justify-center py-12 text-[#5A5865] gap-2">
               <Moon size={32} />
-              <p className="text-sm">Tap + on each cocktail sold tonight</p>
+              <p className="text-sm">Tap + on each item sold tonight</p>
             </div>
           )}
         </div>
       )}
+
+      {/* ── MANAGE MENU ITEMS MODAL ── */}
+      <Modal isOpen={menuItemModal} onClose={() => setMenuItemModal(false)} title={editMenuItem ? 'Edit Item' : 'Manage Menu Items'} size="md">
+        <div className="space-y-4">
+          {/* Existing items list */}
+          {!editMenuItem && (
+            <div className="space-y-2 max-h-64 overflow-y-auto">
+              {['classic', 'wine', 'whisky'].map(cat => {
+                const catItems = menuItems.filter(m => m.category === cat)
+                if (catItems.length === 0) return null
+                return (
+                  <div key={cat}>
+                    <p className="text-[#5A5865] text-[10px] uppercase tracking-wider mb-1 font-medium">{cat === 'classic' ? 'Classics' : cat === 'wine' ? 'Wine' : 'Whisky'}</p>
+                    {catItems.map(m => (
+                      <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-[#1A1A1E]">
+                        <div className="flex-1 min-w-0">
+                          <p className="text-[#F0EEF6] text-sm truncate">{m.name}</p>
+                          <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                        </div>
+                        <div className="flex gap-1 flex-shrink-0">
+                          <button onClick={() => openEditMenuItem(m)} className="btn-ghost p-1.5 text-xs">Edit</button>
+                          <button onClick={() => handleDeleteMenuItem(m.id)} className="btn-ghost p-1.5 text-xs text-rose-400">Remove</button>
+                        </div>
+                      </div>
+                    ))}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+          <div className="border-t border-[#2A2A30] pt-4">
+            <p className="text-[#9896A4] text-xs mb-3">{editMenuItem ? 'Edit item' : 'Add new item'}</p>
+            <div className="space-y-3">
+              <div>
+                <label className="label">Name</label>
+                <input type="text" value={menuItemForm.name} onChange={e => setMenuItemForm(p => ({ ...p, name: e.target.value }))} className="input" placeholder="e.g. Negroni" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Category</label>
+                  <select value={menuItemForm.category} onChange={e => setMenuItemForm(p => ({ ...p, category: e.target.value }))} className="input">
+                    <option value="classic">Classic Cocktail</option>
+                    <option value="wine">Wine</option>
+                    <option value="whisky">Whisky</option>
+                    <option value="beer">Beer</option>
+                    <option value="other">Other</option>
+                  </select>
+                </div>
+                <div>
+                  <label className="label">Price (RM)</label>
+                  <input type="number" step="1" min="0" value={menuItemForm.price} onChange={e => setMenuItemForm(p => ({ ...p, price: e.target.value }))} className="input" placeholder="0" />
+                </div>
+              </div>
+              <div className="flex gap-3 pt-1">
+                <button onClick={() => { setEditMenuItem(null); setMenuItemForm({ name: '', category: 'classic', price: '' }) }} className="btn-secondary flex-1">
+                  {editMenuItem ? 'Cancel Edit' : 'Clear'}
+                </button>
+                <button onClick={handleSaveMenuItem} disabled={!menuItemForm.name || !menuItemForm.price} className="btn-primary flex-1 disabled:opacity-50">
+                  {editMenuItem ? 'Update' : 'Add Item'}
+                </button>
+              </div>
+            </div>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── RECEIVE STOCK ── */}
       {tab === 'receive' && (
