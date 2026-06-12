@@ -519,22 +519,61 @@ export function BarInventoryClient({
     e.preventDefault()
     if (!editActivityId) return
     setLoading(true)
-    const { data, error } = await supabase.from('bar_activity_log').update({
-      activity_type: logForm.activity_type,
-      product: logForm.product,
-      qty: parseInt(logForm.qty) || 1,
-      vol_ml: parseInt(logForm.vol_ml) || null,
-      notes: logForm.notes || null,
-      spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
-      spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
-      spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
-    }).eq('id', editActivityId).select().single()
-    if (error) { toast(error.message, 'error') }
-    else {
+    try {
+      const newQty = parseInt(logForm.qty) || 1
+      const { data, error } = await supabase.from('bar_activity_log').update({
+        activity_type: logForm.activity_type,
+        product: logForm.product,
+        qty: newQty,
+        vol_ml: parseInt(logForm.vol_ml) || null,
+        notes: logForm.notes || null,
+        spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
+        spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
+        spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
+      }).eq('id', editActivityId).select().single()
+      if (error) throw error
+
+      // Recalculate spirit inventory delta for Classic activities
+      if (logForm.activity_type === 'Classic') {
+        const old = activities.find(a => a.id === editActivityId)!
+        const oldQty = old.qty
+
+        // Build old and new spirit usage maps
+        const oldUsage: { name: string; vol: number }[] = [
+          old.spirit_1 && old.vol_1 ? { name: old.spirit_1, vol: old.vol_1 * oldQty } : null,
+          old.spirit_2 && old.vol_2 ? { name: old.spirit_2, vol: old.vol_2 * oldQty } : null,
+          old.spirit_3 && old.vol_3 ? { name: old.spirit_3, vol: old.vol_3 * oldQty } : null,
+        ].filter(Boolean) as { name: string; vol: number }[]
+
+        const newUsage: { name: string; vol: number }[] = [
+          logForm.spirit_1 && logForm.vol_1 ? { name: logForm.spirit_1, vol: parseInt(logForm.vol_1) * newQty } : null,
+          logForm.spirit_2 && logForm.vol_2 ? { name: logForm.spirit_2, vol: parseInt(logForm.vol_2) * newQty } : null,
+          logForm.spirit_3 && logForm.vol_3 ? { name: logForm.spirit_3, vol: parseInt(logForm.vol_3) * newQty } : null,
+        ].filter(Boolean) as { name: string; vol: number }[]
+
+        // Collect all spirit names involved
+        const allNames = [...new Set([...oldUsage.map(u => u.name), ...newUsage.map(u => u.name)])]
+        for (const name of allNames) {
+          const oldVol = oldUsage.find(u => u.name === name)?.vol ?? 0
+          const newVol = newUsage.find(u => u.name === name)?.vol ?? 0
+          const delta = newVol - oldVol
+          if (delta !== 0) {
+            const spirit = spirits.find(s => s.name === name)
+            if (spirit) {
+              const updated = spirit.used_classics_ml + delta
+              await supabase.from('bar_spirits').update({ used_classics_ml: updated }).eq('id', spirit.id)
+              setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: updated } : s))
+            }
+          }
+        }
+      }
+
       setActivities(prev => prev.map(a => a.id === editActivityId ? data as Activity : a))
       toast('Activity updated', 'success')
       setLogOpen(false)
       setEditActivityId(null)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to update', 'error')
     }
     setLoading(false)
   }
