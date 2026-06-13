@@ -482,6 +482,21 @@ export function BarInventoryClient({
             }
           }
         }
+        // Also deduct any manually specified raw spirits
+        const rawSpiritUpdates: { name: string; vol: number }[] = []
+        if (logForm.spirit_1 && logForm.vol_1) rawSpiritUpdates.push({ name: logForm.spirit_1, vol: parseInt(logForm.vol_1) * qty })
+        if (logForm.spirit_2 && logForm.vol_2) rawSpiritUpdates.push({ name: logForm.spirit_2, vol: parseInt(logForm.vol_2) * qty })
+        if (logForm.spirit_3 && logForm.vol_3) rawSpiritUpdates.push({ name: logForm.spirit_3, vol: parseInt(logForm.vol_3) * qty })
+        for (const u of rawSpiritUpdates) {
+          const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
+          if (spirit) {
+            await supabase.from('bar_spirits')
+              .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
+              .eq('id', spirit.id)
+            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
+            deductionSummary.push(`${u.name} −${u.vol}ml`)
+          }
+        }
         if (deductionSummary.length > 0) {
           toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
         }
@@ -547,12 +562,12 @@ export function BarInventoryClient({
       }).eq('id', editActivityId).select().single()
       if (error) throw error
 
-      // Recalculate spirit inventory delta for Classic and Infusion Made activities
-      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Classic') {
+      // Recalculate spirit inventory delta for Classic, Infusion Made, and Premix Made activities
+      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Classic' || logForm.activity_type === 'Premix Made') {
         const old = activities.find(a => a.id === editActivityId)!
         const oldQty = old.qty
         const isInfusion = logForm.activity_type === 'Infusion Made'
-        // For Infusion Made, vol fields are flat totals (not per-serve); for Classic, multiply by qty
+        // For Infusion Made, vol fields are flat totals; for Classic/Premix Made, multiply by qty
         const oldMult = isInfusion ? 1 : oldQty
         const newMult = isInfusion ? 1 : newQty
 
@@ -1365,10 +1380,10 @@ export function BarInventoryClient({
             )}
           </div>
 
-          {(logForm.activity_type === 'Classic' || logForm.activity_type === 'Infusion Made') && (
+          {(logForm.activity_type === 'Classic' || logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
             <div className="space-y-2 border border-[#2A2A30] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs font-medium">
-                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : 'Spirits Used'}
+                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : logForm.activity_type === 'Premix Made' ? 'Raw Spirits Used (per serve × qty)' : 'Spirits Used'}
               </p>
               {([1, 2, 3] as const).map(n => (
                 <div key={n} className="grid grid-cols-2 gap-2">
