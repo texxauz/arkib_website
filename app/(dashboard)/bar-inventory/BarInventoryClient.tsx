@@ -615,7 +615,9 @@ export function BarInventoryClient({
   const saveSpirit = async (s: Spirit) => {
     setLoading(true)
     const { error } = await supabase.from('bar_spirits').update({
+      name: s.name, category: s.category, bottle_size_ml: s.bottle_size_ml,
       full_bottles: s.full_bottles, open_ml: s.open_ml, used_classics_ml: s.used_classics_ml,
+      min_bottles: s.min_bottles,
     }).eq('id', s.id)
     if (error) toast(error.message, 'error')
     else {
@@ -1421,24 +1423,109 @@ export function BarInventoryClient({
 
       {/* ── EDIT SPIRIT MODAL ── */}
       {editSpirit && (
-        <Modal isOpen onClose={() => setEditSpirit(null)} title={`Edit: ${editSpirit.name}`} size="sm">
-          <div className="space-y-3">
-            {[
-              { label: 'Full Bottles', key: 'full_bottles' },
-              { label: 'Open ml', key: 'open_ml' },
-              { label: 'Used in Classics (ml)', key: 'used_classics_ml' },
-              { label: 'Min Stock (bottles)', key: 'min_bottles' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="label">{label}</label>
-                <input type="number" min="0" value={editSpirit[key as keyof Spirit] as number}
-                  onChange={e => setEditSpirit(s => s ? { ...s, [key]: parseInt(e.target.value) || 0 } : s)}
+        <Modal isOpen onClose={() => setEditSpirit(null)} title={`Edit: ${editSpirit.name}`} size="md">
+          <div className="space-y-4">
+            {/* Identity */}
+            <div className="space-y-3">
+              <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wide">Details</p>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="label">Name</label>
+                  <input type="text" value={editSpirit.name}
+                    onChange={e => setEditSpirit(s => s ? { ...s, name: e.target.value } : s)}
+                    className="input" />
+                </div>
+                <div>
+                  <label className="label">Category</label>
+                  <input type="text" value={editSpirit.category}
+                    onChange={e => setEditSpirit(s => s ? { ...s, category: e.target.value } : s)}
+                    className="input" />
+                </div>
+              </div>
+              <div>
+                <label className="label">Bottle Size (ml)</label>
+                <input type="number" min="0" value={editSpirit.bottle_size_ml}
+                  onChange={e => setEditSpirit(s => s ? { ...s, bottle_size_ml: parseInt(e.target.value) || 0 } : s)}
                   className="input" />
               </div>
-            ))}
-            <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
-              Total: {spiritTotalMl(editSpirit)}ml · Remaining: {spiritRemainingMl(editSpirit)}ml
             </div>
+
+            {/* Stock */}
+            <div className="space-y-3">
+              <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wide">Stock</p>
+              {[
+                { label: 'Full Bottles', key: 'full_bottles' },
+                { label: 'Open ml', key: 'open_ml' },
+                { label: 'Used in Classics (ml)', key: 'used_classics_ml' },
+                { label: 'Min Stock (bottles)', key: 'min_bottles' },
+              ].map(({ label, key }) => (
+                <div key={key}>
+                  <label className="label">{label}</label>
+                  <input type="number" min="0" value={editSpirit[key as keyof Spirit] as number}
+                    onChange={e => setEditSpirit(s => s ? { ...s, [key]: parseInt(e.target.value) || 0 } : s)}
+                    className="input" />
+                </div>
+              ))}
+              <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
+                Total: {spiritTotalMl(editSpirit)}ml · Remaining: {spiritRemainingMl(editSpirit)}ml
+              </div>
+            </div>
+
+            {/* Deduction History */}
+            {(() => {
+              const spiritActivities = activities.filter(a =>
+                [a.spirit_1, a.spirit_2, a.spirit_3].some(n => n?.toLowerCase() === editSpirit.name.toLowerCase())
+              )
+              if (spiritActivities.length === 0) return null
+              return (
+                <div className="space-y-2">
+                  <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wide">Deduction History ({spiritActivities.length})</p>
+                  <div className="max-h-48 overflow-y-auto space-y-1">
+                    {spiritActivities.map(a => {
+                      const vol = [
+                        a.spirit_1?.toLowerCase() === editSpirit.name.toLowerCase() ? a.vol_1 : null,
+                        a.spirit_2?.toLowerCase() === editSpirit.name.toLowerCase() ? a.vol_2 : null,
+                        a.spirit_3?.toLowerCase() === editSpirit.name.toLowerCase() ? a.vol_3 : null,
+                      ].find(v => v != null)
+                      const totalVol = (vol ?? 0) * (a.activity_type === 'Classic' || a.activity_type === 'Premix Made' ? a.qty : 1)
+                      return (
+                        <div key={a.id} className="flex items-center justify-between bg-[#0D0D0F] rounded px-3 py-2 text-xs">
+                          <div className="flex-1 min-w-0">
+                            <span className="text-white">{a.product}</span>
+                            <span className="text-[#9896A4] ml-2">{a.activity_type}</span>
+                            <span className="text-[#9896A4] ml-2">−{totalVol}ml</span>
+                          </div>
+                          <div className="text-[#9896A4] ml-3 shrink-0">
+                            {new Date(a.logged_at).toLocaleDateString('en-MY', { day: 'numeric', month: 'short' })}
+                          </div>
+                          {isAdmin && (
+                            <button
+                              onClick={async () => {
+                                if (!confirm(`Delete this activity log entry for "${a.product}"?`)) return
+                                const { error } = await supabase.from('bar_activity_log').delete().eq('id', a.id)
+                                if (error) { toast(error.message, 'error'); return }
+                                // Reverse the spirit deduction
+                                const spirit = spirits.find(s => s.id === editSpirit.id)
+                                if (spirit) {
+                                  const restored = spirit.used_classics_ml - totalVol
+                                  await supabase.from('bar_spirits').update({ used_classics_ml: restored }).eq('id', spirit.id)
+                                  setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: restored } : s))
+                                  setEditSpirit(s => s ? { ...s, used_classics_ml: Math.max(0, (s.used_classics_ml ?? 0) - totalVol) } : s)
+                                }
+                                setActivities(prev => prev.filter(x => x.id !== a.id))
+                                toast('Entry deleted and inventory restored', 'success')
+                              }}
+                              className="ml-3 text-red-400 hover:text-red-300 shrink-0"
+                            >Delete</button>
+                          )}
+                        </div>
+                      )
+                    })}
+                  </div>
+                </div>
+              )
+            })()}
+
             <div className="flex gap-3 pt-1">
               <button onClick={() => setEditSpirit(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={() => saveSpirit(editSpirit)} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
