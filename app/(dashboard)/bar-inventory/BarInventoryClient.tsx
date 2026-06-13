@@ -985,8 +985,8 @@ export function BarInventoryClient({
                             if (a.activity_type === 'Infusion Made' && a.vol_ml) {
                               const infusion = infusions.find(i => i.name.toLowerCase() === a.product.toLowerCase())
                               if (infusion) {
-                                await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - a.vol_ml) }).eq('id', infusion.id)
-                                setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - a.vol_ml) } : i))
+                                await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - (a.vol_ml ?? 0)) }).eq('id', infusion.id)
+                                setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - (a.vol_ml ?? 0)) } : i))
                               }
                             }
                             setActivities(prev => prev.filter(x => x.id !== a.id))
