@@ -953,7 +953,46 @@ export function BarInventoryClient({
                     </td>
                     {isAdmin && (
                       <td className="px-3 py-2.5">
-                        <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
+                        <div className="flex gap-2">
+                          <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
+                          <button onClick={async () => {
+                            if (!confirm(`Delete "${a.product}" activity? This will restore any spirit inventory that was deducted.`)) return
+                            const { error } = await supabase.from('bar_activity_log').delete().eq('id', a.id)
+                            if (error) { toast(error.message, 'error'); return }
+                            const qty = a.qty
+                            // Restore spirits used (Classic, Infusion Made, Premix Made)
+                            const spiritUsage: { name: string; vol: number }[] = [
+                              a.spirit_1 && a.vol_1 ? { name: a.spirit_1, vol: a.activity_type === 'Infusion Made' ? a.vol_1 : a.vol_1 * qty } : null,
+                              a.spirit_2 && a.vol_2 ? { name: a.spirit_2, vol: a.activity_type === 'Infusion Made' ? a.vol_2 : a.vol_2 * qty } : null,
+                              a.spirit_3 && a.vol_3 ? { name: a.spirit_3, vol: a.activity_type === 'Infusion Made' ? a.vol_3 : a.vol_3 * qty } : null,
+                            ].filter(Boolean) as { name: string; vol: number }[]
+                            for (const u of spiritUsage) {
+                              const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
+                              if (spirit) {
+                                const restored = Math.max(0, spirit.used_classics_ml - u.vol)
+                                await supabase.from('bar_spirits').update({ used_classics_ml: restored }).eq('id', spirit.id)
+                                setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: restored } : s))
+                              }
+                            }
+                            // Restore premix/infusion stock
+                            if (a.activity_type === 'Premix Made' && a.vol_ml) {
+                              const premix = premixes.find(p => p.name.toLowerCase() === a.product.toLowerCase() || p.cocktail_name?.toLowerCase() === a.product.toLowerCase())
+                              if (premix) {
+                                await supabase.from('bar_premixes').update({ produced_serves: Math.max(0, premix.produced_serves - qty) }).eq('id', premix.id)
+                                setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: Math.max(0, p.produced_serves - qty) } : p))
+                              }
+                            }
+                            if (a.activity_type === 'Infusion Made' && a.vol_ml) {
+                              const infusion = infusions.find(i => i.name.toLowerCase() === a.product.toLowerCase())
+                              if (infusion) {
+                                await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - a.vol_ml) }).eq('id', infusion.id)
+                                setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - a.vol_ml) } : i))
+                              }
+                            }
+                            setActivities(prev => prev.filter(x => x.id !== a.id))
+                            toast('Activity deleted and inventory restored', 'success')
+                          }} className="text-[#5A5865] hover:text-red-400 text-xs">Delete</button>
+                        </div>
                       </td>
                     )}
                   </tr>
@@ -1375,9 +1414,15 @@ export function BarInventoryClient({
             </div>
             {(logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
               <div>
-                <label className="label">Volume (ml)</label>
+                <label className="label">
+                  {logForm.activity_type === 'Premix Made' ? 'Premix Produced (ml total)' : 'Volume (ml)'}
+                </label>
                 <input type="number" min="0" value={logForm.vol_ml}
-                  onChange={e => setLogForm(f => ({ ...f, vol_ml: e.target.value }))} className="input" placeholder="500" />
+                  onChange={e => setLogForm(f => ({ ...f, vol_ml: e.target.value }))} className="input"
+                  placeholder={logForm.activity_type === 'Premix Made' ? `e.g. ${(parseInt(logForm.qty) || 1) * 175}` : '500'} />
+                {logForm.activity_type === 'Premix Made' && (
+                  <p className="text-[#5A5865] text-xs mt-1">Total batch size — updates your premix stock</p>
+                )}
               </div>
             )}
           </div>
@@ -1385,24 +1430,32 @@ export function BarInventoryClient({
           {(logForm.activity_type === 'Classic' || logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
             <div className="space-y-2 border border-[#2A2A30] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs font-medium">
-                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : logForm.activity_type === 'Premix Made' ? 'Raw Spirits Used (per serve × qty)' : 'Spirits Used'}
+                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : logForm.activity_type === 'Premix Made' ? 'Raw Spirits Used (ml per serve)' : 'Spirits Used'}
               </p>
-              {([1, 2, 3] as const).map(n => (
-                <div key={n} className="grid grid-cols-2 gap-2">
-                  <select
-                    value={logForm[`spirit_${n}` as 'spirit_1']}
-                    onChange={e => setLogForm(f => ({ ...f, [`spirit_${n}`]: e.target.value }))}
-                    className="input text-xs py-1.5">
-                    <option value="">Spirit {n}</option>
-                    {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
-                    {infusions.map(i => <option key={i.id} value={i.name}>{i.name} (infusion)</option>)}
-                  </select>
-                  <input type="number" min="0" placeholder="ml"
-                    value={logForm[`vol_${n}` as 'vol_1']}
-                    onChange={e => setLogForm(f => ({ ...f, [`vol_${n}`]: e.target.value }))}
-                    className="input text-xs py-1.5" />
-                </div>
-              ))}
+              {([1, 2, 3] as const).map(n => {
+                const volVal = logForm[`vol_${n}` as 'vol_1']
+                const qty = parseInt(logForm.qty) || 1
+                const total = logForm.activity_type === 'Premix Made' && volVal ? parseInt(volVal) * qty : null
+                return (
+                  <div key={n} className="grid grid-cols-2 gap-2">
+                    <select
+                      value={logForm[`spirit_${n}` as 'spirit_1']}
+                      onChange={e => setLogForm(f => ({ ...f, [`spirit_${n}`]: e.target.value }))}
+                      className="input text-xs py-1.5">
+                      <option value="">Spirit {n}</option>
+                      {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      {infusions.map(i => <option key={i.id} value={i.name}>{i.name} (infusion)</option>)}
+                    </select>
+                    <div className="flex items-center gap-1.5">
+                      <input type="number" min="0" placeholder="ml per serve"
+                        value={logForm[`vol_${n}` as 'vol_1']}
+                        onChange={e => setLogForm(f => ({ ...f, [`vol_${n}`]: e.target.value }))}
+                        className="input text-xs py-1.5 flex-1" />
+                      {total != null && <span className="text-[#5A5865] text-xs whitespace-nowrap">= {total}ml</span>}
+                    </div>
+                  </div>
+                )
+              })}
             </div>
           )}
 
