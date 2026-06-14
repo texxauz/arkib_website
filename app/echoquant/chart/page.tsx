@@ -133,22 +133,22 @@ export default function ChartPage() {
     }
   }, [candles, showSMA20, showSMA50, showSMA200])
 
-  // Draw pattern overlays when echoMatches changes
+  // Draw ghost candlestick overlays when echoMatches changes
   useEffect(() => {
     const chart = chartRef.current
     if (!chart || candles.length === 0 || echoMatches.length === 0) return
 
-    // Remove previous overlays by rebuilding — lightweight-charts doesn't support removeSeries in v5
-    // Instead we store and update data to empty, then rebuild with a key trick via state
-    // Simplest: just add new series each scan (cleared on next initChart)
     const lastCandle = candles[candles.length - 1]
     const basePrice = lastCandle.close
     const interval = candles.length > 1
-      ? Math.round((candles[candles.length - 1].time - candles[candles.length - 2].time))
+      ? Math.round(candles[candles.length - 1].time - candles[candles.length - 2].time)
       : 86400
 
     const top = echoMatches.slice(0, 5)
-    const allPaths: number[][] = []
+
+    // Collect normalized OHLC for each match's future candles
+    type OHLCBar = { time: number; open: number; high: number; low: number; close: number }
+    const allBars: OHLCBar[][] = []
 
     for (const match of top) {
       const startIdx = match.endIndex + 1
@@ -157,48 +157,51 @@ export default function ChartPage() {
 
       const futureSlice = candles.slice(startIdx, endIdx)
       const matchBase = candles[match.endIndex].close
-      const path = futureSlice.map(c => basePrice + (c.close - matchBase))
-      allPaths.push(path)
+      const offset = basePrice - matchBase
 
-      const ghostData = path.map((value, i) => ({
-        time: (lastCandle.time + (i + 1) * interval) as number,
-        value,
-      }))
-
-      // Ghost path (semi-transparent grey)
-      const ghostSeries = chart.addSeries(LineSeries, {
-        color: 'rgba(125,133,144,0.35)',
-        lineWidth: 1,
-        lineStyle: 0,
-        crosshairMarkerVisible: false,
-        lastValueVisible: false,
-        priceLineVisible: false,
+      // Ghost candlestick series (very transparent)
+      const ghostSeries = chart.addSeries(CandlestickSeries, {
+        upColor: 'rgba(63,185,80,0.18)',
+        downColor: 'rgba(248,81,73,0.18)',
+        borderUpColor: 'rgba(63,185,80,0.4)',
+        borderDownColor: 'rgba(248,81,73,0.4)',
+        wickUpColor: 'rgba(63,185,80,0.3)',
+        wickDownColor: 'rgba(248,81,73,0.3)',
       })
-      ghostSeries.setData(ghostData)
+
+      const bars: OHLCBar[] = futureSlice.map((c, i) => ({
+        time: (lastCandle.time + (i + 1) * interval) as number,
+        open: c.open + offset,
+        high: c.high + offset,
+        low: c.low + offset,
+        close: c.close + offset,
+      }))
+      ghostSeries.setData(bars)
+      allBars.push(bars)
     }
 
-    // Median projection (amber)
-    if (allPaths.length > 0) {
-      const minLen = Math.min(...allPaths.map(p => p.length))
-      const medianPath = Array.from({ length: minLen }, (_, i) => {
-        const vals = allPaths.map(p => p[i]).sort((a, b) => a - b)
-        return vals[Math.floor(vals.length / 2)]
-      })
+    // Median candle series (clearer amber-tinted)
+    if (allBars.length > 0) {
+      const minLen = Math.min(...allBars.map(b => b.length))
+      const median = (arr: number[]) => { const s = [...arr].sort((a, b) => a - b); return s[Math.floor(s.length / 2)] }
 
-      const medianData = medianPath.map((value, i) => ({
-        time: (lastCandle.time + (i + 1) * interval) as number,
-        value,
+      const medianBars: OHLCBar[] = Array.from({ length: minLen }, (_, i) => ({
+        time: allBars[0][i].time,
+        open: median(allBars.map(b => b[i].open)),
+        high: median(allBars.map(b => b[i].high)),
+        low: median(allBars.map(b => b[i].low)),
+        close: median(allBars.map(b => b[i].close)),
       }))
 
-      const medianSeries = chart.addSeries(LineSeries, {
-        color: '#F59E0B',
-        lineWidth: 2,
-        crosshairMarkerVisible: true,
-        lastValueVisible: true,
-        priceLineVisible: false,
-        title: 'Echo Median',
+      const medianSeries = chart.addSeries(CandlestickSeries, {
+        upColor: 'rgba(245,158,11,0.6)',
+        downColor: 'rgba(245,158,11,0.3)',
+        borderUpColor: '#F59E0B',
+        borderDownColor: '#D97706',
+        wickUpColor: '#F59E0B',
+        wickDownColor: '#D97706',
       })
-      medianSeries.setData(medianData)
+      medianSeries.setData(medianBars)
     }
 
     setOverlayCount(top.length)
