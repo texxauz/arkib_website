@@ -47,8 +47,12 @@ export default function CSVUploader({ onUpload }: Props) {
               if (!isNaN(d.getTime())) {
                 ts = Math.floor(d.getTime() / 1000)
               } else {
-                const m = dateStr.match(/(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/)
+                // DD.MM.YYYY HH:MM
+                const m = dateStr.match(/^(\d{2})\.(\d{2})\.(\d{4})\s+(\d{2}):(\d{2})/)
                 if (m) ts = Math.floor(new Date(`${m[3]}-${m[2]}-${m[1]}T${m[4]}:${m[5]}:00Z`).getTime() / 1000)
+                // YYYY.MM.DD HH:MM:SS (Dukascopy)
+                const m2 = dateStr.match(/^(\d{4})\.(\d{2})\.(\d{2})\s+(\d{2}):(\d{2})/)
+                if (!m && m2) ts = Math.floor(new Date(`${m2[1]}-${m2[2]}-${m2[3]}T${m2[4]}:${m2[5]}:00Z`).getTime() / 1000)
               }
             }
 
