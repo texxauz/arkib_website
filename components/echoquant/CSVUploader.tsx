@@ -32,8 +32,13 @@ export default function CSVUploader({ onUpload }: Props) {
               return NaN
             }
 
-            const dateKey = Object.keys(row).find(k => ['date', 'timestamp', 'datetime'].includes(k.toLowerCase().trim()))
-            const timeKey = Object.keys(row).find(k => k.toLowerCase().trim() === 'time')
+            // Match date column: handles "Date", "Timestamp", "Datetime", "Etc/UTC", "GMT+0", etc.
+            const dateKey = Object.keys(row).find(k => {
+              const lk = k.toLowerCase().trim()
+              return ['date', 'timestamp', 'datetime', 'time'].includes(lk) ||
+                lk.startsWith('etc/') || lk.startsWith('gmt') || lk.startsWith('utc')
+            })
+            const timeKey = Object.keys(row).find(k => k.toLowerCase().trim() === 'time' && k !== dateKey)
 
             let ts = NaN
             if (dateKey) {
