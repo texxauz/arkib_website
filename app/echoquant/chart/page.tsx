@@ -22,8 +22,8 @@ export default function ChartPage() {
 
   const initChart = useCallback(() => {
     if (!chartContainerRef.current || !rsiContainerRef.current) return
-    if (chartRef.current) { chartRef.current.remove(); chartRef.current = null }
-    if (rsiChartRef.current) { rsiChartRef.current.remove(); rsiChartRef.current = null }
+    if (chartRef.current) { try { chartRef.current.remove() } catch {} chartRef.current = null }
+    if (rsiChartRef.current) { try { rsiChartRef.current.remove() } catch {} rsiChartRef.current = null }
 
     const chartOptions = {
       layout: { background: { color: '#0D1117' }, textColor: '#7D8590' },
@@ -129,8 +129,10 @@ export default function ChartPage() {
     chart.timeScale().fitContent()
 
     return () => {
-      chart.remove()
-      rsiChart.remove()
+      try { chart.remove() } catch {}
+      try { rsiChart.remove() } catch {}
+      chartRef.current = null
+      rsiChartRef.current = null
     }
   }, [candles, showSMA20, showSMA50, showSMA200])
 
