@@ -26,15 +26,15 @@ export default function CSVUploader({ onUpload }: Props) {
           for (const row of rows) {
             const getVal = (names: string[]) => {
               for (const name of names) {
-                const key = Object.keys(row).find(k => k.toLowerCase().trim() === name)
-                if (key) return parseFloat(row[key])
+                const key = Object.keys(row).find(k => k.toLowerCase().trim().replace(/["ï»¿]/g, '') === name)
+                if (key) return parseFloat(row[key].replace(/,/g, ''))
               }
               return NaN
             }
 
             // Match date column: handles "Date", "Timestamp", "Datetime", "Etc/UTC", "GMT+0", etc.
             const dateKey = Object.keys(row).find(k => {
-              const lk = k.toLowerCase().trim()
+              const lk = k.toLowerCase().trim().replace(/[^a-z0-9/]/g, '')
               return ['date', 'timestamp', 'datetime', 'time'].includes(lk) ||
                 lk.startsWith('etc/') || lk.startsWith('gmt') || lk.startsWith('utc')
             })
@@ -59,7 +59,7 @@ export default function CSVUploader({ onUpload }: Props) {
             const open = getVal(['open'])
             const high = getVal(['high'])
             const low = getVal(['low'])
-            const close = getVal(['close'])
+            const close = getVal(['close', 'price'])
             const volume = getVal(['volume', 'vol', 'tickvol', 'tick volume']) || 0
 
             if (!isNaN(ts) && !isNaN(open) && !isNaN(high) && !isNaN(low) && !isNaN(close)) {
