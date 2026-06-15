@@ -86,7 +86,7 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic'] as const
+const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic', 'Stock Received'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -378,6 +378,7 @@ export function BarInventoryClient({
       case 'Premix Made': return premixes.map(p => p.name)
       case 'Bottle Sale': return spirits.filter(s => s.category === 'Wine').map(s => s.name)
       case 'Classic': return ['Negroni', 'Old Fashioned', 'Margarita', 'Gin & Tonic', 'Whisky Sour', 'Other']
+      case 'Stock Received': return spirits.map(s => s.name)
       default: return []
     }
   }
@@ -515,6 +516,16 @@ export function BarInventoryClient({
               .eq('id', spirit.id)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
           }
+        }
+      }
+
+      if (logForm.activity_type === 'Stock Received') {
+        const spirit = spirits.find(s => s.name.toLowerCase() === logForm.product.toLowerCase())
+        if (spirit) {
+          await supabase.from('bar_spirits')
+            .update({ full_bottles: spirit.full_bottles + qty })
+            .eq('id', spirit.id)
+          setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles + qty } : s))
         }
       }
 
@@ -941,6 +952,7 @@ export function BarInventoryClient({
                         a.activity_type === 'Infusion Made' ? 'bg-blue-500/10 text-blue-400' :
                         a.activity_type === 'Premix Made' ? 'bg-purple-500/10 text-purple-400' :
                         a.activity_type === 'Classic' ? 'bg-orange-500/10 text-orange-400' :
+                        a.activity_type === 'Stock Received' ? 'bg-teal-500/10 text-teal-400' :
                         'bg-[#2A2A30] text-[#9896A4]'
                       }`}>{a.activity_type}</span>
                     </td>
@@ -987,6 +999,13 @@ export function BarInventoryClient({
                               if (infusion) {
                                 await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - (a.vol_ml ?? 0)) }).eq('id', infusion.id)
                                 setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - (a.vol_ml ?? 0)) } : i))
+                              }
+                            }
+                            if (a.activity_type === 'Stock Received') {
+                              const spirit = spirits.find(s => s.name.toLowerCase() === a.product.toLowerCase())
+                              if (spirit) {
+                                await supabase.from('bar_spirits').update({ full_bottles: Math.max(0, spirit.full_bottles - qty) }).eq('id', spirit.id)
+                                setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: Math.max(0, s.full_bottles - qty) } : s))
                               }
                             }
                             setActivities(prev => prev.filter(x => x.id !== a.id))
@@ -1408,7 +1427,7 @@ export function BarInventoryClient({
               </select>
             </div>
             <div>
-              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : logForm.activity_type === 'Infusion Made' ? '(batches)' : '(serves)'}</label>
+              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : logForm.activity_type === 'Infusion Made' ? '(batches)' : logForm.activity_type === 'Stock Received' ? '(bottles)' : '(serves)'}</label>
               <input type="number" min="1" value={logForm.qty}
                 onChange={e => setLogForm(f => ({ ...f, qty: e.target.value }))} className="input" required />
             </div>
