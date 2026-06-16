@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, BookOpen,
   GlassWater, Building, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock
+  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock, PieChart
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,7 @@ const ALL_NAV_ITEMS = [
   { href: '/shifts', label: 'Shifts', icon: Clock, key: 'shifts' },
   { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
   { href: '/reports', label: 'Reports', icon: BarChart3, key: 'reports' },
+  { href: '/pnl', label: 'P&L', icon: PieChart, key: 'pnl' },
   { href: '/settings', label: 'Settings', icon: Settings, key: 'settings' },
   { href: '/settings/team', label: 'Team Access', icon: Users, key: 'team' },
 ]
