@@ -86,7 +86,7 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic', 'Stock Received'] as const
+const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Classic', 'Stock Received'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export function BarInventoryClient({
 
   // Log activity form
   const [logForm, setLogForm] = useState({
-    activity_type: 'Bottle Sale' as typeof ACTIVITY_TYPES[number],
+    activity_type: 'Classic' as typeof ACTIVITY_TYPES[number],
     product: '',
     qty: '1',
     vol_ml: '',
@@ -277,6 +277,17 @@ export function BarInventoryClient({
         }
       }
 
+      // Deduct bottle stock for wine/whisky menu items sold
+      for (const m of eonMenuEntries) {
+        if (m.category !== 'wine' && m.category !== 'whisky') continue
+        const qty = eonMenuQty[m.id]
+        const spirit = spirits.find(s => s.name.toLowerCase() === m.name.toLowerCase())
+        if (spirit) {
+          await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
+          setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles - qty } : s))
+        }
+      }
+
       // Revenue buckets
       const wineRevenue = eonMenuEntries.filter(m => m.category === 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
@@ -375,7 +386,6 @@ export function BarInventoryClient({
     switch (logForm.activity_type) {
       case 'Infusion Made': return infusions.map(i => i.name)
       case 'Premix Made': return premixes.map(p => p.name)
-      case 'Bottle Sale': return spirits.filter(s => s.category === 'Wine').map(s => s.name)
       case 'Classic': return ['Negroni', 'Old Fashioned', 'Margarita', 'Gin & Tonic', 'Whisky Sour', 'Other']
       case 'Stock Received': return spirits.map(s => s.name)
       default: return []
