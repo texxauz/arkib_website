@@ -18,6 +18,7 @@ const ALL_TABS = [
   { key: 'shifts', label: 'Shifts' },
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
+  { key: 'pnl', label: 'P&L' },
 ]
 
 const OWNER_FULL: Record<string, string> = Object.fromEntries(ALL_TABS.map(t => [t.key, 'edit']))
@@ -33,6 +34,7 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   suppliers: 'none',
   rent: 'none',
   reports: 'none',
+  pnl: 'none',
 }
 
 const PERM_CYCLE: Record<string, string> = { none: 'view', view: 'edit', edit: 'none' }
