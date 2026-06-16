@@ -86,7 +86,7 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic', 'Stock Received'] as const
+const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic', 'Stock Received'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export function BarInventoryClient({
 
   // Log activity form
   const [logForm, setLogForm] = useState({
-    activity_type: 'Sales' as typeof ACTIVITY_TYPES[number],
+    activity_type: 'Bottle Sale' as typeof ACTIVITY_TYPES[number],
     product: '',
     qty: '1',
     vol_ml: '',
@@ -373,7 +373,6 @@ export function BarInventoryClient({
   // ── Product options per activity type ──────────────────────────────────────
   const productOptions = () => {
     switch (logForm.activity_type) {
-      case 'Sales': return premixes.map(p => p.cocktail_name ?? p.name)
       case 'Infusion Made': return infusions.map(i => i.name)
       case 'Premix Made': return premixes.map(p => p.name)
       case 'Bottle Sale': return spirits.filter(s => s.category === 'Wine').map(s => s.name)
@@ -416,18 +415,7 @@ export function BarInventoryClient({
       if (insertError) throw insertError
 
       // Update inventory based on activity type
-      if (logForm.activity_type === 'Sales') {
-        const premix = premixes.find(p =>
-          p.cocktail_name?.toLowerCase() === logForm.product.toLowerCase() ||
-          p.name.toLowerCase().includes(logForm.product.toLowerCase())
-        )
-        if (premix) {
-          await supabase.from('bar_premixes')
-            .update({ sold_serves: premix.sold_serves + qty })
-            .eq('id', premix.id)
-          setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
-        }
-      } else if (logForm.activity_type === 'Infusion Made' && volMl) {
+      if (logForm.activity_type === 'Infusion Made' && volMl) {
         const infusion = infusions.find(i => i.name.toLowerCase() === logForm.product.toLowerCase())
         if (infusion) {
           await supabase.from('bar_infusions')
