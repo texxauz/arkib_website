@@ -37,6 +37,10 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   pnl: 'none',
 }
 
+const DEFAULT_INVESTOR: Record<string, string> = Object.fromEntries(
+  ALL_TABS.map(t => [t.key, t.key === 'pnl' ? 'view' : 'none'])
+)
+
 const PERM_CYCLE: Record<string, string> = { none: 'view', view: 'edit', edit: 'none' }
 const PERM_COLOR: Record<string, string> = {
   edit: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20',
@@ -63,11 +67,14 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setInviteOpen(true)
   }
 
+  const defaultPermsForRole = (role: string) =>
+    ['owner', 'manager'].includes(role) ? OWNER_FULL : role === 'investor' ? DEFAULT_INVESTOR : DEFAULT_BARTENDER
+
   const openEdit = (m: UserProfile) => {
     setEditTarget(m)
     setEditRole(m.role)
     setEditName(m.full_name)
-    setEditPerms(m.tab_permissions ?? (['owner', 'manager'].includes(m.role) ? OWNER_FULL : DEFAULT_BARTENDER))
+    setEditPerms(m.tab_permissions ?? defaultPermsForRole(m.role))
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -146,7 +153,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       <div className="grid grid-cols-1 gap-3">
         {list.map(m => {
           const isMe = m.id === currentUserId
-          const perms = m.tab_permissions ?? (m.role === 'owner' ? OWNER_FULL : DEFAULT_BARTENDER)
+          const perms = m.tab_permissions ?? defaultPermsForRole(m.role)
           const editCount = Object.values(perms).filter(v => v === 'edit').length
           const viewCount = Object.values(perms).filter(v => v === 'view').length
 
@@ -219,9 +226,13 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             </div>
             <div>
               <label className="label">Role</label>
-              <select className="input" value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value }))}>
+              <select className="input" value={inviteForm.role} onChange={e => {
+                setInviteForm(p => ({ ...p, role: e.target.value }))
+                setEditPerms(defaultPermsForRole(e.target.value))
+              }}>
                 <option value="staff">Bartender</option>
                 <option value="manager">Manager</option>
+                <option value="investor">Investor</option>
               </select>
             </div>
           </div>
@@ -250,10 +261,14 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             </div>
             <div>
               <label className="label">Role</label>
-              <select className="input" value={editRole} onChange={e => setEditRole(e.target.value)}>
+              <select className="input" value={editRole} onChange={e => {
+                setEditRole(e.target.value)
+                setEditPerms(defaultPermsForRole(e.target.value))
+              }}>
                 <option value="staff">Bartender</option>
                 <option value="manager">Manager</option>
                 <option value="owner">Owner</option>
+                <option value="investor">Investor</option>
               </select>
             </div>
           </div>

@@ -10,7 +10,7 @@ CREATE EXTENSION IF NOT EXISTS "pg_trgm";
 -- ENUMS
 -- ============================================================
 
-CREATE TYPE user_role AS ENUM ('owner', 'manager', 'staff');
+CREATE TYPE user_role AS ENUM ('owner', 'manager', 'staff', 'investor');
 CREATE TYPE salary_type AS ENUM ('hourly', 'fixed');
 CREATE TYPE payment_method AS ENUM ('cash', 'credit_card', 'qr_payment', 'online', 'bank_transfer', 'other');
 CREATE TYPE expense_category AS ENUM (
@@ -533,14 +533,14 @@ CREATE POLICY "Owner can manage users" ON public.users FOR ALL USING (get_user_r
 CREATE POLICY "Users can update own profile" ON public.users FOR UPDATE USING (auth.uid() = id);
 
 -- DAILY SALES policies
-CREATE POLICY "Owner and manager can view sales" ON public.daily_sales FOR SELECT
-  USING (get_user_role(auth.uid()) IN ('owner', 'manager'));
+CREATE POLICY "Owner, manager and investor can view sales" ON public.daily_sales FOR SELECT
+  USING (get_user_role(auth.uid()) IN ('owner', 'manager', 'investor'));
 CREATE POLICY "Owner and manager can manage sales" ON public.daily_sales FOR ALL
   USING (get_user_role(auth.uid()) IN ('owner', 'manager'));
 
 -- EXPENSES policies
-CREATE POLICY "Owner and manager can view expenses" ON public.expenses FOR SELECT
-  USING (get_user_role(auth.uid()) IN ('owner', 'manager'));
+CREATE POLICY "Owner, manager and investor can view expenses" ON public.expenses FOR SELECT
+  USING (get_user_role(auth.uid()) IN ('owner', 'manager', 'investor'));
 CREATE POLICY "Owner and manager can manage expenses" ON public.expenses FOR ALL
   USING (get_user_role(auth.uid()) IN ('owner', 'manager'));
 
