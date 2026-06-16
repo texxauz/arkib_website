@@ -122,6 +122,7 @@ export interface Database {
         Row: {
           id: string
           date: string
+          expense_period: string | null
           supplier_id: string | null
           supplier_name: string | null
           category: ExpenseCategory

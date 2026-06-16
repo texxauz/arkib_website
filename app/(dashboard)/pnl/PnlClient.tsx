@@ -15,7 +15,7 @@ interface Props {
     others_revenue: number
   }[]
   cogsData: { date: string; total_cogs: number }[]
-  expensesData: { date: string; amount: number; category: string }[]
+  expensesData: { date: string; expense_period: string | null; amount: number; category: string }[]
 }
 
 function monthKey(date: string) {
@@ -61,7 +61,7 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
       ensure(monthKey(c.date)).cogs += c.total_cogs
     }
     for (const ex of expensesData) {
-      const e = ensure(monthKey(ex.date))
+      const e = ensure(monthKey(ex.expense_period ?? ex.date))
       e.expenses += ex.amount
       e.expenseByCategory[ex.category] = (e.expenseByCategory[ex.category] ?? 0) + ex.amount
     }

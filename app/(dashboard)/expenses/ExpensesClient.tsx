@@ -28,6 +28,7 @@ const CATEGORY_COLORS: Record<string, string> = {
 
 const emptyForm = {
   date: new Date().toISOString().split('T')[0],
+  expense_period: '',
   supplier_id: '',
   supplier_name: '',
   category: 'alcohol' as ExpenseCategory,
@@ -76,6 +77,7 @@ export function ExpensesClient({
     setEditId(e.id)
     setForm({
       date: e.date,
+      expense_period: e.expense_period ?? '',
       supplier_id: e.supplier_id ?? '',
       supplier_name: e.supplier_name ?? '',
       category: e.category,
@@ -93,6 +95,7 @@ export function ExpensesClient({
 
     const payload = {
       date: form.date,
+      expense_period: form.expense_period || null,
       supplier_id: form.supplier_id || null,
       supplier_name: form.supplier_name || null,
       category: form.category,
@@ -242,6 +245,19 @@ export function ExpensesClient({
                 {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
               </select>
             </div>
+          </div>
+
+          <div>
+            <label className="label">Attribute to Month (optional)</label>
+            <input
+              type="month"
+              value={form.expense_period ? form.expense_period.slice(0, 7) : ''}
+              onChange={(e) => setForm(prev => ({ ...prev, expense_period: e.target.value ? `${e.target.value}-01` : '' }))}
+              className="input"
+            />
+            <p className="text-[#5A5865] text-xs mt-1">
+              Only needed if this was paid in a different month than the cost belongs to (e.g. a May bill settled in June). Leave blank to use the Date above for P&amp;L.
+            </p>
           </div>
 
           <div>

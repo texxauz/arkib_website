@@ -190,6 +190,7 @@ CREATE TABLE public.suppliers (
 CREATE TABLE public.expenses (
   id UUID PRIMARY KEY DEFAULT uuid_generate_v4(),
   date DATE NOT NULL,
+  expense_period DATE,
   supplier_id UUID REFERENCES public.suppliers(id) ON DELETE SET NULL,
   supplier_name TEXT,
   category expense_category NOT NULL,
@@ -203,6 +204,9 @@ CREATE TABLE public.expenses (
   updated_at TIMESTAMPTZ NOT NULL DEFAULT NOW(),
   deleted_at TIMESTAMPTZ
 );
+
+-- expense_period: the month this cost should be attributed to for P&L purposes
+-- (accrual basis). Defaults to `date` (cash/payment basis) when left null.
 
 -- ============================================================
 -- RECEIPTS
