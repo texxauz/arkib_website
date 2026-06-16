@@ -86,7 +86,7 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Stock Received'] as const
+const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -411,7 +411,6 @@ export function BarInventoryClient({
     switch (logForm.activity_type) {
       case 'Infusion Made': return infusions.map(i => i.name)
       case 'Premix Made': return premixes.map(p => p.name)
-      case 'Stock Received': return spirits.map(s => s.name)
       default: return []
     }
   }
@@ -522,16 +521,6 @@ export function BarInventoryClient({
         }
         if (deductionSummary.length > 0) {
           toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
-        }
-      }
-
-      if (logForm.activity_type === 'Stock Received') {
-        const spirit = spirits.find(s => s.name.toLowerCase() === logForm.product.toLowerCase())
-        if (spirit) {
-          await supabase.from('bar_spirits')
-            .update({ full_bottles: spirit.full_bottles + qty })
-            .eq('id', spirit.id)
-          setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles + qty } : s))
         }
       }
 
@@ -1458,7 +1447,7 @@ export function BarInventoryClient({
               </select>
             </div>
             <div>
-              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : logForm.activity_type === 'Infusion Made' ? '(batches)' : logForm.activity_type === 'Stock Received' ? '(bottles)' : '(serves)'}</label>
+              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : '(batches)'}</label>
               <input type="number" min="1" value={logForm.qty}
                 onChange={e => setLogForm(f => ({ ...f, qty: e.target.value }))} className="input" required />
             </div>
