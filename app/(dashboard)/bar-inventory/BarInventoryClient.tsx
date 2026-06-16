@@ -86,7 +86,7 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Classic', 'Stock Received'] as const
+const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made', 'Stock Received'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
@@ -125,7 +125,7 @@ export function BarInventoryClient({
 
   // Log activity form
   const [logForm, setLogForm] = useState({
-    activity_type: 'Classic' as typeof ACTIVITY_TYPES[number],
+    activity_type: 'Infusion Made' as typeof ACTIVITY_TYPES[number],
     product: '',
     qty: '1',
     vol_ml: '',
@@ -220,6 +220,8 @@ export function BarInventoryClient({
   const [eonDate, setEonDate] = useState(new Date().toISOString().split('T')[0])
   const [eonQty, setEonQty] = useState<Record<string, number>>({})
   const [eonLoading, setEonLoading] = useState(false)
+  const [eonClassicSpirits, setEonClassicSpirits] = useState<Record<string, { spirit_1: string; vol_1: string; spirit_2: string; vol_2: string; spirit_3: string; vol_3: string }>>({})
+  const emptyClassicSpirits = { spirit_1: '', vol_1: '', spirit_2: '', vol_2: '', spirit_3: '', vol_3: '' }
 
   const eonEntries = cocktails.filter(c => (eonQty[c.id] ?? 0) > 0)
   const eonMenuEntries = menuItems.filter(m => m.is_active && (eonMenuQty[m.id] ?? 0) > 0)
@@ -277,6 +279,28 @@ export function BarInventoryClient({
         }
       }
 
+      // Deduct spirit volumes used for classic cocktails sold (manually entered per item)
+      for (const m of eonMenuEntries) {
+        if (m.category !== 'classic') continue
+        const qty = eonMenuQty[m.id]
+        const recipe = eonClassicSpirits[m.id]
+        if (!recipe) continue
+        const picks: { name: string; volMl: string }[] = [
+          { name: recipe.spirit_1, volMl: recipe.vol_1 },
+          { name: recipe.spirit_2, volMl: recipe.vol_2 },
+          { name: recipe.spirit_3, volMl: recipe.vol_3 },
+        ]
+        for (const p of picks) {
+          if (!p.name || !p.volMl) continue
+          const totalMl = (parseInt(p.volMl) || 0) * qty
+          const spirit = spirits.find(s => s.name.toLowerCase() === p.name.toLowerCase())
+          if (spirit && totalMl > 0) {
+            await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spirit.id)
+            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
+          }
+        }
+      }
+
       // Deduct bottle stock for wine/whisky menu items sold
       for (const m of eonMenuEntries) {
         if (m.category !== 'wine' && m.category !== 'whisky') continue
@@ -320,6 +344,7 @@ export function BarInventoryClient({
       toast(`End of night logged · ${formatCurrency(eonTotalRevenue)}`, 'success')
       setEonQty({})
       setEonMenuQty({})
+      setEonClassicSpirits({})
     } catch (err: any) {
       toast(err.message ?? 'Failed to submit', 'error')
     }
@@ -386,7 +411,6 @@ export function BarInventoryClient({
     switch (logForm.activity_type) {
       case 'Infusion Made': return infusions.map(i => i.name)
       case 'Premix Made': return premixes.map(p => p.name)
-      case 'Classic': return ['Negroni', 'Old Fashioned', 'Margarita', 'Gin & Tonic', 'Whisky Sour', 'Other']
       case 'Stock Received': return spirits.map(s => s.name)
       default: return []
     }
@@ -499,22 +523,6 @@ export function BarInventoryClient({
         if (deductionSummary.length > 0) {
           toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
         }
-      } else if (logForm.activity_type === 'Classic') {
-        // Update used_classics_ml for each spirit
-        const updates: { name: string; vol: number }[] = []
-        if (logForm.spirit_1 && logForm.vol_1) updates.push({ name: logForm.spirit_1, vol: parseInt(logForm.vol_1) * qty })
-        if (logForm.spirit_2 && logForm.vol_2) updates.push({ name: logForm.spirit_2, vol: parseInt(logForm.vol_2) * qty })
-        if (logForm.spirit_3 && logForm.vol_3) updates.push({ name: logForm.spirit_3, vol: parseInt(logForm.vol_3) * qty })
-
-        for (const u of updates) {
-          const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
-          if (spirit) {
-            await supabase.from('bar_spirits')
-              .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
-              .eq('id', spirit.id)
-            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
-          }
-        }
       }
 
       if (logForm.activity_type === 'Stock Received') {
@@ -571,8 +579,8 @@ export function BarInventoryClient({
       }).eq('id', editActivityId).select().single()
       if (error) throw error
 
-      // Recalculate spirit inventory delta for Classic, Infusion Made, and Premix Made activities
-      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Classic' || logForm.activity_type === 'Premix Made') {
+      // Recalculate spirit inventory delta for Infusion Made and Premix Made activities
+      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') {
         const old = activities.find(a => a.id === editActivityId)!
         const oldQty = old.qty
         const isInfusion = logForm.activity_type === 'Infusion Made'
@@ -1070,22 +1078,47 @@ export function BarInventoryClient({
               <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Classic Cocktails</p>
               {menuItems.filter(m => m.is_active && m.category === 'classic').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
                 const qty = eonMenuQty[m.id] ?? 0
+                const recipe = eonClassicSpirits[m.id] ?? emptyClassicSpirits
+                const setRecipe = (field: keyof typeof emptyClassicSpirits, value: string) =>
+                  setEonClassicSpirits(p => ({ ...p, [m.id]: { ...(p[m.id] ?? emptyClassicSpirits), [field]: value } }))
                 return (
-                  <div key={m.id} className="card flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
-                      <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
-                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
-                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
-                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                  <div key={m.id} className="card flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                        <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                          className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                        <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                        <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                          className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                      </div>
+                      {qty > 0 && (
+                        <div className="text-right w-24 flex-shrink-0">
+                          <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                        </div>
+                      )}
                     </div>
                     {qty > 0 && (
-                      <div className="text-right w-24 flex-shrink-0">
-                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      <div className="space-y-1.5 border-t border-[#2A2A30] pt-2">
+                        <p className="text-[#5A5865] text-[10px] uppercase tracking-wider">Spirits used (ml per serve, optional)</p>
+                        {([1, 2, 3] as const).map(n => (
+                          <div key={n} className="grid grid-cols-2 gap-1.5">
+                            <select
+                              value={recipe[`spirit_${n}` as 'spirit_1']}
+                              onChange={e => setRecipe(`spirit_${n}` as 'spirit_1', e.target.value)}
+                              className="input text-xs py-1.5">
+                              <option value="">Spirit {n}</option>
+                              {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <input type="number" min="0" placeholder="ml per serve"
+                              value={recipe[`vol_${n}` as 'vol_1']}
+                              onChange={e => setRecipe(`vol_${n}` as 'vol_1', e.target.value)}
+                              className="input text-xs py-1.5" />
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1444,10 +1477,10 @@ export function BarInventoryClient({
             )}
           </div>
 
-          {(logForm.activity_type === 'Classic' || logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
+          {(logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
             <div className="space-y-2 border border-[#2A2A30] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs font-medium">
-                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : logForm.activity_type === 'Premix Made' ? 'Raw Spirits Used (ml per serve)' : 'Spirits Used'}
+                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : 'Raw Spirits Used (ml per serve)'}
               </p>
               {([1, 2, 3] as const).map(n => {
                 const volVal = logForm[`vol_${n}` as 'vol_1']
