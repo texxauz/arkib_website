@@ -132,6 +132,8 @@ export interface Database {
           receipt_url: string | null
           notes: string | null
           entered_by: string | null
+          is_paid: boolean
+          paid_at: string | null
           created_at: string
           updated_at: string
           deleted_at: string | null

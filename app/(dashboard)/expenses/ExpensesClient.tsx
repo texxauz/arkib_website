@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, EXPENSE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Receipt, Filter, Trash2 } from 'lucide-react'
+import { Plus, Receipt, Filter, Trash2, CheckCircle2 } from 'lucide-react'
 import type { Database, ExpenseCategory, PaymentMethod } from '@/types/database'
 
 type Expense = Database['public']['Tables']['expenses']['Row']
@@ -51,17 +51,33 @@ export function ExpensesClient({
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('all')
+  const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
   const filtered = useMemo(() =>
-    filterCategory === 'all' ? expenses : expenses.filter(e => e.category === filterCategory),
-    [expenses, filterCategory]
+    expenses.filter(e => {
+      if (filterCategory !== 'all' && e.category !== filterCategory) return false
+      if (filterPaid === 'paid' && !e.is_paid) return false
+      if (filterPaid === 'unpaid' && e.is_paid) return false
+      return true
+    }),
+    [expenses, filterCategory, filterPaid]
   )
 
   const totalFiltered = filtered.reduce((sum, e) => sum + e.amount, 0)
+  const totalPaid = expenses.filter(e => e.is_paid).reduce((sum, e) => sum + e.amount, 0)
+  const totalOutstanding = expenses.filter(e => !e.is_paid).reduce((sum, e) => sum + e.amount, 0)
+
+  const handleTogglePaid = async (expense: Expense) => {
+    const newPaid = !expense.is_paid
+    const { error } = await supabase.from('expenses').update({ is_paid: newPaid, paid_at: newPaid ? new Date().toISOString() : null } as any).eq('id', expense.id)
+    if (error) { toast(error.message, 'error'); return }
+    setExpenses(prev => prev.map(e => e.id === expense.id ? { ...e, is_paid: newPaid, paid_at: newPaid ? new Date().toISOString() : null } : e))
+    toast(newPaid ? 'Marked as paid' : 'Marked as unpaid', 'success')
+  }
 
   const byCategory = useMemo(() =>
     expenses.reduce((acc: Record<string, number>, e) => {
@@ -165,6 +181,36 @@ export function ExpensesClient({
         ))}
       </div>
 
+      {/* Paid/Outstanding summary */}
+      <div className="grid grid-cols-3 gap-3">
+        {([
+          { label: 'Total Expenses', value: expenses.reduce((s, e) => s + e.amount, 0), color: 'text-[#F0EEF6]' },
+          { label: 'Paid', value: totalPaid, color: 'text-emerald-400' },
+          { label: 'Outstanding', value: totalOutstanding, color: 'text-rose-400' },
+        ]).map(({ label, value, color }) => (
+          <div key={label} className="card">
+            <p className="text-[#5A5865] text-xs mb-1">{label}</p>
+            <p className={`font-bold text-lg ${color}`}>{formatCurrency(value)}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Paid filter */}
+      <div className="flex gap-1.5">
+        {(['all', 'unpaid', 'paid'] as const).map(v => (
+          <button key={v} onClick={() => setFilterPaid(v)}
+            className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+              filterPaid === v
+                ? v === 'paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                  : v === 'unpaid' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                  : 'bg-[#8B5CF6]/20 text-[#A78BFA] border-[#8B5CF6]/30'
+                : 'bg-transparent text-[#5A5865] border-[#2A2A30] hover:text-[#9896A4]'
+            }`}>
+            {v === 'all' ? `All (${expenses.length})` : v === 'paid' ? `Paid (${expenses.filter(e => e.is_paid).length})` : `Unpaid (${expenses.filter(e => !e.is_paid).length})`}
+          </button>
+        ))}
+      </div>
+
       {/* Filter bar */}
       <div className="flex items-center gap-3 flex-wrap">
         <div className="flex items-center gap-1.5 text-[#9896A4] text-xs">
@@ -219,6 +265,15 @@ export function ExpensesClient({
                 </button>
                 <div className="flex items-center gap-2 flex-shrink-0">
                   <p className="text-[#F0EEF6] font-bold">{formatCurrency(expense.amount)}</p>
+                  <button
+                    onClick={() => handleTogglePaid(expense)}
+                    className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                      expense.is_paid
+                        ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+                        : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+                    }`}>
+                    <CheckCircle2 size={11} />{expense.is_paid ? 'Paid' : 'Unpaid'}
+                  </button>
                   <button
                     onClick={() => setDeleteId(expense.id)}
                     className="btn-ghost p-2 text-rose-400 hover:bg-rose-500/10"
