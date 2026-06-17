@@ -28,6 +28,7 @@ interface Props {
   currentUserName: string
   isAdmin: boolean
   staffUsers: StaffUser[]
+  rateByUserId: Record<string, number>
 }
 
 function calcHours(start: string, end: string) {
@@ -51,7 +52,7 @@ function formatShiftDate(dt: string) {
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
-export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUserName, isAdmin, staffUsers }: Props) {
+export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUserName, isAdmin, staffUsers, rateByUserId }: Props) {
   const [shifts, setShifts] = useState<Shift[]>(initialShifts)
   const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'payroll'>('clock')
   const [now, setNow] = useState(new Date())
@@ -87,9 +88,10 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
 
   const handleClockIn = async () => {
     setClockLoading(true)
+    const rate = rateByUserId[currentUserId] ?? 10
     const { data, error } = await supabase
       .from('staff_shifts')
-      .insert({ user_id: currentUserId, clock_in: new Date().toISOString(), hourly_rate: 10.00, is_public_holiday: false })
+      .insert({ user_id: currentUserId, clock_in: new Date().toISOString(), hourly_rate: rate, is_public_holiday: false })
       .select('*, users(full_name, role)')
       .single()
     if (error) toast(error.message, 'error')
@@ -134,7 +136,8 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
 
   const openAddModal = () => {
     setEditShift(null)
-    setForm({ user_id: currentUserId, clock_in_date: new Date().toISOString().split('T')[0], clock_in_time: '20:00', clock_out_date: new Date().toISOString().split('T')[0], clock_out_time: '23:00', hourly_rate: '10', is_public_holiday: false, notes: '' })
+    const rate = rateByUserId[currentUserId] ?? 10
+    setForm({ user_id: currentUserId, clock_in_date: new Date().toISOString().split('T')[0], clock_in_time: '20:00', clock_out_date: new Date().toISOString().split('T')[0], clock_out_time: '23:00', hourly_rate: String(rate), is_public_holiday: false, notes: '' })
     setModalOpen(true)
   }
 
@@ -436,7 +439,11 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
           {isAdmin && (
             <div>
               <label className="label">Staff Member</label>
-              <select value={form.user_id} onChange={e => setForm(p => ({ ...p, user_id: e.target.value }))} className="input">
+              <select value={form.user_id} onChange={e => {
+                const uid = e.target.value
+                const rate = rateByUserId[uid] ?? 10
+                setForm(p => ({ ...p, user_id: uid, hourly_rate: p.is_public_holiday ? String(rate * 1.5) : String(rate) }))
+              }} className="input">
                 {staffUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             </div>
@@ -469,10 +476,13 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
                 <input
                   type="checkbox"
                   checked={form.is_public_holiday}
-                  onChange={e => setForm(p => ({ ...p, is_public_holiday: e.target.checked, hourly_rate: e.target.checked ? '15' : '10' }))}
+                  onChange={e => {
+                    const baseRate = rateByUserId[form.user_id] ?? parseFloat(form.hourly_rate) ?? 10
+                    setForm(p => ({ ...p, is_public_holiday: e.target.checked, hourly_rate: e.target.checked ? String(baseRate * 1.5) : String(baseRate) }))
+                  }}
                   className="w-4 h-4 rounded"
                 />
-                <span className="text-sm text-[#9896A4]">Public Holiday (RM15/hr)</span>
+                <span className="text-sm text-[#9896A4]">Public Holiday (×1.5 rate)</span>
               </label>
             </div>
           </div>
