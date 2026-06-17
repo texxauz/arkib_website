@@ -235,6 +235,14 @@ export function BarInventoryClient({
 
   const handleEON = async () => {
     if (eonEntries.length === 0 && eonMenuEntries.length === 0) return
+
+    // Bug #2: Guard against double-submission for the same date
+    const { data: existingCheck } = await supabase.from('cocktail_sales').select('id').eq('date', eonDate).limit(1)
+    if (existingCheck && existingCheck.length > 0) {
+      toast(`EON already submitted for ${eonDate}. Delete it in Sales → EON History first before resubmitting.`, 'error')
+      return
+    }
+
     setEonLoading(true)
     try {
       // Insert house cocktail sales
@@ -269,17 +277,24 @@ export function BarInventoryClient({
         if (menuSalesErr) throw menuSalesErr
       }
 
-      // Update bar_premixes sold_serves
+      // Update bar_premixes sold_serves; warn if cocktail name doesn't match any premix
+      const unmatchedPremixes: string[] = []
       for (const c of eonEntries) {
         const qty = eonQty[c.id]
         const premix = premixes.find(p => p.cocktail_name?.toLowerCase() === c.name.toLowerCase())
         if (premix) {
           await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
+        } else {
+          unmatchedPremixes.push(c.name)
         }
+      }
+      if (unmatchedPremixes.length > 0) {
+        toast(`⚠ No premix matched for: ${unmatchedPremixes.join(', ')} — sold_serves not deducted`, 'error')
       }
 
       // Deduct spirit volumes used for classic cocktails sold (manually entered per item)
+      const unmatchedClassicSpirits: string[] = []
       for (const m of eonMenuEntries) {
         if (m.category !== 'classic') continue
         const qty = eonMenuQty[m.id]
@@ -297,11 +312,17 @@ export function BarInventoryClient({
           if (spirit && totalMl > 0) {
             await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spirit.id)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
+          } else if (!spirit) {
+            unmatchedClassicSpirits.push(`${m.name} → "${p.name}"`)
           }
         }
       }
+      if (unmatchedClassicSpirits.length > 0) {
+        toast(`⚠ Spirit not found, inventory not deducted: ${unmatchedClassicSpirits.join(', ')}`, 'error')
+      }
 
-      // Deduct bottle stock for wine/whisky menu items sold
+      // Deduct bottle stock for wine/whisky menu items sold; warn if not matched
+      const unmatchedBottles: string[] = []
       for (const m of eonMenuEntries) {
         if (m.category !== 'wine' && m.category !== 'whisky') continue
         const qty = eonMenuQty[m.id]
@@ -309,13 +330,20 @@ export function BarInventoryClient({
         if (spirit) {
           await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
           setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles - qty } : s))
+        } else {
+          unmatchedBottles.push(m.name)
         }
       }
+      if (unmatchedBottles.length > 0) {
+        toast(`⚠ No spirit matched for: ${unmatchedBottles.join(', ')} — bottle stock not deducted`, 'error')
+      }
 
-      // Revenue buckets
+      // Bug #1: Correctly split revenue — classics count as cocktails, whisky separate from others
+      const classicRevenue = eonMenuEntries.filter(m => m.category === 'classic').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const wineRevenue = eonMenuEntries.filter(m => m.category === 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
-      const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
-      const cocktailsRevenue = eonCocktailRevenue
+      const whiskeyRevenue = eonMenuEntries.filter(m => m.category === 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine' && m.category !== 'classic' && m.category !== 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const cocktailsRevenue = eonCocktailRevenue + classicRevenue
 
       // Upsert daily_sales
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
@@ -324,20 +352,21 @@ export function BarInventoryClient({
           total_revenue: existing.total_revenue + eonTotalRevenue,
           cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
           wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
-          others_revenue: (existing.others_revenue ?? 0) + othersRevenue,
+          others_revenue: (existing.others_revenue ?? 0) + othersRevenue + whiskeyRevenue,
           transaction_count: existing.transaction_count + eonTotalQty,
         }).eq('date', eonDate)
       } else {
+        // Bug #8: is_balanced should be false — Sales page handles reconciliation
         await supabase.from('daily_sales').insert({
           date: eonDate,
           total_revenue: eonTotalRevenue,
           cocktails_revenue: cocktailsRevenue,
           wine_revenue: wineRevenue,
-          others_revenue: othersRevenue,
+          others_revenue: othersRevenue + whiskeyRevenue,
           beer_revenue: 0,
           food_revenue: 0,
           transaction_count: eonTotalQty,
-          is_balanced: true,
+          is_balanced: false,
         })
       }
 
