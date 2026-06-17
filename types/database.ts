@@ -153,6 +153,8 @@ export interface Database {
           ocr_amount: number | null
           ocr_raw_text: string | null
           uploaded_by: string | null
+          is_paid: boolean
+          paid_at: string | null
           created_at: string
           updated_at: string
         }
