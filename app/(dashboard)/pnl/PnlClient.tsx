@@ -2,7 +2,7 @@
 import { useMemo, useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { formatCurrency, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
-import { Download, TrendingUp, TrendingDown } from 'lucide-react'
+import { Download, TrendingUp, TrendingDown, X } from 'lucide-react'
 
 interface Props {
   salesData: {
@@ -28,7 +28,7 @@ function monthLabel(key: string) {
 }
 
 export function PnlClient({ salesData, cogsData, expensesData }: Props) {
-  const months = useMemo(() => {
+  const allMonths = useMemo(() => {
     const map: Record<string, {
       revenue: number
       cocktails: number
@@ -67,7 +67,7 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
     }
 
     return Object.entries(map)
-      .sort((a, b) => b[0].localeCompare(a[0]))
+      .sort((a, b) => a[0].localeCompare(b[0])) // ascending for range logic
       .map(([key, v]) => {
         const grossProfit = v.revenue - v.cogs
         const netProfit = grossProfit - v.expenses
@@ -76,8 +76,46 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
       })
   }, [salesData, cogsData, expensesData])
 
-  const [selectedKey, setSelectedKey] = useState<string | null>(months[0]?.key ?? null)
+  const earliestKey = allMonths[0]?.key ?? ''
+  const latestKey = allMonths[allMonths.length - 1]?.key ?? ''
+
+  const [fromKey, setFromKey] = useState<string>('')
+  const [toKey, setToKey] = useState<string>('')
+
+  const months = useMemo(() => {
+    const from = fromKey || earliestKey
+    const to = toKey || latestKey
+    return [...allMonths]
+      .filter(m => m.key >= from && m.key <= to)
+      .reverse() // descending for display
+  }, [allMonths, fromKey, toKey, earliestKey, latestKey])
+
+  // Aggregated totals for the selected range
+  const rangeTotals = useMemo(() => {
+    const revenue = months.reduce((s, m) => s + m.revenue, 0)
+    const cogs = months.reduce((s, m) => s + m.cogs, 0)
+    const expenses = months.reduce((s, m) => s + m.expenses, 0)
+    const grossProfit = revenue - cogs
+    const netProfit = grossProfit - expenses
+    const margin = revenue > 0 ? (netProfit / revenue) * 100 : 0
+    const expenseByCategory: Record<string, number> = {}
+    for (const m of months) {
+      for (const [cat, amt] of Object.entries(m.expenseByCategory)) {
+        expenseByCategory[cat] = (expenseByCategory[cat] ?? 0) + amt
+      }
+    }
+    return { revenue, cogs, grossProfit, expenses, netProfit, margin, expenseByCategory }
+  }, [months])
+
+  const isRangeFiltered = !!(fromKey || toKey)
+  const rangeLabel = isRangeFiltered
+    ? `${monthLabel(fromKey || earliestKey)} – ${monthLabel(toKey || latestKey)}`
+    : null
+
+  const [selectedKey, setSelectedKey] = useState<string | null>(null)
   const selected = months.find(m => m.key === selectedKey) ?? months[0] ?? null
+
+  const monthOptions = [...allMonths].map(m => m.key)
 
   return (
     <div className="space-y-6">
@@ -91,12 +129,88 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
         }
       />
 
+      {/* Date range filter */}
+      <div className="card">
+        <div className="flex flex-wrap items-end gap-4">
+          <div className="flex flex-col gap-1">
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider">From</label>
+            <select
+              value={fromKey}
+              onChange={e => { setFromKey(e.target.value); setSelectedKey(null) }}
+              className="input text-sm min-w-[160px]"
+            >
+              <option value="">Earliest</option>
+              {monthOptions.map(k => (
+                <option key={k} value={k}>{monthLabel(k)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex flex-col gap-1">
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider">To</label>
+            <select
+              value={toKey}
+              onChange={e => { setToKey(e.target.value); setSelectedKey(null) }}
+              className="input text-sm min-w-[160px]"
+            >
+              <option value="">Latest</option>
+              {monthOptions.map(k => (
+                <option key={k} value={k}>{monthLabel(k)}</option>
+              ))}
+            </select>
+          </div>
+          {isRangeFiltered && (
+            <button
+              onClick={() => { setFromKey(''); setToKey(''); setSelectedKey(null) }}
+              className="btn-secondary flex items-center gap-1.5 text-xs h-9"
+            >
+              <X size={12} /> Clear
+            </button>
+          )}
+          {isRangeFiltered && months.length > 1 && (
+            <div className="ml-auto text-right">
+              <p className="text-[#9896A4] text-xs">{rangeLabel}</p>
+              <p className="text-xs mt-0.5">
+                <span className={rangeTotals.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                  Net {formatCurrency(rangeTotals.netProfit)}
+                </span>
+                <span className="text-[#5A5865] mx-1">·</span>
+                <span className="text-[#9896A4]">{months.length} months</span>
+              </p>
+            </div>
+          )}
+        </div>
+      </div>
+
       {months.length === 0 ? (
         <div className="card text-center py-10">
-          <p className="text-[#5A5865] text-sm">No data yet</p>
+          <p className="text-[#5A5865] text-sm">No data for selected range</p>
         </div>
       ) : (
         <>
+          {/* Range summary (only when multi-month range selected) */}
+          {isRangeFiltered && months.length > 1 && (
+            <div className="card">
+              <p className="section-title mb-4">Range Summary — {rangeLabel}</p>
+              <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-4">
+                {[
+                  { label: 'Revenue', value: rangeTotals.revenue, color: 'text-emerald-400' },
+                  { label: 'COGS', value: rangeTotals.cogs, color: 'text-[#9896A4]' },
+                  { label: 'Gross Profit', value: rangeTotals.grossProfit, color: 'text-[#F0EEF6]' },
+                  { label: 'Expenses', value: rangeTotals.expenses, color: 'text-rose-400' },
+                  { label: 'Net Profit', value: rangeTotals.netProfit, color: rangeTotals.netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                  { label: 'Avg Margin', value: null, color: rangeTotals.margin >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+                ].map(({ label, value, color }) => (
+                  <div key={label} className="bg-[#1A1A1E] rounded-lg p-3">
+                    <p className="text-[#9896A4] text-xs mb-1">{label}</p>
+                    <p className={`font-bold text-sm ${color}`}>
+                      {value !== null ? formatCurrency(value) : `${rangeTotals.margin.toFixed(1)}%`}
+                    </p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Month-over-month summary table */}
           <div className="card overflow-x-auto">
             <p className="section-title mb-4">Monthly Summary</p>
