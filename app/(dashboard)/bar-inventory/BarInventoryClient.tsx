@@ -322,11 +322,13 @@ export function BarInventoryClient({
       }
 
       // Deduct bottle stock for wine/whisky menu items sold; warn if not matched
+      // Normalize: remove em/en dashes, parenthetical suffixes, extra spaces for fuzzy match
+      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
       const unmatchedBottles: string[] = []
       for (const m of eonMenuEntries) {
         if (m.category !== 'wine' && m.category !== 'whisky') continue
         const qty = eonMenuQty[m.id]
-        const spirit = spirits.find(s => s.name.toLowerCase() === m.name.toLowerCase())
+        const spirit = spirits.find(s => normName(s.name) === normName(m.name))
         if (spirit) {
           await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
           setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles - qty } : s))
