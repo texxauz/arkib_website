@@ -23,6 +23,8 @@ const emptyForm = {
   wine_revenue: '',
   food_revenue: '',
   others_revenue: '',
+  discount_amount: '',
+  discount_notes: '',
   cash_collected: '',
   credit_card_collected: '',
   qr_collected: '',
@@ -98,8 +100,11 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     setDeleteLoading(false)
   }
 
-  const totalRevenue = [form.cocktails_revenue, form.beer_revenue, form.wine_revenue, form.food_revenue, form.others_revenue]
+  const grossRevenue = [form.cocktails_revenue, form.beer_revenue, form.wine_revenue, form.food_revenue, form.others_revenue]
     .map(v => parseFloat(v) || 0).reduce((a, b) => a + b, 0)
+
+  const discountAmount = parseFloat(form.discount_amount) || 0
+  const totalRevenue = Math.max(0, grossRevenue - discountAmount)
 
   const totalCollected = [form.cash_collected, form.credit_card_collected, form.qr_collected, form.online_collected]
     .map(v => parseFloat(v) || 0).reduce((a, b) => a + b, 0)
@@ -121,6 +126,8 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       wine_revenue: String(sale.wine_revenue),
       food_revenue: String(sale.food_revenue),
       others_revenue: String(sale.others_revenue),
+      discount_amount: String((sale as any).discount_amount ?? ''),
+      discount_notes: (sale as any).discount_notes ?? '',
       cash_collected: String(sale.cash_collected),
       credit_card_collected: String(sale.credit_card_collected),
       qr_collected: String(sale.qr_collected),
@@ -142,6 +149,8 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       wine_revenue: parseFloat(form.wine_revenue) || 0,
       food_revenue: parseFloat(form.food_revenue) || 0,
       others_revenue: parseFloat(form.others_revenue) || 0,
+      discount_amount: discountAmount,
+      discount_notes: form.discount_notes || null,
       cash_collected: parseFloat(form.cash_collected) || 0,
       credit_card_collected: parseFloat(form.credit_card_collected) || 0,
       qr_collected: parseFloat(form.qr_collected) || 0,
@@ -359,11 +368,32 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
               ))}
               <div className="flex items-end">
                 <div className="bg-[#1A1A1E] border border-[#8B5CF6]/30 rounded-lg px-3 py-2 w-full">
-                  <p className="text-[#9896A4] text-xs">Total Revenue</p>
-                  <p className="text-[#A78BFA] font-bold">{formatCurrency(totalRevenue)}</p>
+                  <p className="text-[#9896A4] text-xs">Gross Revenue</p>
+                  <p className="text-[#A78BFA] font-bold">{formatCurrency(grossRevenue)}</p>
                 </div>
               </div>
             </div>
+          </div>
+
+          {/* Discount */}
+          <div>
+            <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wider mb-3">Discount (optional)</p>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Discount Amount</label>
+                <input type="number" step="0.01" min="0" value={form.discount_amount} onChange={f('discount_amount')} className="input" placeholder="0.00" />
+              </div>
+              <div>
+                <label className="label">Discount Reason</label>
+                <input type="text" value={form.discount_notes} onChange={f('discount_notes')} className="input" placeholder="e.g. Staff comp, VIP promo" />
+              </div>
+            </div>
+            {discountAmount > 0 && (
+              <div className="mt-2 flex items-center justify-between bg-[#1A1A1E] rounded-lg px-3 py-2">
+                <span className="text-[#9896A4] text-xs">{formatCurrency(grossRevenue)} − {formatCurrency(discountAmount)} discount</span>
+                <span className="text-[#F0EEF6] font-semibold text-sm">Net: {formatCurrency(totalRevenue)}</span>
+              </div>
+            )}
           </div>
 
           {/* Payment collection */}
@@ -383,9 +413,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           <div className={`rounded-xl p-4 border ${isBalanced ? 'border-emerald-500/20 bg-emerald-500/5' : 'border-amber-500/20 bg-amber-500/5'}`}>
             <div className="flex items-center justify-between">
               <div>
-                <p className="text-xs text-[#9896A4] mb-1">Revenue vs Collection</p>
+                <p className="text-xs text-[#9896A4] mb-1">Net Revenue vs Collection</p>
                 <div className="flex gap-4 text-sm">
-                  <span className="text-[#F0EEF6]">Revenue: <strong>{formatCurrency(totalRevenue)}</strong></span>
+                  <span className="text-[#F0EEF6]">Net: <strong>{formatCurrency(totalRevenue)}</strong></span>
                   <span className="text-[#F0EEF6]">Collected: <strong>{formatCurrency(totalCollected)}</strong></span>
                 </div>
               </div>
