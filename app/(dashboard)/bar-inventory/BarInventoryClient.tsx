@@ -278,10 +278,11 @@ export function BarInventoryClient({
       }
 
       // Update bar_premixes sold_serves; warn if cocktail name doesn't match any premix
+      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
       const unmatchedPremixes: string[] = []
       for (const c of eonEntries) {
         const qty = eonQty[c.id]
-        const premix = premixes.find(p => p.cocktail_name?.toLowerCase() === c.name.toLowerCase())
+        const premix = premixes.find(p => normName(p.cocktail_name ?? '') === normName(c.name))
         if (premix) {
           await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
@@ -308,7 +309,7 @@ export function BarInventoryClient({
         for (const p of picks) {
           if (!p.name || !p.volMl) continue
           const totalMl = (parseInt(p.volMl) || 0) * qty
-          const spirit = spirits.find(s => s.name.toLowerCase() === p.name.toLowerCase())
+          const spirit = spirits.find(s => normName(s.name) === normName(p.name))
           if (spirit && totalMl > 0) {
             await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spirit.id)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
@@ -322,8 +323,6 @@ export function BarInventoryClient({
       }
 
       // Deduct bottle stock for wine/whisky menu items sold; warn if not matched
-      // Normalize: remove em/en dashes, parenthetical suffixes, extra spaces for fuzzy match
-      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
       const unmatchedBottles: string[] = []
       for (const m of eonMenuEntries) {
         if (m.category !== 'wine' && m.category !== 'whisky') continue
