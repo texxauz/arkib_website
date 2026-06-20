@@ -142,9 +142,6 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     e.preventDefault()
     setLoading(true)
 
-    const collected = [form.cash_collected, form.credit_card_collected, form.qr_collected, form.online_collected]
-      .map(v => parseFloat(v) || 0).reduce((a, b) => a + b, 0)
-
     const payload = {
       date: form.date,
       cocktails_revenue: parseFloat(form.cocktails_revenue) || 0,
@@ -154,13 +151,10 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       others_revenue: parseFloat(form.others_revenue) || 0,
       discount_amount: discountAmount,
       discount_notes: form.discount_notes || null,
-      total_revenue: totalRevenue, // net after discount
       cash_collected: parseFloat(form.cash_collected) || 0,
       credit_card_collected: parseFloat(form.credit_card_collected) || 0,
       qr_collected: parseFloat(form.qr_collected) || 0,
       online_collected: parseFloat(form.online_collected) || 0,
-      total_collected: collected,
-      is_balanced: Math.abs(totalRevenue - collected) < 0.01,
       transaction_count: parseInt(form.transaction_count) || 0,
       notes: form.notes || null,
     }
@@ -242,14 +236,18 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             />
           ) : (
             <div className="space-y-2">
-              {sales.map(sale => (
+              {sales.map(sale => {
+                const saleDiscount = (sale as any).discount_amount ?? 0
+                const saleNet = sale.total_revenue - saleDiscount
+                const saleBalanced = Math.abs(saleNet - sale.total_collected) < 0.01
+                return (
                 <div key={sale.id} className="card-hover flex items-center justify-between gap-4">
                   <div className="flex items-center gap-3 min-w-0">
-                    <div className={`w-2 h-8 rounded-full flex-shrink-0 ${sale.is_balanced ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+                    <div className={`w-2 h-8 rounded-full flex-shrink-0 ${saleBalanced ? 'bg-emerald-400' : 'bg-amber-400'}`} />
                     <div className="min-w-0">
                       <div className="flex items-center gap-2">
                         <p className="text-[#F0EEF6] font-medium text-sm">{formatDate(sale.date)}</p>
-                        {sale.is_balanced
+                        {saleBalanced
                           ? <span className="badge-green text-[10px]"><CheckCircle2 size={10} className="mr-0.5" />Balanced</span>
                           : <span className="badge-yellow text-[10px]"><AlertTriangle size={10} className="mr-0.5" />Mismatch</span>}
                       </div>
@@ -264,13 +262,13 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                   </div>
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <div className="text-right">
-                      <p className="text-[#F0EEF6] font-bold">{formatCurrency(sale.total_revenue)}</p>
-                      {(sale as any).discount_amount > 0 && (
-                        <p className="text-[#9896A4] text-xs">Disc: -{formatCurrency((sale as any).discount_amount)}</p>
+                      <p className="text-[#F0EEF6] font-bold">{formatCurrency(saleNet)}</p>
+                      {saleDiscount > 0 && (
+                        <p className="text-[#9896A4] text-xs">Disc: -{formatCurrency(saleDiscount)}</p>
                       )}
-                      {!sale.is_balanced && (
+                      {!saleBalanced && (
                         <p className="text-amber-400 text-xs">
-                          Diff: {formatCurrency(Math.abs(sale.total_revenue - sale.total_collected))}
+                          Diff: {formatCurrency(Math.abs(saleNet - sale.total_collected))}
                         </p>
                       )}
                     </div>
@@ -279,7 +277,8 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                     </button>
                   </div>
                 </div>
-              ))}
+                )}
+              )}
             </div>
           )}
         </>
