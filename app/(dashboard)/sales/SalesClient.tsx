@@ -142,6 +142,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     e.preventDefault()
     setLoading(true)
 
+    const collected = [form.cash_collected, form.credit_card_collected, form.qr_collected, form.online_collected]
+      .map(v => parseFloat(v) || 0).reduce((a, b) => a + b, 0)
+
     const payload = {
       date: form.date,
       cocktails_revenue: parseFloat(form.cocktails_revenue) || 0,
@@ -151,10 +154,13 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       others_revenue: parseFloat(form.others_revenue) || 0,
       discount_amount: discountAmount,
       discount_notes: form.discount_notes || null,
+      total_revenue: totalRevenue, // net after discount
       cash_collected: parseFloat(form.cash_collected) || 0,
       credit_card_collected: parseFloat(form.credit_card_collected) || 0,
       qr_collected: parseFloat(form.qr_collected) || 0,
       online_collected: parseFloat(form.online_collected) || 0,
+      total_collected: collected,
+      is_balanced: Math.abs(totalRevenue - collected) < 0.01,
       transaction_count: parseInt(form.transaction_count) || 0,
       notes: form.notes || null,
     }
@@ -259,6 +265,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                   <div className="flex items-center gap-3 flex-shrink-0">
                     <div className="text-right">
                       <p className="text-[#F0EEF6] font-bold">{formatCurrency(sale.total_revenue)}</p>
+                      {(sale as any).discount_amount > 0 && (
+                        <p className="text-[#9896A4] text-xs">Disc: -{formatCurrency((sale as any).discount_amount)}</p>
+                      )}
                       {!sale.is_balanced && (
                         <p className="text-amber-400 text-xs">
                           Diff: {formatCurrency(Math.abs(sale.total_revenue - sale.total_collected))}
