@@ -1268,66 +1268,6 @@ export function BarInventoryClient({
             </div>
           )}
 
-          {/* Beer */}
-          {menuItems.filter(m => m.is_active && m.category === 'beer').length > 0 && (
-            <div className="space-y-2">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Beer</p>
-              {menuItems.filter(m => m.is_active && m.category === 'beer').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
-                const qty = eonMenuQty[m.id] ?? 0
-                return (
-                  <div key={m.id} className="flex items-center justify-between gap-3 py-1">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
-                      <p className="text-[#9896A4] text-xs">{formatCurrency(m.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
-                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
-                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
-                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
-                    </div>
-                    {qty > 0 && (
-                      <div className="text-right w-24 flex-shrink-0">
-                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
-          {/* Other */}
-          {menuItems.filter(m => m.is_active && m.category === 'other').length > 0 && (
-            <div className="space-y-2">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Other</p>
-              {menuItems.filter(m => m.is_active && m.category === 'other').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
-                const qty = eonMenuQty[m.id] ?? 0
-                return (
-                  <div key={m.id} className="flex items-center justify-between gap-3 py-1">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
-                      <p className="text-[#9896A4] text-xs">{formatCurrency(m.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-2">
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
-                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
-                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
-                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
-                    </div>
-                    {qty > 0 && (
-                      <div className="text-right w-24 flex-shrink-0">
-                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
-                      </div>
-                    )}
-                  </div>
-                )
-              })}
-            </div>
-          )}
-
           {eonTotalRevenue > 0 && (
             <div className="card border-[#8B5CF6]/20 space-y-3">
               <p className="text-[#9896A4] text-xs uppercase tracking-wider">Tonight's Summary</p>
