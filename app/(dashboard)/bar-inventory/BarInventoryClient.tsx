@@ -1368,12 +1368,13 @@ export function BarInventoryClient({
           {/* Existing items list */}
           {!editMenuItem && (
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {['classic', 'wine', 'whisky'].map(cat => {
+              {['classic', 'wine', 'whisky', 'beer', 'other'].map(cat => {
                 const catItems = menuItems.filter(m => m.category === cat)
                 if (catItems.length === 0) return null
+                const catLabel: Record<string, string> = { classic: 'Classics', wine: 'Wine', whisky: 'Whisky', beer: 'Beer', other: 'Other' }
                 return (
                   <div key={cat}>
-                    <p className="text-[#5A5865] text-[10px] uppercase tracking-wider mb-1 font-medium">{cat === 'classic' ? 'Classics' : cat === 'wine' ? 'Wine' : 'Whisky'}</p>
+                    <p className="text-[#5A5865] text-[10px] uppercase tracking-wider mb-1 font-medium">{catLabel[cat] ?? cat}</p>
                     {catItems.map(m => (
                       <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-[#1A1A1E]">
                         <div className="flex-1 min-w-0">
