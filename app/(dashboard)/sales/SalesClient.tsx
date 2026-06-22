@@ -410,7 +410,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             <div className="grid grid-cols-2 gap-3">
               {(['cash_collected', 'credit_card_collected', 'qr_collected', 'online_collected'] as const).map(key => (
                 <div key={key}>
-                  <label className="label">{PAYMENT_METHOD_LABELS[key.replace('_collected', '')] ?? key}</label>
+                  <label className="label">{PAYMENT_METHOD_LABELS[key.replace('_collected', '').replace('qr', 'qr_payment')] ?? key}</label>
                   <input type="number" step="0.01" min="0" value={form[key]} onChange={f(key)} className="input" placeholder="0.00" />
                 </div>
               ))}

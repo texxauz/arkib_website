@@ -235,6 +235,7 @@ export function BarInventoryClient({
 
   const handleEON = async () => {
     if (eonEntries.length === 0 && eonMenuEntries.length === 0) return
+    if (eonLoading) return
 
     // Bug #2: Guard against double-submission for the same date
     const { data: existingCheck } = await supabase.from('cocktail_sales').select('id').eq('date', eonDate).limit(1)

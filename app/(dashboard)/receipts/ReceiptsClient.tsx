@@ -415,11 +415,11 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
 
       {/* Tab switcher */}
       <div className="flex gap-1 bg-[#141417] border border-[#2A2A30] rounded-xl p-1 w-fit">
-        <button onClick={() => setActiveTab('receipts')}
+        <button onClick={() => { setActiveTab('receipts'); setSelected(null) }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'receipts' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
           <FileText size={14} /> Receipts
         </button>
-        <button onClick={() => setActiveTab('accounting')}
+        <button onClick={() => { setActiveTab('accounting'); setSelected(null) }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'accounting' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
           <BookOpen size={14} /> Accounting
         </button>
