@@ -405,6 +405,8 @@ export function BarInventoryClient({
       setMenuItems(prev => [...prev, data as MenuItem])
       toast('Item added', 'success')
     }
+    setEditMenuItem(null)
+    setMenuItemForm({ name: '', category: 'classic', price: '' })
     setMenuItemModal(false)
   }
   const handleDeleteMenuItem = async (id: string) => {
@@ -1419,7 +1421,7 @@ export function BarInventoryClient({
                 <button onClick={() => { setEditMenuItem(null); setMenuItemForm({ name: '', category: 'classic', price: '' }) }} className="btn-secondary flex-1">
                   {editMenuItem ? 'Cancel Edit' : 'Clear'}
                 </button>
-                <button onClick={handleSaveMenuItem} disabled={!menuItemForm.name || !menuItemForm.price} className="btn-primary flex-1 disabled:opacity-50">
+                <button onClick={handleSaveMenuItem} disabled={!menuItemForm.name || !menuItemForm.price || loading} className="btn-primary flex-1 disabled:opacity-50">
                   {editMenuItem ? 'Update' : 'Add Item'}
                 </button>
               </div>
