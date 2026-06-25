@@ -1540,6 +1540,23 @@ export function BarInventoryClient({
                 ))}
               </select>
             </div>
+            {logForm.activity_type === 'Premix Made' && logForm.product && (() => {
+              const recipeItems = recipes.filter(r => r.premix_name.toLowerCase() === logForm.product.toLowerCase())
+              if (recipeItems.length === 0) return null
+              return (
+                <div className="col-span-2 bg-[#1A1A1E] border border-[#2A2A30] rounded-lg p-3">
+                  <p className="text-[#9896A4] text-xs font-medium mb-2">Auto-deducted from recipe</p>
+                  <div className="space-y-1">
+                    {recipeItems.map(r => (
+                      <div key={r.id} className="flex justify-between text-xs">
+                        <span className="text-[#F0EEF6]">{r.ingredient_name}</span>
+                        <span className="text-[#9896A4]">{r.ml_per_serve}ml/serve · {r.ingredient_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
             <div>
               <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : '(batches)'}</label>
               <input type="number" min="1" value={logForm.qty}
