@@ -478,7 +478,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
                 </button>
               ))}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="relative">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
                 <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}

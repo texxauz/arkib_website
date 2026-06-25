@@ -91,13 +91,13 @@ const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made'] as const
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function BarInventoryClient({
-  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes, cocktails, initialMenuItems, isAdmin,
+  initialSpirits, initialInfusions, initialPremixes, initialActivities, initialRecipes, cocktails, initialMenuItems, isAdmin,
 }: {
   initialSpirits: Spirit[]
   initialInfusions: Infusion[]
   initialPremixes: Premix[]
   initialActivities: Activity[]
-  recipes: Recipe[]
+  initialRecipes: Recipe[]
   cocktails: Cocktail[]
   initialMenuItems: MenuItem[]
   isAdmin: boolean
@@ -122,6 +122,48 @@ export function BarInventoryClient({
   const [menuItemModal, setMenuItemModal] = useState(false)
   const [editMenuItem, setEditMenuItem] = useState<MenuItem | null>(null)
   const [menuItemForm, setMenuItemForm] = useState({ name: '', category: 'classic', price: '' })
+
+  // Recipe editor
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes)
+  const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
+  const [recipePremix, setRecipePremix] = useState('')
+  const [recipeForm, setRecipeForm] = useState({ ingredient_name: '', ingredient_type: 'infusion' as 'infusion' | 'spirit', ml_per_serve: '' })
+  const [recipeLoading, setRecipeLoading] = useState(false)
+
+  const recipeIngredients = recipes.filter(r => r.premix_name === recipePremix)
+
+  const handleAddRecipeIngredient = async () => {
+    if (!recipePremix || !recipeForm.ingredient_name || !recipeForm.ml_per_serve) return
+    setRecipeLoading(true)
+    try {
+      const { data, error } = await supabase.from('bar_premix_recipes').insert({
+        premix_name: recipePremix,
+        ingredient_name: recipeForm.ingredient_name,
+        ingredient_type: recipeForm.ingredient_type,
+        ml_per_serve: parseFloat(recipeForm.ml_per_serve),
+      }).select().single()
+      if (error) throw error
+      setRecipes(prev => [...prev, data as Recipe])
+      setRecipeForm({ ingredient_name: '', ingredient_type: 'infusion', ml_per_serve: '' })
+      toast('Ingredient added', 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add ingredient', 'error')
+    }
+    setRecipeLoading(false)
+  }
+
+  const handleDeleteRecipeIngredient = async (id: string) => {
+    setRecipeLoading(true)
+    try {
+      const { error } = await supabase.from('bar_premix_recipes').delete().eq('id', id)
+      if (error) throw error
+      setRecipes(prev => prev.filter(r => r.id !== id))
+      toast('Ingredient removed', 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to remove ingredient', 'error')
+    }
+    setRecipeLoading(false)
+  }
 
   // Log activity form
   const [logForm, setLogForm] = useState({
@@ -918,6 +960,14 @@ export function BarInventoryClient({
 
       {/* ── PREMIXES ── */}
       {tab === 'premixes' && (
+        <>
+        {isAdmin && (
+          <div className="flex justify-end">
+            <button onClick={() => setRecipeEditorOpen(true)} className="btn-secondary flex items-center gap-2 text-xs">
+              Edit Recipes
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-[#2A2A30]">
           <table className="w-full text-sm">
             <thead>
@@ -951,6 +1001,7 @@ export function BarInventoryClient({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ── ACTIVITY LOG ── */}
@@ -1798,6 +1849,100 @@ export function BarInventoryClient({
           </div>
         </Modal>
       )}
+
+      {/* ── RECIPE EDITOR MODAL ── */}
+      <Modal isOpen={recipeEditorOpen} onClose={() => setRecipeEditorOpen(false)} title="Edit Premix Recipes" size="md">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Select Premix</label>
+            <select
+              value={recipePremix}
+              onChange={e => setRecipePremix(e.target.value)}
+              className="input"
+            >
+              <option value="">Choose a premix...</option>
+              {premixes.map(p => (
+                <option key={p.id} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {recipePremix && (
+            <>
+              <div>
+                <p className="text-[#9896A4] text-xs font-medium mb-2">Current Ingredients — auto-deducted on Premix Made</p>
+                {recipeIngredients.length === 0 ? (
+                  <p className="text-[#5A5865] text-xs">No ingredients saved yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {recipeIngredients.map(r => (
+                      <div key={r.id} className="flex items-center justify-between bg-[#1A1A1E] rounded-lg px-3 py-2">
+                        <div>
+                          <span className="text-[#F0EEF6] text-sm">{r.ingredient_name}</span>
+                          <span className="text-[#5A5865] text-xs ml-2">{r.ml_per_serve}ml/serve · {r.ingredient_type}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteRecipeIngredient(r.id)}
+                          disabled={recipeLoading}
+                          className="text-rose-400 hover:text-rose-300 text-xs disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-[#2A2A30] pt-4">
+                <p className="text-[#9896A4] text-xs font-medium mb-3">Add Ingredient</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="label">Ingredient</label>
+                    <select
+                      value={recipeForm.ingredient_type === 'infusion'
+                        ? (infusions.find(i => i.name === recipeForm.ingredient_name) ? recipeForm.ingredient_name : '')
+                        : (spirits.find(s => s.name === recipeForm.ingredient_name) ? recipeForm.ingredient_name : '')}
+                      onChange={e => {
+                        const val = e.target.value
+                        const isInfusion = infusions.some(i => i.name === val)
+                        setRecipeForm(f => ({ ...f, ingredient_name: val, ingredient_type: isInfusion ? 'infusion' : 'spirit' }))
+                      }}
+                      className="input"
+                    >
+                      <option value="">Select ingredient...</option>
+                      <optgroup label="Infusions">
+                        {infusions.map(i => <option key={i.id} value={i.name}>{i.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Spirits">
+                        {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">ml per serve</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={recipeForm.ml_per_serve}
+                      onChange={e => setRecipeForm(f => ({ ...f, ml_per_serve: e.target.value }))}
+                      className="input"
+                      placeholder="e.g. 40"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddRecipeIngredient}
+                    disabled={recipeLoading || !recipeForm.ingredient_name || !recipeForm.ml_per_serve}
+                    className="btn-primary w-full disabled:opacity-50"
+                  >
+                    {recipeLoading ? 'Saving...' : 'Add Ingredient'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

@@ -212,7 +212,8 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
           )}
 
           {/* Month-over-month summary table */}
-          <div className="card overflow-x-auto">
+          <div className="card">
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
             <p className="section-title mb-4">Monthly Summary</p>
             <table className="w-full text-sm">
               <thead>
@@ -248,6 +249,7 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
                 ))}
               </tbody>
             </table>
+          </div>
           </div>
 
           {/* Detail breakdown for selected month */}

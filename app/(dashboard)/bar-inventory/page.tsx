@@ -26,7 +26,7 @@ export default async function BarInventoryPage() {
       initialInfusions={infusions ?? []}
       initialPremixes={premixes ?? []}
       initialActivities={activities ?? []}
-      recipes={recipes ?? []}
+      initialRecipes={recipes ?? []}
       cocktails={(cocktails ?? []) as any}
       initialMenuItems={(menuItems ?? []) as any}
       isAdmin={isAdmin ?? false}

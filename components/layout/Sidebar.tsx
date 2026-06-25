@@ -150,9 +150,9 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
         {mobileItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href
           return (
-            <Link key={href} href={href} className="flex flex-col items-center gap-1 px-3 py-1">
-              <Icon size={20} className={isActive ? 'text-[#8B5CF6]' : 'text-[#5A5865]'} />
-              <span className={cn('text-[9px] font-medium', isActive ? 'text-[#A78BFA]' : 'text-[#5A5865]')}>
+            <Link key={href} href={href} className="flex flex-col items-center gap-1 px-2 py-1 min-w-[44px]">
+              <Icon size={22} className={isActive ? 'text-[#8B5CF6]' : 'text-[#5A5865]'} />
+              <span className={cn('text-[10px] font-medium', isActive ? 'text-[#A78BFA]' : 'text-[#5A5865]')}>
                 {label}
               </span>
             </Link>

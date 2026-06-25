@@ -367,7 +367,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           {/* Revenue */}
           <div>
             <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wider mb-3">Revenue by Category</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
               {(['cocktails_revenue', 'beer_revenue', 'wine_revenue', 'food_revenue', 'others_revenue'] as const).map(key => (
                 <div key={key}>
                   <label className="label capitalize">{key.replace('_revenue', '')}</label>
@@ -386,7 +386,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           {/* Discount */}
           <div>
             <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wider mb-3">Discount (optional)</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
               <div>
                 <label className="label">Discount Amount</label>
                 <input type="number" step="0.01" min="0" value={form.discount_amount} onChange={f('discount_amount')} className="input" placeholder="0.00" />
@@ -407,7 +407,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           {/* Payment collection */}
           <div>
             <p className="text-[#9896A4] text-xs font-medium uppercase tracking-wider mb-3">Payment Collection</p>
-            <div className="grid grid-cols-2 gap-3">
+            <div className="grid grid-cols-2 sm:grid-cols-2 gap-3">
               {(['cash_collected', 'credit_card_collected', 'qr_collected', 'online_collected'] as const).map(key => (
                 <div key={key}>
                   <label className="label">{PAYMENT_METHOD_LABELS[key.replace('_collected', '').replace('qr', 'qr_payment')] ?? key}</label>
@@ -435,7 +435,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             </div>
           </div>
 
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Transaction Count</label>
               <input type="number" min="0" value={form.transaction_count} onChange={f('transaction_count')} className="input" placeholder="0" />

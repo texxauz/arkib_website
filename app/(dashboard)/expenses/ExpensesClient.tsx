@@ -168,7 +168,7 @@ export function ExpensesClient({
       />
 
       {/* Category summary */}
-      <div className="grid grid-cols-3 lg:grid-cols-6 gap-2">
+      <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cat, amt]) => (
           <button
             key={cat}
@@ -289,7 +289,7 @@ export function ExpensesClient({
 
       <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Edit Expense' : 'Add Expense'} size="md">
         <form onSubmit={handleSubmit} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Date</label>
               <input type="date" value={form.date} onChange={f('date')} className="input" required />
