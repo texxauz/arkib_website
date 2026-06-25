@@ -1,12 +1,12 @@
 'use client'
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp, Moon, Trash2 } from 'lucide-react'
+import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp, Moon, Trash2, BarChart2 } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type DailySale = Database['public']['Tables']['daily_sales']['Row']
@@ -36,7 +36,7 @@ const emptyForm = {
 export function SalesClient({ initialSales, initialEonSales }: SalesClientProps) {
   const [sales, setSales] = useState<DailySale[]>(initialSales)
   const [eonSales, setEonSales] = useState<any[]>(initialEonSales)
-  const [activeTab, setActiveTab] = useState<'daily' | 'eon'>('daily')
+  const [activeTab, setActiveTab] = useState<'daily' | 'weekly' | 'eon'>('daily')
   const [modalOpen, setModalOpen] = useState(false)
   const [form, setForm] = useState(emptyForm)
   const [editId, setEditId] = useState<string | null>(null)
@@ -53,6 +53,40 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     return acc
   }, {})
   const eonDates = Object.keys(eonByDate).sort((a, b) => b.localeCompare(a))
+
+  // Weekly aggregation
+  const weeklyData = useMemo(() => {
+    const getWeekKey = (dateStr: string) => {
+      const d = new Date(dateStr)
+      const day = d.getDay() === 0 ? 7 : d.getDay() // Mon=1 ... Sun=7
+      const mon = new Date(d); mon.setDate(d.getDate() - (day - 1))
+      const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
+      const fmt = (dt: Date) => dt.toLocaleDateString('en-MY', { day: '2-digit', month: 'short' })
+      return { key: mon.toISOString().split('T')[0], label: `${fmt(mon)} – ${fmt(sun)}` }
+    }
+    const map: Record<string, {
+      label: string; days: number
+      revenue: number; cocktails: number; beer: number; wine: number; food: number; others: number
+      collected: number; transactions: number; discounts: number
+    }> = {}
+    for (const s of sales) {
+      const { key, label } = getWeekKey(s.date)
+      if (!map[key]) map[key] = { label, days: 0, revenue: 0, cocktails: 0, beer: 0, wine: 0, food: 0, others: 0, collected: 0, transactions: 0, discounts: 0 }
+      const w = map[key]
+      const disc = (s as any).discount_amount ?? 0
+      w.days++
+      w.revenue += s.total_revenue - disc
+      w.cocktails += s.cocktails_revenue ?? 0
+      w.beer += s.beer_revenue ?? 0
+      w.wine += s.wine_revenue ?? 0
+      w.food += s.food_revenue ?? 0
+      w.others += s.others_revenue ?? 0
+      w.collected += s.total_collected ?? 0
+      w.transactions += s.transaction_count ?? 0
+      w.discounts += disc
+    }
+    return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0])).map(([, v]) => v)
+  }, [sales])
 
   const handleDeleteEON = async (date: string) => {
     setDeleteLoading(true)
@@ -200,9 +234,10 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       />
 
       {/* Tab switcher */}
-      <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit flex-wrap">
         {([
           { key: 'daily', label: 'Daily Sales', icon: TrendingUp },
+          { key: 'weekly', label: 'Weekly', icon: BarChart2 },
           { key: 'eon', label: 'EON History', icon: Moon },
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
@@ -279,6 +314,53 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                 </div>
                 )}
               )}
+            </div>
+          )}
+        </>
+      )}
+
+      {activeTab === 'weekly' && (
+        <>
+          {weeklyData.length === 0 ? (
+            <EmptyState
+              icon={<BarChart2 size={40} />}
+              title="No weekly data yet"
+              description="Weekly summaries appear once you have daily sales entries"
+            />
+          ) : (
+            <div className="space-y-3">
+              {weeklyData.map((w, i) => (
+                <div key={i} className="card">
+                  <div className="flex items-center justify-between mb-3">
+                    <div>
+                      <p className="text-[#F0EEF6] font-semibold text-sm">{w.label}</p>
+                      <p className="text-[#5A5865] text-xs mt-0.5">{w.days} day{w.days !== 1 ? 's' : ''} · {w.transactions} transactions</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-emerald-400 font-bold text-lg">{formatCurrency(w.revenue)}</p>
+                      {w.discounts > 0 && <p className="text-[#9896A4] text-xs">−{formatCurrency(w.discounts)} disc</p>}
+                    </div>
+                  </div>
+                  <div className="grid grid-cols-2 sm:grid-cols-5 gap-2">
+                    {[
+                      { label: 'Cocktails', value: w.cocktails },
+                      { label: 'Beer', value: w.beer },
+                      { label: 'Wine', value: w.wine },
+                      { label: 'Food', value: w.food },
+                      { label: 'Others', value: w.others },
+                    ].filter(c => c.value > 0).map(c => (
+                      <div key={c.label} className="bg-[#1A1A1E] rounded-lg px-2.5 py-2">
+                        <p className="text-[#5A5865] text-[10px]">{c.label}</p>
+                        <p className="text-[#F0EEF6] font-medium text-xs mt-0.5">{formatCurrency(c.value)}</p>
+                      </div>
+                    ))}
+                  </div>
+                  <div className="mt-2 pt-2 border-t border-[#1A1A1E] flex justify-between text-xs text-[#5A5865]">
+                    <span>Avg/day: {formatCurrency(w.revenue / w.days)}</span>
+                    <span>Collected: {formatCurrency(w.collected)}</span>
+                  </div>
+                </div>
+              ))}
             </div>
           )}
         </>

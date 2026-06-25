@@ -263,6 +263,42 @@ export function BarInventoryClient({
   const [eonQty, setEonQty] = useState<Record<string, number>>({})
   const [eonLoading, setEonLoading] = useState(false)
   const [eonClassicSpirits, setEonClassicSpirits] = useState<Record<string, { spirit_1: string; vol_1: string; spirit_2: string; vol_2: string; spirit_3: string; vol_3: string }>>({})
+  const [loadPastDate, setLoadPastDate] = useState('')
+  const [loadPastLoading, setLoadPastLoading] = useState(false)
+
+  const handleLoadPastEON = async () => {
+    if (!loadPastDate) return
+    setLoadPastLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('cocktail_sales')
+        .select('cocktail_id, cocktail_name, quantity, category')
+        .eq('date', loadPastDate)
+      if (error) throw error
+      if (!data || data.length === 0) {
+        toast(`No EON entry found for ${loadPastDate}`, 'error')
+        setLoadPastLoading(false)
+        return
+      }
+      const newQty: Record<string, number> = {}
+      const newMenuQty: Record<string, number> = {}
+      for (const row of data) {
+        if (row.category === 'house_cocktail' && row.cocktail_id) {
+          newQty[row.cocktail_id] = row.quantity
+        } else {
+          const menuItem = menuItems.find(m => m.name === row.cocktail_name)
+          if (menuItem) newMenuQty[menuItem.id] = row.quantity
+        }
+      }
+      setEonQty(newQty)
+      setEonMenuQty(newMenuQty)
+      setLoadPastDate('')
+      toast(`Loaded ${data.length} items from ${loadPastDate} — review and adjust before submitting`, 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to load past entry', 'error')
+    }
+    setLoadPastLoading(false)
+  }
   const emptyClassicSpirits = { spirit_1: '', vol_1: '', spirit_2: '', vol_2: '', spirit_3: '', vol_3: '' }
 
   const eonEntries = cocktails.filter(c => (eonQty[c.id] ?? 0) > 0)
@@ -1104,16 +1140,34 @@ export function BarInventoryClient({
       {/* ── END OF NIGHT ── */}
       {tab === 'eod' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <label className="label">Date</label>
               <input type="date" className="input" value={eonDate} onChange={e => setEonDate(e.target.value)} />
             </div>
-            {isAdmin && (
-              <button onClick={openAddMenuItem} className="btn-secondary flex items-center gap-2 text-xs">
-                <Plus size={13} /> Manage Items
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <label className="label text-[#9896A4]">Load past entry</label>
+                <input
+                  type="date"
+                  className="input text-sm"
+                  value={loadPastDate}
+                  onChange={e => setLoadPastDate(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={handleLoadPastEON}
+                disabled={!loadPastDate || loadPastLoading}
+                className="btn-secondary text-xs h-10 disabled:opacity-50"
+              >
+                {loadPastLoading ? 'Loading...' : 'Load'}
               </button>
-            )}
+              {isAdmin && (
+                <button onClick={openAddMenuItem} className="btn-secondary flex items-center gap-2 text-xs h-10">
+                  <Plus size={13} /> Manage Items
+                </button>
+              )}
+            </div>
           </div>
 
           {/* House Cocktails */}
