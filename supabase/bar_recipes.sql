@@ -17,12 +17,10 @@ INSERT INTO public.bar_premix_recipes (premix_name, ingredient_name, ingredient_
 -- Watermelon Log
 ('Watermelon Log Premix', 'Asamboi Gin', 'infusion', 25),
 ('Watermelon Log Premix', 'Roselle Tuak', 'infusion', 15),
-('Watermelon Log Premix', 'Sui Suntory Gin', 'spirit', 20),
 
 -- Liang Cha Register
 ('Liang Cha Register Premix', 'Chrysanthemum Whisky', 'infusion', 30),
 ('Liang Cha Register Premix', 'Kumquat Fino Sherry', 'infusion', 10),
-('Liang Cha Register Premix', 'Black & White Scotch Whisky', 'spirit', 20),
 
 -- Bandung Folio
 ('Bandung Folio Premix', 'Lychee Gin', 'infusion', 45),
@@ -45,7 +43,6 @@ INSERT INTO public.bar_premix_recipes (premix_name, ingredient_name, ingredient_
 
 -- Satay Ledger
 ('Satay Ledger Premix', 'Satay-Washed Whisky', 'infusion', 30),
-('Satay Ledger Premix', 'Black & White Scotch Whisky', 'spirit', 20),
 ('Satay Ledger Premix', 'Ancho Reyes Chile', 'spirit', 10),
 
 -- Jagung Manuscript
