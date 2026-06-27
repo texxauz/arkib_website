@@ -123,6 +123,36 @@ export function BarInventoryClient({
   const [editMenuItem, setEditMenuItem] = useState<MenuItem | null>(null)
   const [menuItemForm, setMenuItemForm] = useState({ name: '', category: 'classic', price: '' })
 
+  // Add infusion modal
+  const [addInfusionOpen, setAddInfusionOpen] = useState(false)
+  const [addInfusionForm, setAddInfusionForm] = useState({ name: '', base_spirit: '', opening_ml: '', ml_per_serve: '', notes: '' })
+  const [addInfusionLoading, setAddInfusionLoading] = useState(false)
+
+  const handleAddInfusion = async () => {
+    if (!addInfusionForm.name.trim()) return
+    setAddInfusionLoading(true)
+    try {
+      const { data, error } = await supabase.from('bar_infusions').insert({
+        name: addInfusionForm.name.trim(),
+        base_spirit: addInfusionForm.base_spirit.trim() || null,
+        opening_ml: parseFloat(addInfusionForm.opening_ml) || 0,
+        produced_ml: 0,
+        used_premix_ml: 0,
+        wasted_ml: 0,
+        ml_per_serve: parseFloat(addInfusionForm.ml_per_serve) || null,
+        notes: addInfusionForm.notes.trim() || null,
+      }).select().single()
+      if (error) throw error
+      setInfusions(prev => [...prev, data as Infusion].sort((a, b) => a.name.localeCompare(b.name)))
+      toast(`${addInfusionForm.name} infusion added`, 'success')
+      setAddInfusionForm({ name: '', base_spirit: '', opening_ml: '', ml_per_serve: '', notes: '' })
+      setAddInfusionOpen(false)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add infusion', 'error')
+    }
+    setAddInfusionLoading(false)
+  }
+
   // Add premix modal
   const [addPremixOpen, setAddPremixOpen] = useState(false)
   const [addPremixForm, setAddPremixForm] = useState({ cocktail_name: '', category: 'Citrusy', ml_per_serve: '60', storage: 'chiller' })
@@ -989,6 +1019,14 @@ export function BarInventoryClient({
 
       {/* ── INFUSIONS ── */}
       {tab === 'infusions' && (
+        <>
+        {isAdmin && (
+          <div className="flex justify-end">
+            <button onClick={() => setAddInfusionOpen(true)} className="btn-primary flex items-center gap-2 text-xs">
+              <Plus size={13} /> Add Infusion
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-[#2A2A30]">
           <table className="w-full text-sm">
             <thead>
@@ -1023,6 +1061,7 @@ export function BarInventoryClient({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ── PREMIXES ── */}
@@ -1937,6 +1976,52 @@ export function BarInventoryClient({
           </div>
         </Modal>
       )}
+
+      {/* ── ADD INFUSION MODAL ── */}
+      <Modal isOpen={addInfusionOpen} onClose={() => setAddInfusionOpen(false)} title="Add New Infusion" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Infusion Name</label>
+            <input type="text" className="input" placeholder="e.g. Pandan Gin"
+              value={addInfusionForm.name}
+              onChange={e => setAddInfusionForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Base Spirit</label>
+            <input type="text" className="input" placeholder="e.g. Gin, Whisky, Rum"
+              value={addInfusionForm.base_spirit}
+              onChange={e => setAddInfusionForm(f => ({ ...f, base_spirit: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Opening Stock (ml)</label>
+              <input type="number" className="input" placeholder="0"
+                value={addInfusionForm.opening_ml}
+                onChange={e => setAddInfusionForm(f => ({ ...f, opening_ml: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">ml per serve</label>
+              <input type="number" className="input" placeholder="e.g. 40"
+                value={addInfusionForm.ml_per_serve}
+                onChange={e => setAddInfusionForm(f => ({ ...f, ml_per_serve: e.target.value }))} />
+              <p className="text-[#5A5865] text-xs mt-1">Used to calculate serves left</p>
+            </div>
+          </div>
+          <div>
+            <label className="label">Notes (optional)</label>
+            <input type="text" className="input" placeholder="Any notes about this infusion"
+              value={addInfusionForm.notes}
+              onChange={e => setAddInfusionForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setAddInfusionOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleAddInfusion} disabled={addInfusionLoading || !addInfusionForm.name.trim()}
+              className="btn-primary flex-1 disabled:opacity-50">
+              {addInfusionLoading ? 'Adding...' : 'Add Infusion'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── ADD PREMIX MODAL ── */}
       <Modal isOpen={addPremixOpen} onClose={() => setAddPremixOpen(false)} title="Add New Premix" size="sm">
