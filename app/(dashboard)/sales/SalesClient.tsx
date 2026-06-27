@@ -91,49 +91,90 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0])).map(([, v]) => v)
   }, [sales])
 
+  const normName = (n: string) =>
+    n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+
   const handleDeleteEON = async (date: string) => {
     setDeleteLoading(true)
     const rows = eonByDate[date]
     const totalCocktailRevenue = rows.reduce((s: number, r: any) => s + (r.total_revenue ?? 0), 0)
 
-    // Delete cocktail_sales rows for this date
-    const { error: delErr } = await supabase.from('cocktail_sales').delete().eq('date', date)
-    if (delErr) {
-      toast(delErr.message, 'error')
-      setDeleteLoading(false)
-      return
-    }
-
-    // Find the matching daily_sales row
-    const dsRow = sales.find(s => s.date === date)
-    if (dsRow) {
-      const newCocktails = (dsRow.cocktails_revenue ?? 0) - totalCocktailRevenue
-      const newTotal = (dsRow.total_revenue ?? 0) - totalCocktailRevenue
-      const newCollected = (dsRow.total_collected ?? 0) - totalCocktailRevenue
-
-      if (newTotal <= 0.005) {
-        // Row was EON-only — delete it entirely
-        await supabase.from('daily_sales').delete().eq('id', dsRow.id)
-        setSales(prev => prev.filter(s => s.id !== dsRow.id))
-      } else {
-        // Subtract EON contribution
-        const { data: updated } = await supabase
-          .from('daily_sales')
-          .update({
-            cocktails_revenue: Math.max(0, newCocktails),
-            total_revenue: Math.max(0, newTotal),
-            total_collected: Math.max(0, newCollected),
-          })
-          .eq('id', dsRow.id)
-          .select()
-          .single()
-        if (updated) setSales(prev => prev.map(s => s.id === dsRow.id ? updated : s))
+    try {
+      // ── 1. Reverse premix sold_serves for house cocktails ──────────────────
+      const houseCocktailRows = rows.filter((r: any) => r.category === 'house_cocktail')
+      if (houseCocktailRows.length > 0) {
+        const { data: premixes } = await supabase.from('bar_premixes').select('id, name, cocktail_name, sold_serves')
+        if (premixes) {
+          for (const row of houseCocktailRows) {
+            const qty = row.quantity_sold ?? row.quantity ?? 0
+            const premix = premixes.find((p: any) => normName(p.cocktail_name ?? '') === normName(row.cocktail_name))
+            if (premix) {
+              await supabase.from('bar_premixes')
+                .update({ sold_serves: Math.max(0, premix.sold_serves - qty) })
+                .eq('id', premix.id)
+            }
+          }
+        }
       }
-    }
 
-    setEonSales(prev => prev.filter(r => r.date !== date))
-    setDeleteConfirmDate(null)
-    toast(`EON for ${formatDate(date)} deleted`, 'success')
+      // ── 2. Restore wine/whisky bottle stock ────────────────────────────────
+      const bottleRows = rows.filter((r: any) => r.category === 'wine' || r.category === 'whisky')
+      if (bottleRows.length > 0) {
+        const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles')
+        if (spirits) {
+          for (const row of bottleRows) {
+            const qty = row.quantity_sold ?? row.quantity ?? 0
+            const spirit = spirits.find((s: any) => normName(s.name) === normName(row.cocktail_name))
+            if (spirit) {
+              await supabase.from('bar_spirits')
+                .update({ full_bottles: spirit.full_bottles + qty })
+                .eq('id', spirit.id)
+            }
+          }
+        }
+      }
+
+      // ── 3. Delete cocktail_sales rows ──────────────────────────────────────
+      const { error: delErr } = await supabase.from('cocktail_sales').delete().eq('date', date)
+      if (delErr) throw delErr
+
+      // ── 4. Adjust daily_sales ──────────────────────────────────────────────
+      const dsRow = sales.find(s => s.date === date)
+      if (dsRow) {
+        const newCocktails = (dsRow.cocktails_revenue ?? 0) - totalCocktailRevenue
+        const newTotal = (dsRow.total_revenue ?? 0) - totalCocktailRevenue
+        const newCollected = (dsRow.total_collected ?? 0) - totalCocktailRevenue
+
+        if (newTotal <= 0.005) {
+          await supabase.from('daily_sales').delete().eq('id', dsRow.id)
+          setSales(prev => prev.filter(s => s.id !== dsRow.id))
+        } else {
+          const { data: updated } = await supabase
+            .from('daily_sales')
+            .update({
+              cocktails_revenue: Math.max(0, newCocktails),
+              total_revenue: Math.max(0, newTotal),
+              total_collected: Math.max(0, newCollected),
+            })
+            .eq('id', dsRow.id)
+            .select()
+            .single()
+          if (updated) setSales(prev => prev.map(s => s.id === dsRow.id ? updated : s))
+        }
+      }
+
+      setEonSales(prev => prev.filter(r => r.date !== date))
+      setDeleteConfirmDate(null)
+
+      const hasClassics = rows.some((r: any) => r.category === 'classic')
+      if (hasClassics) {
+        toast(`EON deleted · premix & bottle stock restored · classic spirit ml must be adjusted manually in Bar Stock`, 'success')
+      } else {
+        toast(`EON for ${formatDate(date)} deleted · inventory restored`, 'success')
+      }
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to delete EON', 'error')
+    }
     setDeleteLoading(false)
   }
 
@@ -534,9 +575,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       <Modal isOpen={!!deleteConfirmDate} onClose={() => setDeleteConfirmDate(null)} title="Delete EON Submission" size="sm">
         <div className="space-y-4">
           <p className="text-[#9896A4] text-sm">
-            This will permanently delete the End of Night submission for{' '}
+            This will delete the EON submission for{' '}
             <span className="text-[#F0EEF6] font-medium">{deleteConfirmDate ? formatDate(deleteConfirmDate) : ''}</span>{' '}
-            and reverse its contribution to that day's sales total.
+            and reverse its effects — premix sold serves and wine/whisky bottle stock will be restored. Classic spirit ml deductions must be reversed manually in Bar Stock.
           </p>
           <div className="flex gap-3">
             <button onClick={() => setDeleteConfirmDate(null)} className="btn-secondary flex-1">Cancel</button>
