@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp, Moon, Trash2, BarChart2 } from 'lucide-react'
+import { Plus, CheckCircle2, AlertTriangle, Edit2, TrendingUp, Moon, Trash2, BarChart2, Pencil } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type DailySale = Database['public']['Tables']['daily_sales']['Row']
@@ -43,6 +43,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
   const [loading, setLoading] = useState(false)
   const [deleteConfirmDate, setDeleteConfirmDate] = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
+  const [editEonDate, setEditEonDate] = useState<string | null>(null)
+  const [editEonRows, setEditEonRows] = useState<any[]>([])
+  const [editEonLoading, setEditEonLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
@@ -132,6 +135,66 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
     setDeleteConfirmDate(null)
     toast(`EON for ${formatDate(date)} deleted`, 'success')
     setDeleteLoading(false)
+  }
+
+  const openEditEon = (date: string) => {
+    const rows = eonByDate[date]
+    setEditEonRows(rows.map((r: any) => ({ ...r, newQty: r.quantity_sold ?? r.quantity })))
+    setEditEonDate(date)
+  }
+
+  const handleSaveEon = async () => {
+    if (!editEonDate) return
+    setEditEonLoading(true)
+    try {
+      const oldRows = eonByDate[editEonDate]
+      const oldTotal = oldRows.reduce((s: number, r: any) => s + (r.total_revenue ?? 0), 0)
+
+      // Update each row's quantity
+      for (const row of editEonRows) {
+        const newQty = parseInt(row.newQty) || 0
+        const { error } = await supabase
+          .from('cocktail_sales')
+          .update({ quantity: newQty })
+          .eq('id', row.id)
+        if (error) throw error
+      }
+
+      // Recalculate new total from updated rows
+      const newTotal = editEonRows.reduce((s, r) => {
+        const qty = parseInt(r.newQty) || 0
+        return s + (r.unit_price ?? 0) * qty
+      }, 0)
+
+      // Adjust daily_sales contribution
+      const dsRow = sales.find(s => s.date === editEonDate)
+      if (dsRow) {
+        const diff = newTotal - oldTotal
+        await supabase.from('daily_sales').update({
+          total_revenue: Math.max(0, (dsRow.total_revenue ?? 0) + diff),
+          cocktails_revenue: Math.max(0, (dsRow.cocktails_revenue ?? 0) + diff),
+        }).eq('id', dsRow.id)
+        setSales(prev => prev.map(s => s.id === dsRow.id ? {
+          ...s,
+          total_revenue: Math.max(0, (s.total_revenue ?? 0) + diff),
+          cocktails_revenue: Math.max(0, (s.cocktails_revenue ?? 0) + diff),
+        } : s))
+      }
+
+      // Update local eonSales state
+      setEonSales(prev => prev.map(r => {
+        const edited = editEonRows.find(e => e.id === r.id)
+        if (!edited) return r
+        const qty = parseInt(edited.newQty) || 0
+        return { ...r, quantity: qty, quantity_sold: qty, total_revenue: (r.unit_price ?? 0) * qty }
+      }))
+
+      toast('EON entry updated', 'success')
+      setEditEonDate(null)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to save', 'error')
+    }
+    setEditEonLoading(false)
   }
 
   const grossRevenue = [form.cocktails_revenue, form.beer_revenue, form.wine_revenue, form.food_revenue, form.others_revenue]
@@ -397,11 +460,17 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                           ))}
                         </div>
                       </div>
-                      <div className="flex items-center gap-3 flex-shrink-0">
-                        <div className="text-right">
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <div className="text-right mr-1">
                           <p className="text-[#F0EEF6] font-bold">{formatCurrency(total)}</p>
                           <p className="text-[#5A5865] text-xs">EON total</p>
                         </div>
+                        <button
+                          onClick={() => openEditEon(date)}
+                          className="btn-ghost p-2 text-[#9896A4] hover:text-[#A78BFA]"
+                        >
+                          <Pencil size={14} />
+                        </button>
                         <button
                           onClick={() => setDeleteConfirmDate(date)}
                           className="btn-ghost p-2 text-rose-400 hover:bg-rose-500/10"
@@ -417,6 +486,49 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           )}
         </>
       )}
+
+      {/* Edit EON modal */}
+      <Modal isOpen={!!editEonDate} onClose={() => setEditEonDate(null)} title={`Edit EON — ${editEonDate ? formatDate(editEonDate) : ''}`} size="md">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-xs">Adjust quantities below. Prices are fixed at the original rate. Note: inventory deductions (spirit ml, premix serves) won't auto-reverse — adjust manually in Bar Stock if needed.</p>
+          <div className="space-y-2">
+            {editEonRows.map((row, i) => (
+              <div key={row.id} className="flex items-center justify-between gap-3 bg-[#1A1A1E] rounded-lg px-3 py-2.5">
+                <div className="flex-1 min-w-0">
+                  <p className="text-[#F0EEF6] text-sm font-medium truncate">{row.cocktail_name}</p>
+                  <p className="text-[#5A5865] text-xs">{formatCurrency(row.unit_price ?? 0)} each</p>
+                </div>
+                <div className="flex items-center gap-2 flex-shrink-0">
+                  <button
+                    type="button"
+                    onClick={() => setEditEonRows(prev => prev.map((r, j) => j === i ? { ...r, newQty: Math.max(0, (parseInt(r.newQty) || 0) - 1) } : r))}
+                    className="w-8 h-8 rounded-lg bg-[#2A2A30] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#3A3A42]"
+                  >−</button>
+                  <span className="w-8 text-center text-[#F0EEF6] font-bold">{parseInt(row.newQty) || 0}</span>
+                  <button
+                    type="button"
+                    onClick={() => setEditEonRows(prev => prev.map((r, j) => j === i ? { ...r, newQty: (parseInt(r.newQty) || 0) + 1 } : r))}
+                    className="w-8 h-8 rounded-lg bg-[#8B5CF6] text-white flex items-center justify-center text-lg font-bold hover:bg-[#7C3AED]"
+                  >+</button>
+                  <span className="text-[#9896A4] text-xs w-16 text-right">{formatCurrency((row.unit_price ?? 0) * (parseInt(row.newQty) || 0))}</span>
+                </div>
+              </div>
+            ))}
+          </div>
+          <div className="flex items-center justify-between pt-1 border-t border-[#2A2A30]">
+            <span className="text-[#9896A4] text-sm">New total</span>
+            <span className="text-[#F0EEF6] font-bold">
+              {formatCurrency(editEonRows.reduce((s, r) => s + (r.unit_price ?? 0) * (parseInt(r.newQty) || 0), 0))}
+            </span>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setEditEonDate(null)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleSaveEon} disabled={editEonLoading} className="btn-primary flex-1 disabled:opacity-50">
+              {editEonLoading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* Delete confirm modal */}
       <Modal isOpen={!!deleteConfirmDate} onClose={() => setDeleteConfirmDate(null)} title="Delete EON Submission" size="sm">
