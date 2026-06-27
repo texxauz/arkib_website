@@ -123,6 +123,37 @@ export function BarInventoryClient({
   const [editMenuItem, setEditMenuItem] = useState<MenuItem | null>(null)
   const [menuItemForm, setMenuItemForm] = useState({ name: '', category: 'classic', price: '' })
 
+  // Add premix modal
+  const [addPremixOpen, setAddPremixOpen] = useState(false)
+  const [addPremixForm, setAddPremixForm] = useState({ cocktail_name: '', category: 'Citrusy', ml_per_serve: '60', storage: 'chiller' })
+  const [addPremixLoading, setAddPremixLoading] = useState(false)
+
+  const handleAddPremix = async () => {
+    if (!addPremixForm.cocktail_name.trim()) return
+    setAddPremixLoading(true)
+    try {
+      const name = addPremixForm.cocktail_name.trim() + ' Premix'
+      const { data, error } = await supabase.from('bar_premixes').insert({
+        name,
+        cocktail_name: addPremixForm.cocktail_name.trim(),
+        category: addPremixForm.category,
+        ml_per_serve: parseFloat(addPremixForm.ml_per_serve) || 60,
+        storage: addPremixForm.storage || null,
+        opening_serves: 0,
+        produced_serves: 0,
+        sold_serves: 0,
+      }).select().single()
+      if (error) throw error
+      setPremixes(prev => [...prev, data as Premix].sort((a, b) => (a.cocktail_name ?? a.name).localeCompare(b.cocktail_name ?? b.name)))
+      toast(`${addPremixForm.cocktail_name} premix added — set up its recipe in Edit Recipes`, 'success')
+      setAddPremixForm({ cocktail_name: '', category: 'Citrusy', ml_per_serve: '60', storage: 'chiller' })
+      setAddPremixOpen(false)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add premix', 'error')
+    }
+    setAddPremixLoading(false)
+  }
+
   // Recipe editor
   const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes)
   const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
@@ -998,7 +1029,10 @@ export function BarInventoryClient({
       {tab === 'premixes' && (
         <>
         {isAdmin && (
-          <div className="flex justify-end">
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAddPremixOpen(true)} className="btn-primary flex items-center gap-2 text-xs">
+              <Plus size={13} /> Add Premix
+            </button>
             <button onClick={() => setRecipeEditorOpen(true)} className="btn-secondary flex items-center gap-2 text-xs">
               Edit Recipes
             </button>
@@ -1903,6 +1937,62 @@ export function BarInventoryClient({
           </div>
         </Modal>
       )}
+
+      {/* ── ADD PREMIX MODAL ── */}
+      <Modal isOpen={addPremixOpen} onClose={() => setAddPremixOpen(false)} title="Add New Premix" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Cocktail Name</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="e.g. Pandan Sour"
+              value={addPremixForm.cocktail_name}
+              onChange={e => setAddPremixForm(f => ({ ...f, cocktail_name: e.target.value }))}
+            />
+            <p className="text-[#5A5865] text-xs mt-1">Will be saved as "{addPremixForm.cocktail_name.trim() || 'Name'} Premix"</p>
+          </div>
+          <div>
+            <label className="label">Category</label>
+            <select className="input" value={addPremixForm.category} onChange={e => setAddPremixForm(f => ({ ...f, category: e.target.value }))}>
+              {['Citrusy', 'Fizzy', 'Rich', 'Spirit Forward'].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">ml per serve</label>
+              <input
+                type="number"
+                className="input"
+                value={addPremixForm.ml_per_serve}
+                onChange={e => setAddPremixForm(f => ({ ...f, ml_per_serve: e.target.value }))}
+                placeholder="60"
+              />
+            </div>
+            <div>
+              <label className="label">Storage</label>
+              <select className="input" value={addPremixForm.storage} onChange={e => setAddPremixForm(f => ({ ...f, storage: e.target.value }))}>
+                <option value="chiller">Chiller</option>
+                <option value="freezer">Freezer</option>
+                <option value="">None</option>
+              </select>
+            </div>
+          </div>
+          <p className="text-[#9896A4] text-xs bg-[#1A1A1E] rounded-lg p-3">
+            After adding, go to <span className="text-[#A78BFA]">Edit Recipes</span> to set up which ingredients auto-deduct when this premix is made.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setAddPremixOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            <button
+              onClick={handleAddPremix}
+              disabled={addPremixLoading || !addPremixForm.cocktail_name.trim()}
+              className="btn-primary flex-1 disabled:opacity-50"
+            >
+              {addPremixLoading ? 'Adding...' : 'Add Premix'}
+            </button>
+          </div>
+        </div>
+      </Modal>
 
       {/* ── RECIPE EDITOR MODAL ── */}
       <Modal isOpen={recipeEditorOpen} onClose={() => setRecipeEditorOpen(false)} title="Edit Premix Recipes" size="md">
