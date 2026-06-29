@@ -810,8 +810,10 @@ export function BarInventoryClient({
   const saveInfusion = async (i: Infusion) => {
     setLoading(true)
     const { error } = await supabase.from('bar_infusions').update({
+      name: i.name, base_spirit: i.base_spirit, notes: i.notes,
       opening_ml: i.opening_ml, produced_ml: i.produced_ml,
       used_premix_ml: i.used_premix_ml, wasted_ml: i.wasted_ml,
+      ml_per_serve: i.ml_per_serve,
     }).eq('id', i.id)
     if (error) toast(error.message, 'error')
     else {
@@ -822,16 +824,44 @@ export function BarInventoryClient({
     setLoading(false)
   }
 
+  const deleteInfusion = async (id: string) => {
+    setLoading(true)
+    const { error } = await supabase.from('bar_infusions').delete().eq('id', id)
+    if (error) toast(error.message, 'error')
+    else {
+      setInfusions(prev => prev.filter(x => x.id !== id))
+      toast('Infusion deleted', 'success')
+      setEditInfusion(null)
+    }
+    setLoading(false)
+  }
+
   // ── Edit Premix ─────────────────────────────────────────────────────────────
   const savePremix = async (p: Premix) => {
     setLoading(true)
     const { error } = await supabase.from('bar_premixes').update({
+      cocktail_name: p.cocktail_name, category: p.category,
+      ml_per_serve: p.ml_per_serve, storage: p.storage,
       opening_serves: p.opening_serves, produced_serves: p.produced_serves, sold_serves: p.sold_serves,
     }).eq('id', p.id)
     if (error) toast(error.message, 'error')
     else {
       setPremixes(prev => prev.map(x => x.id === p.id ? p : x))
       toast('Premix updated', 'success')
+      setEditPremix(null)
+    }
+    setLoading(false)
+  }
+
+  const deletePremix = async (id: string) => {
+    setLoading(true)
+    const { error } = await supabase.from('bar_premixes').delete().eq('id', id)
+    if (error) toast(error.message, 'error')
+    else {
+      setPremixes(prev => prev.filter(x => x.id !== id))
+      // Also remove its recipes
+      await supabase.from('bar_premix_recipes').delete().eq('premix_name', premixes.find(p => p.id === id)?.name ?? '')
+      toast('Premix deleted', 'success')
       setEditPremix(null)
     }
     setLoading(false)
@@ -1921,24 +1951,63 @@ export function BarInventoryClient({
       {editInfusion && (
         <Modal isOpen onClose={() => setEditInfusion(null)} title={`Edit: ${editInfusion.name}`} size="sm">
           <div className="space-y-3">
-            {[
-              { label: 'Opening ml', key: 'opening_ml' },
-              { label: 'Produced ml', key: 'produced_ml' },
-              { label: 'Used in Premix ml', key: 'used_premix_ml' },
-              { label: 'Wasted ml', key: 'wasted_ml' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="label">{label}</label>
-                <input type="number" min="0" value={editInfusion[key as keyof Infusion] as number}
-                  onChange={e => setEditInfusion(i => i ? { ...i, [key]: parseInt(e.target.value) || 0 } : i)}
-                  className="input" />
+            <div>
+              <label className="label">Infusion Name</label>
+              <input type="text" className="input" value={editInfusion.name ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, name: e.target.value } : i)} />
+            </div>
+            <div>
+              <label className="label">Base Spirit</label>
+              <input type="text" className="input" value={editInfusion.base_spirit ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, base_spirit: e.target.value } : i)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">ml per serve</label>
+                <input type="number" min="0" className="input" value={editInfusion.ml_per_serve ?? ''}
+                  onChange={e => setEditInfusion(i => i ? { ...i, ml_per_serve: parseInt(e.target.value) || 0 } : i)} />
               </div>
-            ))}
+              <div>
+                <label className="label">Opening ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.opening_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, opening_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Produced ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.produced_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, produced_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+              <div>
+                <label className="label">Used in Premix ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.used_premix_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, used_premix_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Wasted ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.wasted_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, wasted_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Notes</label>
+              <input type="text" className="input" value={editInfusion.notes ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, notes: e.target.value } : i)} />
+            </div>
             <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
               Balance: {infusionBalance(editInfusion)}ml
               {editInfusion.ml_per_serve ? ` · ${infusionServes(editInfusion)} serves` : ''}
             </div>
             <div className="flex gap-3 pt-1">
+              {isAdmin && (
+                <button onClick={() => deleteInfusion(editInfusion.id)} disabled={loading}
+                  className="btn-secondary flex-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+                  {loading ? '...' : 'Delete'}
+                </button>
+              )}
               <button onClick={() => setEditInfusion(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={() => saveInfusion(editInfusion)} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
                 {loading ? 'Saving...' : 'Save'}
@@ -1952,22 +2021,60 @@ export function BarInventoryClient({
       {editPremix && (
         <Modal isOpen onClose={() => setEditPremix(null)} title={`Edit: ${editPremix.cocktail_name ?? editPremix.name}`} size="sm">
           <div className="space-y-3">
-            {[
-              { label: 'Opening Serves', key: 'opening_serves' },
-              { label: 'Produced Serves', key: 'produced_serves' },
-              { label: 'Sold Serves', key: 'sold_serves' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="label">{label}</label>
-                <input type="number" min="0" value={editPremix[key as keyof Premix] as number}
-                  onChange={e => setEditPremix(p => p ? { ...p, [key]: parseInt(e.target.value) || 0 } : p)}
-                  className="input" />
+            <div>
+              <label className="label">Premix Name</label>
+              <input type="text" className="input" value={editPremix.name ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, name: e.target.value } : p)} />
+            </div>
+            <div>
+              <label className="label">Cocktail Name</label>
+              <input type="text" className="input" value={editPremix.cocktail_name ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, cocktail_name: e.target.value } : p)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Category</label>
+                <input type="text" className="input" value={editPremix.category ?? ''}
+                  onChange={e => setEditPremix(p => p ? { ...p, category: e.target.value } : p)} />
               </div>
-            ))}
+              <div>
+                <label className="label">ml per serve</label>
+                <input type="number" min="0" className="input" value={editPremix.ml_per_serve ?? ''}
+                  onChange={e => setEditPremix(p => p ? { ...p, ml_per_serve: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Storage</label>
+              <input type="text" className="input" value={editPremix.storage ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, storage: e.target.value } : p)} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="label">Opening</label>
+                <input type="number" min="0" className="input" value={editPremix.opening_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, opening_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+              <div>
+                <label className="label">Produced</label>
+                <input type="number" min="0" className="input" value={editPremix.produced_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, produced_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+              <div>
+                <label className="label">Sold</label>
+                <input type="number" min="0" className="input" value={editPremix.sold_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, sold_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+            </div>
             <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
               Serves Left: {premixLeft(editPremix)}
             </div>
             <div className="flex gap-3 pt-1">
+              {isAdmin && (
+                <button onClick={() => deletePremix(editPremix.id)} disabled={loading}
+                  className="btn-secondary flex-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+                  {loading ? '...' : 'Delete'}
+                </button>
+              )}
               <button onClick={() => setEditPremix(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={() => savePremix(editPremix)} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
                 {loading ? 'Saving...' : 'Save'}
