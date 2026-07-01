@@ -163,6 +163,15 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
         }
       />
 
+      {/* Data coverage note */}
+      <div className="flex items-start gap-3 bg-[#1A1A1E] border border-[#2A2A30] rounded-xl px-4 py-3">
+        <span className="text-[#8B5CF6] mt-0.5 shrink-0">ℹ</span>
+        <p className="text-[#9896A4] text-xs leading-relaxed">
+          <span className="text-[#F0EEF6] font-medium">Data tracking started June 2026.</span>{' '}
+          Figures for April and May 2026 are not reflected here as the system was not yet in use during that period. All months from June 2026 onwards represent complete recorded data.
+        </p>
+      </div>
+
       {/* Date range filter */}
       <div className="card">
         <div className="flex flex-wrap items-end gap-4">
