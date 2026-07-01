@@ -353,6 +353,7 @@ export function BarInventoryClient({
       }
       setEonQty(newQty)
       setEonMenuQty(newMenuQty)
+      setEonClassicSpirits({})
       setLoadPastDate('')
       toast(`Loaded ${data.length} items from ${loadPastDate} — review and adjust before submitting`, 'success')
     } catch (err: any) {
@@ -436,6 +437,7 @@ export function BarInventoryClient({
 
       // Deduct spirit volumes used for classic cocktails sold (manually entered per item)
       const unmatchedClassicSpirits: string[] = []
+      const classicSpiritDelta = new Map<string, number>() // spirit id -> total ml
       for (const m of eonMenuEntries) {
         if (m.category !== 'classic') continue
         const qty = eonMenuQty[m.id]
@@ -451,11 +453,17 @@ export function BarInventoryClient({
           const totalMl = (parseInt(p.volMl) || 0) * qty
           const spirit = spirits.find(s => normName(s.name) === normName(p.name))
           if (spirit && totalMl > 0) {
-            await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spirit.id)
-            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
+            classicSpiritDelta.set(spirit.id, (classicSpiritDelta.get(spirit.id) ?? 0) + totalMl)
           } else if (!spirit) {
             unmatchedClassicSpirits.push(`${m.name} → "${p.name}"`)
           }
+        }
+      }
+      for (const [spiritId, totalMl] of classicSpiritDelta) {
+        const spirit = spirits.find(s => s.id === spiritId)
+        if (spirit) {
+          await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spiritId)
+          setSpirits(prev => prev.map(s => s.id === spiritId ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
         }
       }
       if (unmatchedClassicSpirits.length > 0) {
@@ -490,7 +498,6 @@ export function BarInventoryClient({
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
       if (existing) {
         await supabase.from('daily_sales').update({
-          total_revenue: existing.total_revenue + eonTotalRevenue,
           cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
           wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
           others_revenue: (existing.others_revenue ?? 0) + othersRevenue + whiskeyRevenue,
@@ -500,14 +507,12 @@ export function BarInventoryClient({
         // Bug #8: is_balanced should be false — Sales page handles reconciliation
         await supabase.from('daily_sales').insert({
           date: eonDate,
-          total_revenue: eonTotalRevenue,
           cocktails_revenue: cocktailsRevenue,
           wine_revenue: wineRevenue,
           others_revenue: othersRevenue + whiskeyRevenue,
           beer_revenue: 0,
           food_revenue: 0,
           transaction_count: eonTotalQty,
-          is_balanced: false,
         })
       }
 
@@ -855,15 +860,14 @@ export function BarInventoryClient({
 
   const deletePremix = async (id: string) => {
     setLoading(true)
+    const premixName = premixes.find(p => p.id === id)?.name ?? ''
     const { error } = await supabase.from('bar_premixes').delete().eq('id', id)
-    if (error) toast(error.message, 'error')
-    else {
-      setPremixes(prev => prev.filter(x => x.id !== id))
-      // Also remove its recipes
-      await supabase.from('bar_premix_recipes').delete().eq('premix_name', premixes.find(p => p.id === id)?.name ?? '')
-      toast('Premix deleted', 'success')
-      setEditPremix(null)
-    }
+    if (error) { toast(error.message, 'error'); setLoading(false); return }
+    setPremixes(prev => prev.filter(x => x.id !== id))
+    const { error: recipeError } = await supabase.from('bar_premix_recipes').delete().eq('premix_name', premixName)
+    if (recipeError) toast(`Premix deleted but recipes could not be removed: ${recipeError.message}`, 'error')
+    else toast('Premix deleted', 'success')
+    setEditPremix(null)
     setLoading(false)
   }
 
@@ -1205,7 +1209,7 @@ export function BarInventoryClient({
                               }
                             }
                             // Restore premix/infusion stock
-                            if (a.activity_type === 'Premix Made' && a.vol_ml) {
+                            if (a.activity_type === 'Premix Made') {
                               const premix = premixes.find(p => p.name.toLowerCase() === a.product.toLowerCase() || p.cocktail_name?.toLowerCase() === a.product.toLowerCase())
                               if (premix) {
                                 await supabase.from('bar_premixes').update({ produced_serves: Math.max(0, premix.produced_serves - qty) }).eq('id', premix.id)

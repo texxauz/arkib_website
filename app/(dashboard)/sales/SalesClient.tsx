@@ -105,14 +105,17 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       if (houseCocktailRows.length > 0) {
         const { data: premixes } = await supabase.from('bar_premixes').select('id, name, cocktail_name, sold_serves')
         if (premixes) {
+          const premixDelta = new Map<string, { sold_serves: number }>()
           for (const row of houseCocktailRows) {
             const qty = row.quantity_sold ?? row.quantity ?? 0
             const premix = premixes.find((p: any) => normName(p.cocktail_name ?? '') === normName(row.cocktail_name))
             if (premix) {
-              await supabase.from('bar_premixes')
-                .update({ sold_serves: Math.max(0, premix.sold_serves - qty) })
-                .eq('id', premix.id)
+              const prev = premixDelta.get(premix.id) ?? { sold_serves: premix.sold_serves }
+              premixDelta.set(premix.id, { sold_serves: Math.max(0, prev.sold_serves - qty) })
             }
+          }
+          for (const [id, vals] of premixDelta) {
+            await supabase.from('bar_premixes').update(vals).eq('id', id)
           }
         }
       }
@@ -122,14 +125,17 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       if (bottleRows.length > 0) {
         const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles')
         if (spirits) {
+          const spiritDelta = new Map<string, { full_bottles: number }>()
           for (const row of bottleRows) {
             const qty = row.quantity_sold ?? row.quantity ?? 0
             const spirit = spirits.find((s: any) => normName(s.name) === normName(row.cocktail_name))
             if (spirit) {
-              await supabase.from('bar_spirits')
-                .update({ full_bottles: spirit.full_bottles + qty })
-                .eq('id', spirit.id)
+              const prev = spiritDelta.get(spirit.id) ?? { full_bottles: spirit.full_bottles }
+              spiritDelta.set(spirit.id, { full_bottles: prev.full_bottles + qty })
             }
+          }
+          for (const [id, vals] of spiritDelta) {
+            await supabase.from('bar_spirits').update(vals).eq('id', id)
           }
         }
       }
@@ -143,7 +149,6 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       if (dsRow) {
         const newCocktails = (dsRow.cocktails_revenue ?? 0) - totalCocktailRevenue
         const newTotal = (dsRow.total_revenue ?? 0) - totalCocktailRevenue
-        const newCollected = (dsRow.total_collected ?? 0) - totalCocktailRevenue
 
         if (newTotal <= 0.005) {
           await supabase.from('daily_sales').delete().eq('id', dsRow.id)
@@ -153,8 +158,6 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             .from('daily_sales')
             .update({
               cocktails_revenue: Math.max(0, newCocktails),
-              total_revenue: Math.max(0, newTotal),
-              total_collected: Math.max(0, newCollected),
             })
             .eq('id', dsRow.id)
             .select()
@@ -180,7 +183,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
 
   const openEditEon = (date: string) => {
     const rows = eonByDate[date]
-    setEditEonRows(rows.map((r: any) => ({ ...r, newQty: r.quantity_sold ?? r.quantity })))
+    setEditEonRows(rows.map((r: any) => ({ ...r, newQty: r.quantity })))
     setEditEonDate(date)
   }
 
@@ -211,10 +214,10 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       const dsRow = sales.find(s => s.date === editEonDate)
       if (dsRow) {
         const diff = newTotal - oldTotal
-        await supabase.from('daily_sales').update({
-          total_revenue: Math.max(0, (dsRow.total_revenue ?? 0) + diff),
+        const { error: dsErr } = await supabase.from('daily_sales').update({
           cocktails_revenue: Math.max(0, (dsRow.cocktails_revenue ?? 0) + diff),
         }).eq('id', dsRow.id)
+        if (dsErr) throw dsErr
         setSales(prev => prev.map(s => s.id === dsRow.id ? {
           ...s,
           total_revenue: Math.max(0, (s.total_revenue ?? 0) + diff),
@@ -227,7 +230,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
         const edited = editEonRows.find(e => e.id === r.id)
         if (!edited) return r
         const qty = parseInt(edited.newQty) || 0
-        return { ...r, quantity: qty, quantity_sold: qty, total_revenue: (r.unit_price ?? 0) * qty }
+        return { ...r, quantity: qty, total_revenue: (r.unit_price ?? 0) * qty }
       }))
 
       toast('EON entry updated', 'success')
@@ -495,7 +498,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
                         <div className="flex flex-wrap gap-1.5">
                           {rows.map((r: any) => (
                             <span key={r.id} className="bg-[#1A1A1E] border border-[#2A2A30] rounded-lg px-2 py-1 text-xs text-[#9896A4]">
-                              {r.cocktail_name} <span className="text-[#F0EEF6] font-medium">×{r.quantity_sold}</span>
+                              {r.cocktail_name} <span className="text-[#F0EEF6] font-medium">×{r.quantity}</span>
                               {r.total_revenue > 0 && <span className="text-[#8B5CF6] ml-1">{formatCurrency(r.total_revenue)}</span>}
                             </span>
                           ))}
