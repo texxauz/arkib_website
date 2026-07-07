@@ -1,6 +1,6 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useMemo } from 'react'
 import {
   Settings, Plus, Pencil, Trash2, Eye, EyeOff,
   Percent, DollarSign, Tag,
@@ -39,7 +39,7 @@ const defaultTableForm = { name: '', section: '', capacity: '2', shape: 'rect' }
 const defaultDiscountForm = { name: '', type: 'percent', value: '0', requires_approval: false }
 
 export function POSSettingsClient({ initialTables, config: initialConfig, initialDiscounts }: Props) {
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
   const { toast } = useToast()
 
   const [activeTab, setActiveTab] = useState<Tab>('floor')
@@ -139,7 +139,7 @@ export function POSSettingsClient({ initialTables, config: initialConfig, initia
         { key: 'service_charge_pct', value: config['service_charge_pct'] ?? '0' },
         { key: 'tax_enabled', value: config['tax_enabled'] ?? 'false' },
         { key: 'tax_pct', value: config['tax_pct'] ?? '0' },
-        { key: 'receipt_footer', value: config['receipt_footer'] ?? '' },
+        { key: 'receipt_footer_note', value: config['receipt_footer_note'] ?? '' },
       ]
       const { error } = await supabase.from('pos_config').upsert(pairs, { onConflict: 'key' })
       if (error) throw error
@@ -400,8 +400,8 @@ export function POSSettingsClient({ initialTables, config: initialConfig, initia
               <p className="text-[#5A5865] text-xs mb-3">Printed at the bottom of every receipt</p>
               <input
                 type="text"
-                value={config['receipt_footer'] ?? ''}
-                onChange={e => setConfigKey('receipt_footer', e.target.value)}
+                value={config['receipt_footer_note'] ?? ''}
+                onChange={e => setConfigKey('receipt_footer_note', e.target.value)}
                 placeholder="Thank you for dining with us!"
                 className="w-full bg-[#0C0C0F] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] placeholder-[#3A3840]"
               />

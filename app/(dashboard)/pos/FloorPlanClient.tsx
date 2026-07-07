@@ -119,6 +119,8 @@ export function FloorPlanClient({
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           tableId: newOrderModal.table?.id ?? null,
+          tableName: newOrderModal.table?.name ?? null,
+          section: newOrderModal.table?.section ?? null,
           covers,
           serverName: userName,
           userId,
@@ -297,7 +299,7 @@ export function FloorPlanClient({
                       </div>
                       {order.total > 0 && (
                         <span className="text-[#F0EEF6] text-xs font-medium">
-                          ${order.total.toFixed(2)}
+                          RM {order.total.toFixed(2)}
                         </span>
                       )}
                     </div>

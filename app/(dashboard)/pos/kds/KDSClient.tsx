@@ -98,7 +98,7 @@ export function KDSClient({ initialItems }: Props) {
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
-    const id = setInterval(() => setNow(Date.now()), 30_000)
+    const id = setInterval(() => setNow(Date.now()), 10_000)
     return () => clearInterval(id)
   }, [])
 

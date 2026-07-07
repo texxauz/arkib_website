@@ -551,7 +551,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
             </div>
             <div className="card">
               <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Total Discounts Given</p>
-              <p className="text-amber-400 font-bold text-2xl tabular-nums">{fmtRM(0)}</p>
+              <p className="text-amber-400 font-bold text-2xl tabular-nums">{fmtRM(stats.totalDiscounts)}</p>
               <p className="text-[#5A5865] text-xs mt-1">{discountLogs.length} discount events</p>
             </div>
           </div>

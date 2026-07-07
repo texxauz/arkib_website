@@ -1,6 +1,6 @@
 'use client'
 
-import { useState, useEffect, useCallback } from 'react'
+import { useState, useEffect, useCallback, useMemo } from 'react'
 import { useRouter } from 'next/navigation'
 import { createClient } from '@/lib/supabase/client'
 import { TopBar } from '@/components/layout/TopBar'
@@ -49,7 +49,7 @@ function formatTime(isoString: string) {
 }
 
 function formatCurrency(amount: number) {
-  return new Intl.NumberFormat('en-US', { style: 'currency', currency: 'USD' }).format(amount)
+  return 'RM ' + amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
 export function OrderTicketClient({
@@ -57,7 +57,7 @@ export function OrderTicketClient({
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
-  const supabase = createClient()
+  const supabase = useMemo(() => createClient(), [])
 
   const [items, setItems] = useState<OrderItem[]>(initialItems)
   const [menuCategory, setMenuCategory] = useState('Cocktails')
