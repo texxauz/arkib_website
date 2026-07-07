@@ -1,3 +1,5 @@
+export const revalidate = 30
+
 import { createClient } from '@/lib/supabase/server'
 import { ChecklistClient } from './ChecklistClient'
 import { redirect } from 'next/navigation'
