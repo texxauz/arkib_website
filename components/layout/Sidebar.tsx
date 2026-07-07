@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, BookOpen,
   GlassWater, Building, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock, PieChart, ClipboardCheck, MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield
+  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock, PieChart, ClipboardCheck, MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -23,6 +23,9 @@ const ALL_NAV_ITEMS = [
   { href: '/pos/shifts', label: 'Shifts', icon: Timer, key: 'pos-shifts' },
   { href: '/pos/reservations', label: 'Reservations', icon: CalendarDays, key: 'pos-reservations' },
   { href: '/pos/audit', label: 'Audit Log', icon: Shield, key: 'pos-audit' },
+  { href: '/pos/reports', label: 'POS Reports', icon: BarChart3, key: 'pos-reports' },
+  { href: '/pos/production', label: 'Production Queue', icon: Zap, key: 'pos-production' },
+  { href: '/pos/settings', label: 'POS Settings', icon: SlidersHorizontal, key: 'pos-settings' },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater, key: 'cocktails' },
   { href: '/shifts', label: 'Shifts', icon: Clock, key: 'shifts' },
   { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
@@ -38,6 +41,7 @@ function getVisibleItems(userRole: string, tabPermissions: Record<string, string
     if (item.key === 'team') return isAdmin
     if (item.key === 'settings') return isAdmin
     if (item.key === 'pos-audit') return isAdmin
+    if (item.key === 'pos-settings') return isAdmin
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })

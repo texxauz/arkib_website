@@ -16,6 +16,7 @@ import {
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
+import { ReceiptPrint, type ReceiptData } from '@/app/(dashboard)/pos/order/[id]/ReceiptPrint'
 
 // ─── Types ───────────────────────────────────────────────────────────────────
 
@@ -98,6 +99,8 @@ export function PaymentClient({
   const [cashEntered, setCashEntered] = useState('')
   const [mixedPayments, setMixedPayments] = useState({ cash: '', card: '', qr: '' })
   const [loading, setLoading] = useState(false)
+  const [showReceipt, setShowReceipt] = useState(false)
+  const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
 
   // ─── Calculations ───────────────────────────────────────────────────────────
 
@@ -202,7 +205,27 @@ export function PaymentClient({
       const data = await res.json()
       if (!res.ok) throw new Error(data.error ?? 'Failed to close order')
       toast('Payment collected', 'success')
-      router.push('/pos')
+
+      // Build receipt data and show receipt instead of navigating immediately
+      const receipt: ReceiptData = {
+        orderId: order.id,
+        tableName: order.table_name,
+        serverName: order.server_name,
+        covers: order.covers,
+        openedAt: order.opened_at,
+        closedAt: new Date().toISOString(),
+        items: items.map(i => ({ ...i, voided_at: null })),
+        subtotal,
+        discountAmount,
+        discountLabel: selectedDiscount?.name ?? null,
+        serviceCharge: serviceChargeAmount,
+        taxAmount,
+        total,
+        payments,
+        footerNote: config.receipt_footer_note ?? 'Thank you for visiting Arkib!',
+      }
+      setReceiptData(receipt)
+      setShowReceipt(true)
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Something went wrong', 'error')
     } finally {
@@ -217,6 +240,13 @@ export function PaymentClient({
   // ─── Render ─────────────────────────────────────────────────────────────────
 
   return (
+    <>
+    {showReceipt && receiptData && (
+      <ReceiptPrint
+        data={receiptData}
+        onClose={() => router.push('/pos')}
+      />
+    )}
     <div className="min-h-screen bg-[#0A0A0B] p-4 sm:p-6">
       <TopBar
         title="Collect Payment"
@@ -613,6 +643,7 @@ export function PaymentClient({
         </div>
       </Modal>
     </div>
+    </>
   )
 }
 
