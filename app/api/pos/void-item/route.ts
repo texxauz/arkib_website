@@ -1,0 +1,45 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const { itemId, reason } = await req.json()
+  if (!itemId) return NextResponse.json({ error: 'itemId required' }, { status: 400 })
+
+  const { data: item } = await supabase
+    .from('pos_order_items').select('*, pos_orders(server_id)').eq('id', itemId).single()
+  if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
+  if (item.voided_at) return NextResponse.json({ error: 'Item already voided' }, { status: 400 })
+
+  const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+
+  // Non-admin can only void pending items they added, or need a reason
+  if (!isAdmin && item.status !== 'pending' && !reason?.trim()) {
+    return NextResponse.json({ error: 'Manager approval required to void sent items' }, { status: 403 })
+  }
+
+  const now = new Date().toISOString()
+  const { error } = await supabase.from('pos_order_items').update({
+    voided_at: now,
+    voided_by: user.id,
+    void_reason: reason ?? null,
+    status: 'voided',
+  }).eq('id', itemId)
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  await supabase.from('pos_audit_log').insert({
+    actor_id: user.id,
+    actor_name: profile?.full_name ?? null,
+    event: 'item.voided',
+    entity_type: 'pos_order_items',
+    entity_id: itemId,
+    payload: { item_name: item.item_name, quantity: item.quantity, unit_price: item.unit_price, reason: reason ?? null, order_id: item.order_id },
+  })
+
+  return NextResponse.json({ success: true })
+}

@@ -5,7 +5,7 @@ import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, BookOpen,
   GlassWater, Building, BarChart3, Settings,
-  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock, PieChart, ClipboardCheck, MonitorSmartphone, ChefHat, Timer
+  LogOut, ChevronRight, Menu, X, FlaskConical, Users, Clock, PieChart, ClipboardCheck, MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,8 @@ const ALL_NAV_ITEMS = [
   { href: '/pos', label: 'POS', icon: MonitorSmartphone, key: 'pos' },
   { href: '/pos/kds', label: 'Bar Display', icon: ChefHat, key: 'pos-kds' },
   { href: '/pos/shifts', label: 'Shifts', icon: Timer, key: 'pos-shifts' },
+  { href: '/pos/reservations', label: 'Reservations', icon: CalendarDays, key: 'pos-reservations' },
+  { href: '/pos/audit', label: 'Audit Log', icon: Shield, key: 'pos-audit' },
   { href: '/cocktails', label: 'Cocktails', icon: GlassWater, key: 'cocktails' },
   { href: '/shifts', label: 'Shifts', icon: Clock, key: 'shifts' },
   { href: '/rent', label: 'Rent & Fixed', icon: Building, key: 'rent' },
@@ -35,6 +37,7 @@ function getVisibleItems(userRole: string, tabPermissions: Record<string, string
   return ALL_NAV_ITEMS.filter(item => {
     if (item.key === 'team') return isAdmin
     if (item.key === 'settings') return isAdmin
+    if (item.key === 'pos-audit') return isAdmin
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })
