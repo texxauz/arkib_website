@@ -192,7 +192,7 @@ export function KDSClient({ initialItems }: Props) {
   const makingGroups = groupByOrder(makingItems)
 
   return (
-    <div className="min-h-screen bg-[#08080A] text-[#F0EEF6] flex flex-col">
+    <div className="fixed inset-0 lg:left-56 z-20 bg-[#08080A] text-[#F0EEF6] flex flex-col overflow-hidden">
       {/* Header */}
       <header className="flex items-center justify-between px-6 py-3 border-b border-[#2A2A30] bg-[#0E0E11] shrink-0">
         <div className="flex items-center gap-3">

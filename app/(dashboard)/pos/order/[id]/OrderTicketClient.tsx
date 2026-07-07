@@ -463,7 +463,7 @@ export function OrderTicketClient({
   )
 
   return (
-    <div className="flex flex-col h-screen bg-[#0A0A0D] overflow-hidden">
+    <div className="fixed inset-0 lg:left-56 z-20 flex flex-col bg-[#0A0A0D] overflow-hidden">
       {/* TopBar */}
       <div className="px-4 pt-4 shrink-0">
         <TopBar

@@ -256,9 +256,9 @@ export function FloorPlanClient({
               <button
                 key={table.id}
                 onClick={() => {
-                  if (status === 'occupied' && order) {
-                    router.push(`/pos/order/${order.id}`)
-                  } else {
+                  if (status === 'occupied' && table.current_order_id) {
+                    router.push(`/pos/order/${table.current_order_id}`)
+                  } else if (status === 'available') {
                     handleOpenOrder(table)
                   }
                 }}
