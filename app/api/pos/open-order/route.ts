@@ -1,0 +1,42 @@
+import { NextRequest, NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
+
+export async function POST(req: NextRequest) {
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const { tableId, tableName, section, covers = 1 } = await req.json()
+
+  const { data: profile } = await supabase.from('users').select('full_name').eq('id', user.id).single()
+
+  const { data: order, error } = await supabase
+    .from('pos_orders')
+    .insert({
+      table_id: tableId ?? null,
+      table_name: tableName ?? 'Walk-in',
+      section: section ?? null,
+      server_id: user.id,
+      server_name: profile?.full_name ?? 'Staff',
+      covers,
+      status: 'open',
+    })
+    .select()
+    .single()
+
+  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  if (tableId) {
+    await supabase.from('pos_tables').update({ current_order_id: order.id }).eq('id', tableId)
+  }
+
+  await supabase.from('pos_audit_log').insert({
+    actor_id: user.id,
+    event: 'order.created',
+    entity_type: 'pos_orders',
+    entity_id: order.id,
+    payload: { tableId, tableName, covers },
+  })
+
+  return NextResponse.json({ orderId: order.id })
+}
