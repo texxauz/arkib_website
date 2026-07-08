@@ -93,8 +93,11 @@ function LiveClock() {
   )
 }
 
+type ServedItem = KDSItem & { servedAt: number }
+
 export function KDSClient({ initialItems }: Props) {
   const [items, setItems] = useState<KDSItem[]>(initialItems)
+  const [servedItems, setServedItems] = useState<ServedItem[]>([])
   const [now, setNow] = useState(() => Date.now())
 
   useEffect(() => {
@@ -168,6 +171,15 @@ export function KDSClient({ initialItems }: Props) {
     }
   }, [])
 
+  // Auto-clear served items after 60 seconds
+  useEffect(() => {
+    const id = setInterval(() => {
+      const cutoff = Date.now() - 60_000
+      setServedItems(prev => prev.filter(i => i.servedAt > cutoff))
+    }, 5_000)
+    return () => clearInterval(id)
+  }, [])
+
   async function handleBump(itemId: string, newStatus: 'making' | 'served') {
     const supabase = createClient()
     const updates: Record<string, unknown> = { status: newStatus }
@@ -177,6 +189,8 @@ export function KDSClient({ initialItems }: Props) {
     await supabase.from('pos_order_items').update(updates).eq('id', itemId)
 
     if (newStatus === 'served') {
+      const item = items.find(i => i.id === itemId)
+      if (item) setServedItems(prev => [...prev, { ...item, status: 'served', servedAt: Date.now() }])
       setItems((prev) => prev.filter((i) => i.id !== itemId))
     } else {
       setItems((prev) =>
@@ -187,6 +201,7 @@ export function KDSClient({ initialItems }: Props) {
 
   const pendingItems = items.filter((i) => i.status === 'pending')
   const makingItems = items.filter((i) => i.status === 'sent' || i.status === 'making')
+  const servedGroups = groupByOrder(servedItems)
 
   const pendingGroups = groupByOrder(pendingItems)
   const makingGroups = groupByOrder(makingItems)
@@ -231,8 +246,7 @@ export function KDSClient({ initialItems }: Props) {
               key={group.orderId}
               group={group}
               now={now}
-              actionLabel="Start"
-              actionVariant="start"
+              variant="start"
               onAction={(itemId) => handleBump(itemId, 'making')}
             />
           ))}
@@ -251,23 +265,29 @@ export function KDSClient({ initialItems }: Props) {
               key={group.orderId}
               group={group}
               now={now}
-              actionLabel="Done"
-              actionVariant="done"
+              variant="done"
               onAction={(itemId) => handleBump(itemId, 'served')}
             />
           ))}
         </Column>
 
-        {/* Column 3: Served placeholder */}
+        {/* Column 3: Served */}
         <Column
           title="Served"
           accent="emerald"
-          count={0}
+          count={servedItems.length}
           empty="Served items appear here"
           borderLeft
-          faded
         >
-          {[]}
+          {servedGroups.map((group) => (
+            <OrderCard
+              key={group.orderId}
+              group={group}
+              now={now}
+              variant="served"
+              onAction={() => {}}
+            />
+          ))}
         </Column>
       </div>
     </div>
@@ -339,14 +359,12 @@ function Column({
 function OrderCard({
   group,
   now,
-  actionLabel,
-  actionVariant,
+  variant,
   onAction,
 }: {
   group: OrderGroup
   now: number
-  actionLabel: string
-  actionVariant: 'start' | 'done'
+  variant: 'start' | 'done' | 'served'
   onAction: (itemId: string) => void
 }) {
   const elapsed = getElapsedSeconds(group.earliestCreatedAt, now)
@@ -354,7 +372,10 @@ function OrderCard({
   const tableLabel = [group.tableName, group.section].filter(Boolean).join(' · ') || 'Unknown Table'
 
   return (
-    <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+    <div className={[
+      'border rounded-xl overflow-hidden',
+      variant === 'served' ? 'bg-[#0E1210] border-emerald-900/40' : 'bg-[#141417] border-[#2A2A30]'
+    ].join(' ')}>
       {/* Card header */}
       <div className="flex items-center justify-between px-3 py-2 border-b border-[#2A2A30] bg-[#17171B]">
         <div className="flex items-center gap-2">
@@ -363,58 +384,53 @@ function OrderCard({
             {group.covers} covers
           </span>
         </div>
-        <span className={`text-xs font-mono font-bold ${timeColor}`}>
-          {formatElapsed(elapsed)}
+        <span className={`text-xs font-mono font-bold ${variant === 'served' ? 'text-emerald-400' : timeColor}`}>
+          {variant === 'served' ? '✓ served' : formatElapsed(elapsed)}
         </span>
       </div>
 
-      {/* Items */}
+      {/* Items with inline action */}
       <div className="divide-y divide-[#2A2A30]/50">
         {group.items.map((item) => (
-          <div key={item.id} className="px-3 py-2.5">
-            <div className="flex items-start justify-between gap-2">
-              <span className="font-semibold text-[#F0EEF6] text-base leading-tight">
-                {item.item_name}
-              </span>
-              <span className="shrink-0 inline-flex items-center justify-center w-6 h-6 rounded-full bg-[#8B5CF6]/20 text-[#A78BFA] text-xs font-bold">
-                {item.quantity}
-              </span>
+          <div key={item.id} className="px-3 py-2.5 flex items-center gap-3">
+            <div className="flex-1 min-w-0">
+              <div className="flex items-center gap-2">
+                <span className="font-semibold text-[#F0EEF6] text-sm leading-tight">
+                  {item.item_name}
+                </span>
+                <span className="shrink-0 inline-flex items-center justify-center w-5 h-5 rounded-full bg-[#8B5CF6]/20 text-[#A78BFA] text-xs font-bold">
+                  {item.quantity}
+                </span>
+              </div>
+              {item.modifiers && item.modifiers.length > 0 && (
+                <p className="mt-0.5 text-xs italic text-[#9896A4]">{item.modifiers.join(', ')}</p>
+              )}
+              {item.notes && (
+                <p className="mt-1 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
+                  {item.notes}
+                </p>
+              )}
             </div>
-            {item.modifiers && item.modifiers.length > 0 && (
-              <p className="mt-0.5 text-xs italic text-[#9896A4]">
-                {item.modifiers.join(', ')}
-              </p>
+
+            {/* Inline action button */}
+            {variant !== 'served' && (
+              <button
+                onClick={() => onAction(item.id)}
+                title={variant === 'start' ? 'Start making' : 'Mark as done'}
+                className={[
+                  'shrink-0 w-8 h-8 rounded-lg flex items-center justify-center transition-all active:scale-90',
+                  variant === 'start'
+                    ? 'bg-[#8B5CF6]/20 hover:bg-[#8B5CF6]/40 text-[#A78BFA] border border-[#8B5CF6]/30'
+                    : 'bg-emerald-500/15 hover:bg-emerald-500/30 text-emerald-400 border border-emerald-500/25',
+                ].join(' ')}
+              >
+                {variant === 'done' ? <Check size={15} /> : <Flame size={15} />}
+              </button>
             )}
-            {item.notes && (
-              <p className="mt-1 text-xs text-amber-300 bg-amber-500/10 border border-amber-500/20 rounded px-2 py-0.5">
-                {item.notes}
-              </p>
+            {variant === 'served' && (
+              <Check size={15} className="shrink-0 text-emerald-400" />
             )}
           </div>
-        ))}
-      </div>
-
-      {/* Action buttons */}
-      <div className="px-3 py-2 border-t border-[#2A2A30] flex gap-2">
-        {group.items.map((item) => (
-          <button
-            key={item.id}
-            onClick={() => onAction(item.id)}
-            className={[
-              'flex-1 flex items-center justify-center gap-1.5 py-1.5 rounded-lg text-xs font-semibold transition-all active:scale-95',
-              actionVariant === 'start'
-                ? 'bg-[#8B5CF6]/20 hover:bg-[#8B5CF6]/30 text-[#A78BFA] border border-[#8B5CF6]/30'
-                : 'bg-emerald-500/15 hover:bg-emerald-500/25 text-emerald-400 border border-emerald-500/25',
-            ]
-              .filter(Boolean)
-              .join(' ')}
-          >
-            {actionVariant === 'done' ? <Check size={13} /> : <Flame size={13} />}
-            {actionLabel}
-            {group.items.length > 1 && (
-              <span className="opacity-60 text-[10px]">({item.item_name.slice(0, 8)})</span>
-            )}
-          </button>
         ))}
       </div>
     </div>
