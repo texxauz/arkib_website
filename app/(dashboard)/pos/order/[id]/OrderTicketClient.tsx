@@ -216,13 +216,10 @@ export function OrderTicketClient({
       setLoading(false)
       return
     }
-    if (order.table_name && order.table_name !== 'Walk-in') {
-      // Find the table by order id and clear it
-      await supabase
-        .from('pos_tables')
-        .update({ current_order_id: null })
-        .eq('current_order_id', order.id)
-    }
+    await supabase
+      .from('pos_tables')
+      .update({ current_order_id: null })
+      .eq('current_order_id', order.id)
     setLoading(false)
     router.push('/pos')
   }, [order.id, order.table_name, supabase, router, toast])
