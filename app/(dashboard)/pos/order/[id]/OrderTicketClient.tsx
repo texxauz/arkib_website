@@ -101,18 +101,23 @@ export function OrderTicketClient({
     const unitPrice = type === 'cocktail' ? (item as Cocktail).selling_price : (item as MenuItem).price
     const unitCost = type === 'cocktail' ? (item as Cocktail).total_cost : 0
 
-    // Check if already in active items
     const existing = activeItems.find(i => i.item_id === item.id && i.item_type === type)
     if (existing) {
+      // Optimistic update
+      setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i))
       const { error } = await supabase
         .from('pos_order_items')
         .update({ quantity: existing.quantity + 1 })
         .eq('id', existing.id)
-      if (error) toast(error.message, 'error')
+      if (error) {
+        // Revert
+        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: existing.quantity } : i))
+        toast(error.message, 'error')
+      }
       return
     }
 
-    const { error } = await supabase.from('pos_order_items').insert({
+    const { data, error } = await supabase.from('pos_order_items').insert({
       order_id: order.id,
       item_type: type,
       item_id: item.id,
@@ -124,8 +129,12 @@ export function OrderTicketClient({
       discount: 0,
       status: 'pending',
       added_by: userId,
-    })
-    if (error) toast(error.message, 'error')
+    }).select().single()
+    if (error) {
+      toast(error.message, 'error')
+    } else if (data) {
+      setItems(prev => [...prev, data as OrderItem])
+    }
   }, [activeItems, order.id, userId, supabase, toast])
 
   const updateQty = useCallback(async (itemId: string, delta: number) => {
@@ -136,11 +145,16 @@ export function OrderTicketClient({
       setVoidModal({ open: true, itemId, reason: '' })
       return
     }
+    // Optimistic update
+    setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: newQty } : i))
     const { error } = await supabase
       .from('pos_order_items')
       .update({ quantity: newQty })
       .eq('id', itemId)
-    if (error) toast(error.message, 'error')
+    if (error) {
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: item.quantity } : i))
+      toast(error.message, 'error')
+    }
   }, [items, supabase, toast])
 
   const handleVoid = useCallback(async () => {
@@ -151,14 +165,17 @@ export function OrderTicketClient({
       return
     }
     setLoading(true)
+    const voidedAt = new Date().toISOString()
     const { error } = await supabase
       .from('pos_order_items')
-      .update({ voided_at: new Date().toISOString(), void_reason: reason, voided_by: userId })
+      .update({ voided_at: voidedAt, void_reason: reason, voided_by: userId })
       .eq('id', itemId)
     setLoading(false)
     if (error) {
       toast(error.message, 'error')
     } else {
+      // Optimistic update
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, voided_at: voidedAt } : i))
       toast('Item voided', 'info')
       setVoidModal({ open: false, itemId: null, reason: '' })
     }
