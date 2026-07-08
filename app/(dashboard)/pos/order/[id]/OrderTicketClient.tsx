@@ -204,6 +204,29 @@ export function OrderTicketClient({
     }
   }, [activeItems, supabase, toast])
 
+  const handleCancelOrder = useCallback(async () => {
+    if (!confirm('Cancel this order and free the table?')) return
+    setLoading(true)
+    const { error } = await supabase
+      .from('pos_orders')
+      .update({ status: 'voided' })
+      .eq('id', order.id)
+    if (error) {
+      toast(error.message, 'error')
+      setLoading(false)
+      return
+    }
+    if (order.table_name && order.table_name !== 'Walk-in') {
+      // Find the table by order id and clear it
+      await supabase
+        .from('pos_tables')
+        .update({ current_order_id: null })
+        .eq('current_order_id', order.id)
+    }
+    setLoading(false)
+    router.push('/pos')
+  }, [order.id, order.table_name, supabase, router, toast])
+
   const handleSaveNote = useCallback(async () => {
     if (!noteModal.itemId) return
     const { error } = await supabase
@@ -336,13 +359,24 @@ export function OrderTicketClient({
             <h2 className="text-[#F0EEF6] font-bold text-lg">{order.table_name ?? 'Table'}</h2>
             {order.section && <span className="text-[#5A5865] text-xs">{order.section}</span>}
           </div>
-          <span className={cn(
-            'px-2.5 py-1 rounded-lg text-xs font-medium',
-            order.status === 'open' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
-            'bg-[#1A1A1E] text-[#9896A4] border border-[#2A2A30]'
-          )}>
-            {order.status}
-          </span>
+          <div className="flex items-center gap-2">
+            <span className={cn(
+              'px-2.5 py-1 rounded-lg text-xs font-medium',
+              order.status === 'open' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+              'bg-[#1A1A1E] text-[#9896A4] border border-[#2A2A30]'
+            )}>
+              {order.status}
+            </span>
+            {order.status === 'open' && (
+              <button
+                onClick={handleCancelOrder}
+                disabled={loading}
+                className="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-950 text-rose-400 border border-rose-800 hover:bg-rose-900 transition-colors disabled:opacity-50"
+              >
+                Cancel Order
+              </button>
+            )}
+          </div>
         </div>
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="flex items-center gap-1.5 text-[#9896A4]">
