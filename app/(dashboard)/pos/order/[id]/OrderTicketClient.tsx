@@ -9,15 +9,18 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Plus, Minus, Trash2, Send, CreditCard, Search,
-  ChevronLeft, UtensilsCrossed, Clock, Users, User
+  ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound
 } from 'lucide-react'
 
 type PosOrder = {
-  id: string; table_name: string | null; section: string | null
+  id: string; table_id: string | null; table_name: string | null; section: string | null
   server_name: string | null; covers: number; status: string
   subtotal: number; discount_amount: number; service_charge: number
   tax_amount: number; total: number; notes: string | null; opened_at: string
+  customer_name: string | null
 }
+
+type PosTable = { id: string; name: string; section: string; capacity: number; current_order_id: string | null }
 
 type OrderItem = {
   id: string; order_id: string; item_type: string; item_id: string | null
@@ -35,6 +38,7 @@ interface Props {
   initialItems: OrderItem[]
   cocktails: Cocktail[]
   menuItems: MenuItem[]
+  allTables: PosTable[]
   userId: string
   userName: string
   isAdmin: boolean
@@ -53,7 +57,7 @@ function formatCurrency(amount: number) {
 }
 
 export function OrderTicketClient({
-  order, initialItems, cocktails, menuItems, userId, userName, isAdmin, config
+  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, config
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -64,6 +68,7 @@ export function OrderTicketClient({
   const [search, setSearch] = useState('')
   const [showMenu, setShowMenu] = useState(false)
   const [loading, setLoading] = useState(false)
+  const [currentOrder, setCurrentOrder] = useState(order)
 
   const [noteModal, setNoteModal] = useState<{ open: boolean; itemId: string | null; text: string }>({
     open: false, itemId: null, text: ''
@@ -71,6 +76,10 @@ export function OrderTicketClient({
   const [voidModal, setVoidModal] = useState<{ open: boolean; itemId: string | null; reason: string }>({
     open: false, itemId: null, reason: ''
   })
+  const [moveModal, setMoveModal] = useState(false)
+  const [moveTarget, setMoveTarget] = useState<PosTable | null>(null)
+  const [guestModal, setGuestModal] = useState(false)
+  const [guestName, setGuestName] = useState(order.customer_name ?? '')
 
   const activeItems = items.filter(i => !i.voided_at)
   const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0)
@@ -204,25 +213,45 @@ export function OrderTicketClient({
     }
   }, [activeItems, supabase, toast])
 
+  const handleMoveTable = useCallback(async () => {
+    if (!moveTarget) return
+    setLoading(true)
+    const { error } = await supabase.from('pos_orders').update({
+      table_id: moveTarget.id,
+      table_name: moveTarget.name,
+      section: moveTarget.section,
+    }).eq('id', currentOrder.id)
+    if (error) { toast(error.message, 'error'); setLoading(false); return }
+    // Clear old table
+    if (currentOrder.table_id) {
+      await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', currentOrder.table_id)
+    }
+    // Set new table
+    await supabase.from('pos_tables').update({ current_order_id: currentOrder.id }).eq('id', moveTarget.id)
+    setCurrentOrder(o => ({ ...o, table_id: moveTarget.id, table_name: moveTarget.name, section: moveTarget.section }))
+    setMoveModal(false)
+    setMoveTarget(null)
+    setLoading(false)
+    toast(`Moved to ${moveTarget.name}`, 'success')
+  }, [moveTarget, currentOrder, supabase, toast])
+
+  const handleSaveGuest = useCallback(async () => {
+    const { error } = await supabase.from('pos_orders').update({ customer_name: guestName.trim() || null }).eq('id', currentOrder.id)
+    if (error) { toast(error.message, 'error'); return }
+    setCurrentOrder(o => ({ ...o, customer_name: guestName.trim() || null }))
+    setGuestModal(false)
+    toast('Guest name saved', 'success')
+  }, [guestName, currentOrder.id, supabase, toast])
+
   const handleCancelOrder = useCallback(async () => {
     if (!confirm('Cancel this order and free the table?')) return
     setLoading(true)
-    const { error } = await supabase
-      .from('pos_orders')
-      .update({ status: 'voided' })
-      .eq('id', order.id)
-    if (error) {
-      toast(error.message, 'error')
-      setLoading(false)
-      return
-    }
-    await supabase
-      .from('pos_tables')
-      .update({ current_order_id: null })
-      .eq('current_order_id', order.id)
+    const { error } = await supabase.from('pos_orders').update({ status: 'voided' }).eq('id', currentOrder.id)
+    if (error) { toast(error.message, 'error'); setLoading(false); return }
+    await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', currentOrder.id)
     setLoading(false)
     router.push('/pos')
-  }, [order.id, order.table_name, supabase, router, toast])
+  }, [currentOrder.id, supabase, router, toast])
 
   const handleSaveNote = useCallback(async () => {
     if (!noteModal.itemId) return
@@ -351,42 +380,63 @@ export function OrderTicketClient({
     <div className="flex flex-col h-full bg-[#0A0A0D]">
       {/* Order header */}
       <div className="p-4 border-b border-[#2A2A30]">
-        <div className="flex items-center justify-between mb-3">
+        <div className="flex items-center justify-between mb-2">
           <div>
-            <h2 className="text-[#F0EEF6] font-bold text-lg">{order.table_name ?? 'Table'}</h2>
-            {order.section && <span className="text-[#5A5865] text-xs">{order.section}</span>}
+            <h2 className="text-[#F0EEF6] font-bold text-lg">{currentOrder.table_name ?? 'Walk-in'}</h2>
+            {currentOrder.section && <span className="text-[#5A5865] text-xs">{currentOrder.section}</span>}
           </div>
-          <div className="flex items-center gap-2">
+          <div className="flex items-center gap-1.5">
             <span className={cn(
               'px-2.5 py-1 rounded-lg text-xs font-medium',
-              order.status === 'open' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
+              currentOrder.status === 'open' ? 'bg-emerald-950 text-emerald-400 border border-emerald-800' :
               'bg-[#1A1A1E] text-[#9896A4] border border-[#2A2A30]'
             )}>
-              {order.status}
+              {currentOrder.status}
             </span>
-            {order.status === 'open' && (
+            {currentOrder.status === 'open' && (
               <button
                 onClick={handleCancelOrder}
                 disabled={loading}
                 className="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-950 text-rose-400 border border-rose-800 hover:bg-rose-900 transition-colors disabled:opacity-50"
               >
-                Cancel Order
+                Cancel
               </button>
             )}
           </div>
         </div>
+
+        {/* Quick actions row */}
+        {currentOrder.status === 'open' && (
+          <div className="flex gap-2 mb-2">
+            <button
+              onClick={() => setMoveModal(true)}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42] transition-colors"
+            >
+              <ArrowRightLeft size={11} />
+              Move Table
+            </button>
+            <button
+              onClick={() => { setGuestName(currentOrder.customer_name ?? ''); setGuestModal(true) }}
+              className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42] transition-colors"
+            >
+              <UserRound size={11} />
+              {currentOrder.customer_name ? currentOrder.customer_name : 'Add Guest'}
+            </button>
+          </div>
+        )}
+
         <div className="grid grid-cols-3 gap-2 text-xs">
           <div className="flex items-center gap-1.5 text-[#9896A4]">
             <User size={11} />
-            <span className="truncate">{order.server_name ?? userName}</span>
+            <span className="truncate">{currentOrder.server_name ?? userName}</span>
           </div>
           <div className="flex items-center gap-1.5 text-[#9896A4]">
             <Users size={11} />
-            <span>{order.covers} covers</span>
+            <span>{currentOrder.covers} covers</span>
           </div>
           <div className="flex items-center gap-1.5 text-[#9896A4]">
             <Clock size={11} />
-            <span>{formatTime(order.opened_at)}</span>
+            <span>{formatTime(currentOrder.opened_at)}</span>
           </div>
         </div>
       </div>
@@ -603,6 +653,59 @@ export function OrderTicketClient({
             >
               Void Item
             </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Move Table Modal */}
+      <Modal isOpen={moveModal} onClose={() => { setMoveModal(false); setMoveTarget(null) }} title="Move Table" size="sm">
+        <div className="space-y-3">
+          <p className="text-[#9896A4] text-sm">Select the table to move this order to.</p>
+          <div className="grid grid-cols-2 gap-2 max-h-64 overflow-y-auto">
+            {allTables
+              .filter(t => t.id !== currentOrder.table_id && !t.current_order_id)
+              .map(t => (
+                <button
+                  key={t.id}
+                  onClick={() => setMoveTarget(t)}
+                  className={cn(
+                    'p-3 rounded-xl border text-left transition-all',
+                    moveTarget?.id === t.id
+                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/50 text-[#A78BFA]'
+                      : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:border-[#3A3A42] hover:text-[#F0EEF6]'
+                  )}
+                >
+                  <p className="font-semibold text-sm">{t.name}</p>
+                  <p className="text-xs opacity-60">{t.section}</p>
+                </button>
+              ))}
+          </div>
+          {allTables.filter(t => t.id !== currentOrder.table_id && !t.current_order_id).length === 0 && (
+            <p className="text-[#5A5865] text-sm text-center py-4">No available tables to move to.</p>
+          )}
+          <div className="flex gap-2 justify-end pt-1">
+            <button onClick={() => { setMoveModal(false); setMoveTarget(null) }} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+            <button onClick={handleMoveTable} disabled={!moveTarget || loading} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] disabled:opacity-40 transition-all">
+              Move Order
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Guest Name Modal */}
+      <Modal isOpen={guestModal} onClose={() => setGuestModal(false)} title="Guest Name" size="sm">
+        <div className="space-y-4">
+          <input
+            type="text"
+            value={guestName}
+            onChange={e => setGuestName(e.target.value)}
+            placeholder="Enter guest name..."
+            className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+            autoFocus
+          />
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setGuestModal(false)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+            <button onClick={handleSaveGuest} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all">Save</button>
           </div>
         </div>
       </Modal>

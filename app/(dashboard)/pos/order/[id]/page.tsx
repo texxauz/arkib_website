@@ -15,12 +15,13 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     .from('users').select('role, full_name').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
 
-  const [{ data: order }, { data: items }, { data: cocktails }, { data: menuItems }, { data: config }] = await Promise.all([
+  const [{ data: order }, { data: items }, { data: cocktails }, { data: menuItems }, { data: config }, { data: tables }] = await Promise.all([
     supabase.from('pos_orders').select('*').eq('id', id).single(),
     supabase.from('pos_order_items').select('*').eq('order_id', id).order('created_at'),
     supabase.from('cocktails').select('id, name, selling_price, total_cost').eq('is_on_menu', true).is('deleted_at', null).order('name'),
     supabase.from('menu_items').select('*').eq('is_active', true).order('category').order('sort_order').order('name'),
     supabase.from('pos_config').select('key, value'),
+    supabase.from('pos_tables').select('id, name, section, capacity, current_order_id').eq('is_active', true).order('section').order('sort_order'),
   ])
 
   if (!order) redirect('/pos')
@@ -33,6 +34,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
       initialItems={items ?? []}
       cocktails={cocktails ?? []}
       menuItems={menuItems ?? []}
+      allTables={tables ?? []}
       userId={user.id}
       userName={userProfile?.full_name ?? 'Staff'}
       isAdmin={isAdmin}
