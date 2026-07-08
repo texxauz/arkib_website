@@ -84,7 +84,11 @@ export function OrderTicketClient({
         { event: '*', schema: 'public', table: 'pos_order_items', filter: `order_id=eq.${order.id}` },
         (payload) => {
           if (payload.eventType === 'INSERT') {
-            setItems(prev => [...prev, payload.new as OrderItem])
+            // Skip if optimistic update already added it
+            setItems(prev => {
+              if (prev.find(i => i.id === (payload.new as OrderItem).id)) return prev
+              return [...prev, payload.new as OrderItem]
+            })
           } else if (payload.eventType === 'UPDATE') {
             setItems(prev => prev.map(i => i.id === (payload.new as OrderItem).id ? payload.new as OrderItem : i))
           } else if (payload.eventType === 'DELETE') {
