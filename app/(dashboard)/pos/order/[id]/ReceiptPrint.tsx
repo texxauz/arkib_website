@@ -132,7 +132,7 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
         {/* Header */}
         <div style={{ ...s, textAlign: 'center', marginBottom: '4px' }}>
           <div style={{ fontSize: '16px', fontWeight: 'bold', letterSpacing: '4px' }}>ARKIB BAR</div>
-          <div style={{ fontSize: '11px', fontWeight: 'bold', marginTop: '2px' }}>HIDDEN CHAMBERS VENTURE</div>
+          <div style={{ fontSize: '11px', fontWeight: 'bold', marginTop: '2px' }}>HIDDEN CHAMBERS VENTURE (RA0123876-X)</div>
           <div style={{ fontSize: '10px', marginTop: '2px', lineHeight: '1.5' }}>
             {'133-1, 135-1 JALAN TUN TAN CHENG LOCK\n75200 MELAKA'}
           </div>
