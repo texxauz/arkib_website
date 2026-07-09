@@ -8,25 +8,32 @@ import type { Database } from '@/types/database'
 
 type UserProfile = Database['public']['Tables']['users']['Row'] & { tab_permissions?: Record<string, string> | null }
 
-const ALL_TABS = [
+const MGMT_TABS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'sales', label: 'Sales' },
   { key: 'expenses', label: 'Expenses' },
   { key: 'receipts', label: 'Receipts' },
   { key: 'bar-inventory', label: 'Bar Stock' },
   { key: 'checklist', label: 'Checklist' },
-  { key: 'pos', label: 'POS' },
-  { key: 'pos-kds', label: 'Bar Display' },
-  { key: 'pos-shifts', label: 'Shifts' },
-  { key: 'pos-reservations', label: 'Reservations' },
-  { key: 'pos-reports', label: 'POS Reports' },
-  { key: 'pos-production', label: 'Production' },
   { key: 'cocktails', label: 'Cocktails' },
   { key: 'shifts', label: 'Shifts' },
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
   { key: 'pnl', label: 'P&L' },
 ]
+
+const POS_TABS = [
+  { key: 'pos', label: 'Floor Plan' },
+  { key: 'pos-kds', label: 'Bar Display' },
+  { key: 'pos-shifts', label: 'Shifts' },
+  { key: 'pos-reservations', label: 'Reservations' },
+  { key: 'pos-production', label: 'Production Queue' },
+  { key: 'pos-reports', label: 'POS Reports' },
+  { key: 'pos-audit', label: 'Audit Log' },
+  { key: 'pos-settings', label: 'POS Settings' },
+]
+
+const ALL_TABS = [...MGMT_TABS, ...POS_TABS]
 
 const OWNER_FULL: Record<string, string> = Object.fromEntries(ALL_TABS.map(t => [t.key, 'edit']))
 
@@ -138,17 +145,37 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   }
 
   const PermGrid = ({ perms, onCycle }: { perms: Record<string, string>, onCycle: (k: string) => void }) => (
-    <div className="grid grid-cols-2 gap-1.5">
-      {ALL_TABS.map(tab => {
-        const p = perms[tab.key] ?? 'none'
-        return (
-          <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
-            <span>{tab.label}</span>
-            <span className="capitalize">{p}</span>
-          </button>
-        )
-      })}
+    <div className="space-y-3">
+      <div>
+        <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">Management</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {MGMT_TABS.map(tab => {
+            const p = perms[tab.key] ?? 'none'
+            return (
+              <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
+                <span>{tab.label}</span>
+                <span className="capitalize">{p}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div>
+        <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">POS System</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {POS_TABS.map(tab => {
+            const p = perms[tab.key] ?? 'none'
+            return (
+              <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
+                <span>{tab.label}</span>
+                <span className="capitalize">{p}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 
