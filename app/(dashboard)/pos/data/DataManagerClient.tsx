@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Trash2, Pencil, Plus, Check, X, ChevronDown } from 'lucide-react'
+import { Trash2, Pencil, Plus, ChevronDown } from 'lucide-react'
 
 type Order = {
   id: string; table_name: string | null; section: string | null
@@ -62,13 +62,31 @@ async function apiFetch(url: string, body: object): Promise<{ ok: boolean; error
   return { ok: true }
 }
 
+function Checkbox({ checked, indeterminate, onChange }: { checked: boolean; indeterminate?: boolean; onChange: () => void }) {
+  return (
+    <button
+      onClick={onChange}
+      className={`w-4 h-4 rounded border flex items-center justify-center shrink-0 transition-colors ${
+        checked || indeterminate
+          ? 'bg-[#8B5CF6] border-[#8B5CF6]'
+          : 'bg-transparent border-[#3A3A44] hover:border-[#8B5CF6]'
+      }`}
+    >
+      {checked && <span className="text-white text-[10px] font-bold leading-none">✓</span>}
+      {!checked && indeterminate && <span className="w-2 h-0.5 bg-white rounded-full" />}
+    </button>
+  )
+}
+
 export function DataManagerClient({ orders: initialOrders, tables: initialTables, menuItems: initialMenuItems, dailySales: initialDailySales }: Props) {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<Tab>('orders')
+  const [bulkLoading, setBulkLoading] = useState(false)
 
-  // ── Orders state ────────────────────────────────────────────────────────────
+  // ── Orders ──────────────────────────────────────────────────────────────────
   const [orders, setOrders] = useState<Order[]>(initialOrders)
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
   const [deleteOrderModal, setDeleteOrderModal] = useState<Order | null>(null)
   const [loadingId, setLoadingId] = useState<string | null>(null)
 
@@ -77,29 +95,73 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     return orders.filter(o => o.status === orderStatusFilter)
   }, [orders, orderStatusFilter])
 
+  const allOrdersSelected = filteredOrders.length > 0 && filteredOrders.every(o => selectedOrders.has(o.id))
+  const someOrdersSelected = filteredOrders.some(o => selectedOrders.has(o.id)) && !allOrdersSelected
+
+  function toggleOrder(id: string) {
+    setSelectedOrders(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
+  }
+  function toggleAllOrders() {
+    if (allOrdersSelected) {
+      setSelectedOrders(prev => { const s = new Set(prev); filteredOrders.forEach(o => s.delete(o.id)); return s })
+    } else {
+      setSelectedOrders(prev => { const s = new Set(prev); filteredOrders.forEach(o => s.add(o.id)); return s })
+    }
+  }
+
   async function handleDeleteOrder(order: Order) {
     setLoadingId(order.id)
     const res = await apiFetch('/api/pos/delete-order', { orderId: order.id })
     setLoadingId(null)
     if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
     setOrders(prev => prev.filter(o => o.id !== order.id))
+    setSelectedOrders(prev => { const s = new Set(prev); s.delete(order.id); return s })
     setDeleteOrderModal(null)
     toast('Order deleted', 'info')
   }
 
-  // ── Tables state ────────────────────────────────────────────────────────────
+  async function handleBulkDeleteOrders() {
+    const ids = filteredOrders.filter(o => selectedOrders.has(o.id)).map(o => o.id)
+    if (!ids.length) return
+    if (!confirm(`Delete ${ids.length} order${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
+    setBulkLoading(true)
+    let failed = 0
+    for (const id of ids) {
+      const res = await apiFetch('/api/pos/delete-order', { orderId: id })
+      if (res.ok) {
+        setOrders(prev => prev.filter(o => o.id !== id))
+        setSelectedOrders(prev => { const s = new Set(prev); s.delete(id); return s })
+      } else { failed++ }
+    }
+    setBulkLoading(false)
+    if (failed > 0) toast(`${failed} order(s) failed to delete`, 'error')
+    else toast(`${ids.length} order${ids.length > 1 ? 's' : ''} deleted`, 'info')
+  }
+
+  // ── Tables ──────────────────────────────────────────────────────────────────
   const [tables, setTables] = useState<PosTable[]>(initialTables)
+  const [selectedTables, setSelectedTables] = useState<Set<string>>(new Set())
   const [tableModal, setTableModal] = useState<{ open: boolean; table: Partial<PosTable> | null; isNew: boolean }>({ open: false, table: null, isNew: false })
   const [tableLoading, setTableLoading] = useState(false)
 
   const sections = [...new Set(tables.map(t => t.section))].sort()
+  const deletableTables = tables.filter(t => !t.current_order_id)
+  const allTablesSelected = deletableTables.length > 0 && deletableTables.every(t => selectedTables.has(t.id))
+  const someTablesSelected = deletableTables.some(t => selectedTables.has(t.id)) && !allTablesSelected
 
-  function openTableEdit(table: PosTable) {
-    setTableModal({ open: true, table: { ...table }, isNew: false })
+  function toggleTable(id: string) {
+    setSelectedTables(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }
-  function openTableCreate() {
-    setTableModal({ open: true, table: { name: '', section: sections[0] ?? '', capacity: 4, sort_order: 99, is_active: true }, isNew: true })
+  function toggleAllTables() {
+    if (allTablesSelected) {
+      setSelectedTables(prev => { const s = new Set(prev); deletableTables.forEach(t => s.delete(t.id)); return s })
+    } else {
+      setSelectedTables(prev => { const s = new Set(prev); deletableTables.forEach(t => s.add(t.id)); return s })
+    }
   }
+
+  function openTableEdit(table: PosTable) { setTableModal({ open: true, table: { ...table }, isNew: false }) }
+  function openTableCreate() { setTableModal({ open: true, table: { name: '', section: sections[0] ?? '', capacity: 4, sort_order: 99, is_active: true }, isNew: true }) }
 
   async function handleSaveTable() {
     const t = tableModal.table
@@ -109,7 +171,6 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
       const res = await apiFetch('/api/pos/manage-table', { action: 'create', name: t.name, section: t.section, capacity: t.capacity, sort_order: t.sort_order })
       setTableLoading(false)
       if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
-      // Reload by refetching — simple: just reload page state
       setTables(prev => [...prev, { ...t, id: crypto.randomUUID(), current_order_id: null, is_active: true } as PosTable])
     } else {
       const res = await apiFetch('/api/pos/manage-table', { action: 'update', id: t.id, name: t.name, section: t.section, capacity: t.capacity, sort_order: t.sort_order, is_active: t.is_active })
@@ -123,13 +184,29 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
 
   async function handleDeleteTable(table: PosTable) {
     if (table.current_order_id) { toast('Table has an open order — close it first', 'error'); return }
-    if (!confirm(`Delete table "${table.name}"? This cannot be undone.`)) return
     setLoadingId(table.id)
     const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id: table.id })
     setLoadingId(null)
     if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
     setTables(prev => prev.filter(t => t.id !== table.id))
+    setSelectedTables(prev => { const s = new Set(prev); s.delete(table.id); return s })
     toast('Table deleted', 'info')
+  }
+
+  async function handleBulkDeleteTables() {
+    const ids = tables.filter(t => selectedTables.has(t.id) && !t.current_order_id).map(t => t.id)
+    if (!ids.length) return
+    if (!confirm(`Delete ${ids.length} table${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
+    setBulkLoading(true)
+    let failed = 0
+    for (const id of ids) {
+      const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id })
+      if (res.ok) { setTables(prev => prev.filter(t => t.id !== id)); setSelectedTables(prev => { const s = new Set(prev); s.delete(id); return s }) }
+      else failed++
+    }
+    setBulkLoading(false)
+    if (failed > 0) toast(`${failed} table(s) failed`, 'error')
+    else toast(`${ids.length} table${ids.length > 1 ? 's' : ''} deleted`, 'info')
   }
 
   async function handleToggleTable(table: PosTable) {
@@ -140,8 +217,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     setTables(prev => prev.map(t => t.id === table.id ? { ...t, is_active: !t.is_active } : t))
   }
 
-  // ── Menu Items state ─────────────────────────────────────────────────────────
+  // ── Menu Items ───────────────────────────────────────────────────────────────
   const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems)
+  const [selectedMenuItems, setSelectedMenuItems] = useState<Set<string>>(new Set())
   const [menuModal, setMenuModal] = useState<{ open: boolean; item: Partial<MenuItem> | null; isNew: boolean }>({ open: false, item: null, isNew: false })
   const [menuLoading, setMenuLoading] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('all')
@@ -151,12 +229,22 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     return menuItems.filter(m => m.category === menuCatFilter)
   }, [menuItems, menuCatFilter])
 
-  function openMenuEdit(item: MenuItem) {
-    setMenuModal({ open: true, item: { ...item }, isNew: false })
+  const allMenuSelected = filteredMenu.length > 0 && filteredMenu.every(m => selectedMenuItems.has(m.id))
+  const someMenuSelected = filteredMenu.some(m => selectedMenuItems.has(m.id)) && !allMenuSelected
+
+  function toggleMenuItem(id: string) {
+    setSelectedMenuItems(prev => { const s = new Set(prev); s.has(id) ? s.delete(id) : s.add(id); return s })
   }
-  function openMenuCreate() {
-    setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, is_active: true, sort_order: 99 }, isNew: true })
+  function toggleAllMenuItems() {
+    if (allMenuSelected) {
+      setSelectedMenuItems(prev => { const s = new Set(prev); filteredMenu.forEach(m => s.delete(m.id)); return s })
+    } else {
+      setSelectedMenuItems(prev => { const s = new Set(prev); filteredMenu.forEach(m => s.add(m.id)); return s })
+    }
   }
+
+  function openMenuEdit(item: MenuItem) { setMenuModal({ open: true, item: { ...item }, isNew: false }) }
+  function openMenuCreate() { setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, is_active: true, sort_order: 99 }, isNew: true }) }
 
   async function handleSaveMenu() {
     const m = menuModal.item
@@ -179,13 +267,29 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   }
 
   async function handleDeleteMenu(item: MenuItem) {
-    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return
     setLoadingId(item.id)
     const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id: item.id })
     setLoadingId(null)
     if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
     setMenuItems(prev => prev.filter(m => m.id !== item.id))
+    setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(item.id); return s })
     toast('Item deleted', 'info')
+  }
+
+  async function handleBulkDeleteMenuItems() {
+    const ids = filteredMenu.filter(m => selectedMenuItems.has(m.id)).map(m => m.id)
+    if (!ids.length) return
+    if (!confirm(`Delete ${ids.length} item${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
+    setBulkLoading(true)
+    let failed = 0
+    for (const id of ids) {
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id })
+      if (res.ok) { setMenuItems(prev => prev.filter(m => m.id !== id)); setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(id); return s }) }
+      else failed++
+    }
+    setBulkLoading(false)
+    if (failed > 0) toast(`${failed} item(s) failed`, 'error')
+    else toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'info')
   }
 
   async function handleToggleMenu(item: MenuItem) {
@@ -196,16 +300,28 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     setMenuItems(prev => prev.map(m => m.id === item.id ? { ...m, is_active: !m.is_active } : m))
   }
 
-  // ── Daily Sales state ────────────────────────────────────────────────────────
+  // ── Daily Sales ──────────────────────────────────────────────────────────────
   const [dailySales, setDailySales] = useState<DailySales[]>(initialDailySales)
+  const [selectedSales, setSelectedSales] = useState<Set<string>>(new Set())
   const [salesModal, setSalesModal] = useState<{ open: boolean; row: DailySales | null }>({ open: false, row: null })
   const [salesLoading, setSalesLoading] = useState(false)
   const [editRow, setEditRow] = useState<Partial<DailySales>>({})
 
-  function openSalesEdit(row: DailySales) {
-    setEditRow({ ...row })
-    setSalesModal({ open: true, row })
+  const allSalesSelected = dailySales.length > 0 && dailySales.every(r => selectedSales.has(r.date))
+  const someSalesSelected = dailySales.some(r => selectedSales.has(r.date)) && !allSalesSelected
+
+  function toggleSale(date: string) {
+    setSelectedSales(prev => { const s = new Set(prev); s.has(date) ? s.delete(date) : s.add(date); return s })
   }
+  function toggleAllSales() {
+    if (allSalesSelected) {
+      setSelectedSales(prev => { const s = new Set(prev); dailySales.forEach(r => s.delete(r.date)); return s })
+    } else {
+      setSelectedSales(prev => { const s = new Set(prev); dailySales.forEach(r => s.add(r.date)); return s })
+    }
+  }
+
+  function openSalesEdit(row: DailySales) { setEditRow({ ...row }); setSalesModal({ open: true, row }) }
 
   async function handleSaveSales() {
     if (!editRow.date) return
@@ -220,13 +336,29 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   }
 
   async function handleDeleteSales(row: DailySales) {
-    if (!confirm(`Delete all sales data for ${row.date}? This also removes cocktail sales for that day.`)) return
     setLoadingId(row.date)
     const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date: row.date })
     setLoadingId(null)
     if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
     setDailySales(prev => prev.filter(r => r.date !== row.date))
+    setSelectedSales(prev => { const s = new Set(prev); s.delete(row.date); return s })
     toast('Sales record deleted', 'info')
+  }
+
+  async function handleBulkDeleteSales() {
+    const dates = dailySales.filter(r => selectedSales.has(r.date)).map(r => r.date)
+    if (!dates.length) return
+    if (!confirm(`Delete ${dates.length} day${dates.length > 1 ? 's' : ''} of sales data? This also removes cocktail sales for those days.`)) return
+    setBulkLoading(true)
+    let failed = 0
+    for (const date of dates) {
+      const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date })
+      if (res.ok) { setDailySales(prev => prev.filter(r => r.date !== date)); setSelectedSales(prev => { const s = new Set(prev); s.delete(date); return s }) }
+      else failed++
+    }
+    setBulkLoading(false)
+    if (failed > 0) toast(`${failed} record(s) failed`, 'error')
+    else toast(`${dates.length} day${dates.length > 1 ? 's' : ''} of sales deleted`, 'info')
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -235,6 +367,13 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     { id: 'menu', label: `Menu Items (${menuItems.length})` },
     { id: 'sales', label: `Daily Sales (${dailySales.length})` },
   ]
+
+  // ── Bulk action bar ──────────────────────────────────────────────────────────
+  const selectedCount =
+    activeTab === 'orders' ? [...selectedOrders].filter(id => filteredOrders.some(o => o.id === id)).length :
+    activeTab === 'tables' ? selectedTables.size :
+    activeTab === 'menu' ? [...selectedMenuItems].filter(id => filteredMenu.some(m => m.id === id)).length :
+    selectedSales.size
 
   return (
     <div className="space-y-6">
@@ -257,6 +396,37 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
         ))}
       </div>
 
+      {/* Bulk action bar */}
+      {selectedCount > 0 && (
+        <div className="flex items-center gap-3 px-4 py-2.5 rounded-xl bg-[#8B5CF6]/10 border border-[#8B5CF6]/30">
+          <span className="text-[#A78BFA] text-sm font-medium">{selectedCount} selected</span>
+          <button
+            onClick={
+              activeTab === 'orders' ? handleBulkDeleteOrders :
+              activeTab === 'tables' ? handleBulkDeleteTables :
+              activeTab === 'menu' ? handleBulkDeleteMenuItems :
+              handleBulkDeleteSales
+            }
+            disabled={bulkLoading}
+            className="ml-auto flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-rose-600 text-white text-sm font-medium hover:bg-rose-500 transition-colors disabled:opacity-50"
+          >
+            <Trash2 size={13} />
+            {bulkLoading ? 'Deleting…' : `Delete ${selectedCount}`}
+          </button>
+          <button
+            onClick={() => {
+              if (activeTab === 'orders') setSelectedOrders(new Set())
+              else if (activeTab === 'tables') setSelectedTables(new Set())
+              else if (activeTab === 'menu') setSelectedMenuItems(new Set())
+              else setSelectedSales(new Set())
+            }}
+            className="text-[#9896A4] hover:text-[#F0EEF6] text-sm transition-colors"
+          >
+            Clear
+          </button>
+        </div>
+      )}
+
       {/* ── ORDERS ─────────────────────────────────────────────────────────────── */}
       {activeTab === 'orders' && (
         <div className="card space-y-4">
@@ -264,25 +434,19 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <p className="section-title">Last 30 Days</p>
             <div className="flex gap-1 ml-auto">
               {(['all', 'open', 'closed', 'voided'] as const).map(s => (
-                <button
-                  key={s}
-                  onClick={() => setOrderStatusFilter(s)}
-                  className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${
-                    orderStatusFilter === s
-                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
-                      : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
-                  }`}
-                >
-                  {s}
-                </button>
+                <button key={s} onClick={() => setOrderStatusFilter(s)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${orderStatusFilter === s ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]' : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'}`}
+                >{s}</button>
               ))}
             </div>
           </div>
-
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="py-2 pr-3 w-8">
+                    <Checkbox checked={allOrdersSelected} indeterminate={someOrdersSelected} onChange={toggleAllOrders} />
+                  </th>
                   <th className="text-left py-2 pr-3">Date / Time</th>
                   <th className="text-left py-2 pr-3">Table</th>
                   <th className="text-left py-2 pr-3">Server</th>
@@ -294,25 +458,21 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
               </thead>
               <tbody>
                 {filteredOrders.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-10 text-[#5A5865]">No orders found</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-[#5A5865]">No orders found</td></tr>
                 ) : filteredOrders.map(order => (
-                  <tr key={order.id} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                  <tr key={order.id} className={`border-b border-[#1A1A1E] transition-colors ${selectedOrders.has(order.id) ? 'bg-[#8B5CF6]/5' : 'hover:bg-[#1A1A1E]'}`}>
+                    <td className="py-2.5 pr-3"><Checkbox checked={selectedOrders.has(order.id)} onChange={() => toggleOrder(order.id)} /></td>
                     <td className="py-2.5 pr-3 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(order.opened_at)}</td>
                     <td className="py-2.5 pr-3 text-[#F0EEF6]">{order.table_name ?? 'Walk-in'}</td>
                     <td className="py-2.5 pr-3 text-[#9896A4] text-xs">{order.server_name ?? '—'}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{order.covers}</td>
                     <td className="py-2.5 px-3 text-right text-[#F0EEF6] font-medium tabular-nums">{fmtRM(order.total)}</td>
                     <td className="py-2.5 px-3 text-center">
-                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[order.status] ?? ''}`}>
-                        {order.status}
-                      </span>
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[order.status] ?? ''}`}>{order.status}</span>
                     </td>
                     <td className="py-2.5 pl-3 text-right">
-                      <button
-                        onClick={() => setDeleteOrderModal(order)}
-                        disabled={loadingId === order.id}
-                        className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
-                      >
+                      <button onClick={() => setDeleteOrderModal(order)} disabled={loadingId === order.id}
+                        className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40">
                         <Trash2 size={14} />
                       </button>
                     </td>
@@ -337,6 +497,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="py-2 pr-3 w-8">
+                    <Checkbox checked={allTablesSelected} indeterminate={someTablesSelected} onChange={toggleAllTables} />
+                  </th>
                   <th className="text-left py-2 pr-3">Name</th>
                   <th className="text-left py-2 pr-3">Section</th>
                   <th className="text-right py-2 px-3">Capacity</th>
@@ -347,31 +510,26 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
               </thead>
               <tbody>
                 {tables.map(table => (
-                  <tr key={table.id} className={`border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors ${!table.is_active ? 'opacity-50' : ''}`}>
+                  <tr key={table.id} className={`border-b border-[#1A1A1E] transition-colors ${selectedTables.has(table.id) ? 'bg-[#8B5CF6]/5' : 'hover:bg-[#1A1A1E]'} ${!table.is_active ? 'opacity-50' : ''}`}>
+                    <td className="py-2.5 pr-3">
+                      <Checkbox checked={selectedTables.has(table.id)} onChange={() => !table.current_order_id && toggleTable(table.id)} />
+                    </td>
                     <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{table.name}</td>
                     <td className="py-2.5 pr-3 text-[#9896A4]">{table.section}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{table.capacity}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{table.sort_order}</td>
                     <td className="py-2.5 px-3 text-center">
-                      <button
-                        onClick={() => handleToggleTable(table)}
-                        disabled={loadingId === table.id}
-                        className={`w-8 h-4 rounded-full transition-colors relative ${table.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}
-                      >
+                      <button onClick={() => handleToggleTable(table)} disabled={loadingId === table.id}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${table.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}>
                         <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${table.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
                       </button>
                     </td>
                     <td className="py-2.5 pl-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openTableEdit(table)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteTable(table)}
-                          disabled={!!table.current_order_id || loadingId === table.id}
+                        <button onClick={() => openTableEdit(table)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={13} /></button>
+                        <button onClick={() => handleDeleteTable(table)} disabled={!!table.current_order_id || loadingId === table.id}
                           className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
-                          title={table.current_order_id ? 'Has open order' : 'Delete'}
-                        >
+                          title={table.current_order_id ? 'Has open order' : 'Delete'}>
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -391,17 +549,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <p className="section-title">Menu Items</p>
             <div className="flex gap-1 ml-auto flex-wrap">
               {(['all', ...MENU_CATEGORIES] as const).map(c => (
-                <button
-                  key={c}
-                  onClick={() => setMenuCatFilter(c)}
-                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
-                    menuCatFilter === c
-                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
-                      : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
-                  }`}
-                >
-                  {c}
-                </button>
+                <button key={c} onClick={() => setMenuCatFilter(c)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${menuCatFilter === c ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]' : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'}`}
+                >{c}</button>
               ))}
             </div>
             <button onClick={openMenuCreate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] text-sm hover:bg-[#8B5CF6]/30 transition-colors">
@@ -412,6 +562,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="py-2 pr-3 w-8">
+                    <Checkbox checked={allMenuSelected} indeterminate={someMenuSelected} onChange={toggleAllMenuItems} />
+                  </th>
                   <th className="text-left py-2 pr-3">Name</th>
                   <th className="text-left py-2 pr-3">Category</th>
                   <th className="text-right py-2 px-3">Price</th>
@@ -422,9 +575,10 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
               </thead>
               <tbody>
                 {filteredMenu.length === 0 ? (
-                  <tr><td colSpan={6} className="text-center py-10 text-[#5A5865]">No items found</td></tr>
+                  <tr><td colSpan={7} className="text-center py-10 text-[#5A5865]">No items found</td></tr>
                 ) : filteredMenu.map(item => (
-                  <tr key={item.id} className={`border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors ${!item.is_active ? 'opacity-50' : ''}`}>
+                  <tr key={item.id} className={`border-b border-[#1A1A1E] transition-colors ${selectedMenuItems.has(item.id) ? 'bg-[#8B5CF6]/5' : 'hover:bg-[#1A1A1E]'} ${!item.is_active ? 'opacity-50' : ''}`}>
+                    <td className="py-2.5 pr-3"><Checkbox checked={selectedMenuItems.has(item.id)} onChange={() => toggleMenuItem(item.id)} /></td>
                     <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{item.name}</td>
                     <td className="py-2.5 pr-3">
                       <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20">{item.category}</span>
@@ -432,24 +586,16 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                     <td className="py-2.5 px-3 text-right text-[#F0EEF6] tabular-nums">{fmtRM(item.price)}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{item.sort_order}</td>
                     <td className="py-2.5 px-3 text-center">
-                      <button
-                        onClick={() => handleToggleMenu(item)}
-                        disabled={loadingId === item.id}
-                        className={`w-8 h-4 rounded-full transition-colors relative ${item.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}
-                      >
+                      <button onClick={() => handleToggleMenu(item)} disabled={loadingId === item.id}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${item.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}>
                         <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${item.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
                       </button>
                     </td>
                     <td className="py-2.5 pl-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openMenuEdit(item)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteMenu(item)}
-                          disabled={loadingId === item.id}
-                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
-                        >
+                        <button onClick={() => openMenuEdit(item)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={13} /></button>
+                        <button onClick={() => handleDeleteMenu(item)} disabled={loadingId === item.id}
+                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40">
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -470,6 +616,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <table className="w-full text-sm">
               <thead>
                 <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="py-2 pr-3 w-8">
+                    <Checkbox checked={allSalesSelected} indeterminate={someSalesSelected} onChange={toggleAllSales} />
+                  </th>
                   <th className="text-left py-2 pr-3">Date</th>
                   <th className="text-right py-2 px-3">Cocktails</th>
                   <th className="text-right py-2 px-3">Beer</th>
@@ -482,9 +631,10 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
               </thead>
               <tbody>
                 {dailySales.length === 0 ? (
-                  <tr><td colSpan={8} className="text-center py-10 text-[#5A5865]">No sales records found</td></tr>
+                  <tr><td colSpan={9} className="text-center py-10 text-[#5A5865]">No sales records found</td></tr>
                 ) : dailySales.map(row => (
-                  <tr key={row.date} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                  <tr key={row.date} className={`border-b border-[#1A1A1E] transition-colors ${selectedSales.has(row.date) ? 'bg-[#8B5CF6]/5' : 'hover:bg-[#1A1A1E]'}`}>
+                    <td className="py-2.5 pr-3"><Checkbox checked={selectedSales.has(row.date)} onChange={() => toggleSale(row.date)} /></td>
                     <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium whitespace-nowrap">{fmtDate(row.date)}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.cocktails_revenue)}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.beer_revenue)}</td>
@@ -494,14 +644,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{row.transaction_count}</td>
                     <td className="py-2.5 pl-3 text-right">
                       <div className="flex items-center justify-end gap-1">
-                        <button onClick={() => openSalesEdit(row)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
-                          <Pencil size={13} />
-                        </button>
-                        <button
-                          onClick={() => handleDeleteSales(row)}
-                          disabled={loadingId === row.date}
-                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
-                        >
+                        <button onClick={() => openSalesEdit(row)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={13} /></button>
+                        <button onClick={() => handleDeleteSales(row)} disabled={loadingId === row.date}
+                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40">
                           <Trash2 size={13} />
                         </button>
                       </div>
@@ -528,11 +673,8 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             </div>
             <div className="flex gap-2 justify-end">
               <button onClick={() => setDeleteOrderModal(null)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
-              <button
-                onClick={() => handleDeleteOrder(deleteOrderModal)}
-                disabled={loadingId === deleteOrderModal.id}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50"
-              >
+              <button onClick={() => handleDeleteOrder(deleteOrderModal)} disabled={loadingId === deleteOrderModal.id}
+                className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50">
                 {loadingId === deleteOrderModal.id ? 'Deleting…' : 'Delete Order'}
               </button>
             </div>
@@ -552,9 +694,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             ].map(field => (
               <div key={field.key}>
                 <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">{field.label}</label>
-                <input
-                  type={field.type}
-                  value={(tableModal.table as Record<string, unknown>)[field.key] as string ?? ''}
+                <input type={field.type} value={(tableModal.table as Record<string, unknown>)[field.key] as string ?? ''}
                   onChange={e => setTableModal(prev => ({ ...prev, table: { ...prev.table, [field.key]: field.type === 'number' ? Number(e.target.value) : e.target.value } }))}
                   placeholder={field.placeholder}
                   className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
@@ -577,21 +717,16 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
           <div className="space-y-4">
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Name</label>
-              <input
-                type="text"
-                value={menuModal.item.name ?? ''}
+              <input type="text" value={menuModal.item.name ?? ''}
                 onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, name: e.target.value } }))}
-                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
-              />
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
             </div>
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Category</label>
               <div className="relative">
-                <select
-                  value={menuModal.item.category ?? MENU_CATEGORIES[0]}
+                <select value={menuModal.item.category ?? MENU_CATEGORIES[0]}
                   onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, category: e.target.value } }))}
-                  className="w-full appearance-none bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
-                >
+                  className="w-full appearance-none bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]">
                   {MENU_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
                 </select>
                 <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] pointer-events-none" />
@@ -599,22 +734,15 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             </div>
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Price (RM)</label>
-              <input
-                type="number"
-                step="0.01"
-                value={menuModal.item.price ?? ''}
+              <input type="number" step="0.01" value={menuModal.item.price ?? ''}
                 onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, price: parseFloat(e.target.value) } }))}
-                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
-              />
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
             </div>
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Sort Order</label>
-              <input
-                type="number"
-                value={menuModal.item.sort_order ?? 99}
+              <input type="number" value={menuModal.item.sort_order ?? 99}
                 onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, sort_order: parseInt(e.target.value) } }))}
-                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
-              />
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
             </div>
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={() => setMenuModal({ open: false, item: null, isNew: false })} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
@@ -630,7 +758,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
       <Modal isOpen={salesModal.open} onClose={() => setSalesModal({ open: false, row: null })} title={`Edit Sales — ${salesModal.row?.date ?? ''}`} size="sm">
         {salesModal.row && (
           <div className="space-y-3">
-            <p className="text-[#9896A4] text-xs">Revenue figures only — adjust if an entry was incorrectly recorded.</p>
+            <p className="text-[#9896A4] text-xs">Adjust revenue figures if an entry was incorrectly recorded.</p>
             {([
               { label: 'Cocktails Revenue', key: 'cocktails_revenue' },
               { label: 'Beer Revenue', key: 'beer_revenue' },
@@ -643,13 +771,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             ] as const).map(field => (
               <div key={field.key} className="flex items-center gap-3">
                 <label className="text-[#9896A4] text-xs w-36 shrink-0">{field.label}</label>
-                <input
-                  type="number"
-                  step="0.01"
-                  value={(editRow as Record<string, unknown>)[field.key] as number ?? 0}
+                <input type="number" step="0.01" value={(editRow as Record<string, unknown>)[field.key] as number ?? 0}
                   onChange={e => setEditRow(prev => ({ ...prev, [field.key]: parseFloat(e.target.value) || 0 }))}
-                  className="flex-1 bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7] tabular-nums"
-                />
+                  className="flex-1 bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7] tabular-nums" />
               </div>
             ))}
             <div className="flex gap-2 justify-end pt-2">
