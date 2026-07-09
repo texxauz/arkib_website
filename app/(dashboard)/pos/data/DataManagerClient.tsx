@@ -78,16 +78,31 @@ function Checkbox({ checked, indeterminate, onChange }: { checked: boolean; inde
   )
 }
 
+type ConfirmModal = {
+  open: boolean
+  title: string
+  message: string
+  warning?: string
+  confirmLabel: string
+  onConfirm: () => void
+}
+
+const CONFIRM_CLOSED: ConfirmModal = { open: false, title: '', message: '', confirmLabel: 'Delete', onConfirm: () => {} }
+
 export function DataManagerClient({ orders: initialOrders, tables: initialTables, menuItems: initialMenuItems, dailySales: initialDailySales }: Props) {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<Tab>('orders')
   const [bulkLoading, setBulkLoading] = useState(false)
+  const [confirmModal, setConfirmModal] = useState<ConfirmModal>(CONFIRM_CLOSED)
+
+  function confirm(opts: Omit<ConfirmModal, 'open'>) {
+    setConfirmModal({ ...opts, open: true })
+  }
 
   // ── Orders ──────────────────────────────────────────────────────────────────
   const [orders, setOrders] = useState<Order[]>(initialOrders)
   const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
   const [selectedOrders, setSelectedOrders] = useState<Set<string>>(new Set())
-  const [deleteOrderModal, setDeleteOrderModal] = useState<Order | null>(null)
   const [loadingId, setLoadingId] = useState<string | null>(null)
 
   const filteredOrders = useMemo(() => {
@@ -109,33 +124,49 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     }
   }
 
-  async function handleDeleteOrder(order: Order) {
+  async function doDeleteOrder(order: Order) {
     setLoadingId(order.id)
     const res = await apiFetch('/api/pos/delete-order', { orderId: order.id })
     setLoadingId(null)
     if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
     setOrders(prev => prev.filter(o => o.id !== order.id))
     setSelectedOrders(prev => { const s = new Set(prev); s.delete(order.id); return s })
-    setDeleteOrderModal(null)
+    setConfirmModal(CONFIRM_CLOSED)
     toast('Order deleted', 'info')
   }
 
-  async function handleBulkDeleteOrders() {
+  function handleDeleteOrder(order: Order) {
+    confirm({
+      title: 'Delete Order',
+      message: `Delete the order for ${order.table_name ?? 'Walk-in'} (${fmtRM(order.total)}) opened at ${fmtDatetime(order.opened_at)}? This also removes all payments and audit entries for this order.`,
+      confirmLabel: 'Delete Order',
+      onConfirm: () => doDeleteOrder(order),
+    })
+  }
+
+  function handleBulkDeleteOrders() {
     const ids = filteredOrders.filter(o => selectedOrders.has(o.id)).map(o => o.id)
     if (!ids.length) return
-    if (!confirm(`Delete ${ids.length} order${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
-    setBulkLoading(true)
-    let failed = 0
-    for (const id of ids) {
-      const res = await apiFetch('/api/pos/delete-order', { orderId: id })
-      if (res.ok) {
-        setOrders(prev => prev.filter(o => o.id !== id))
-        setSelectedOrders(prev => { const s = new Set(prev); s.delete(id); return s })
-      } else { failed++ }
-    }
-    setBulkLoading(false)
-    if (failed > 0) toast(`${failed} order(s) failed to delete`, 'error')
-    else toast(`${ids.length} order${ids.length > 1 ? 's' : ''} deleted`, 'info')
+    confirm({
+      title: `Delete ${ids.length} Order${ids.length > 1 ? 's' : ''}`,
+      message: `This will permanently delete ${ids.length} order${ids.length > 1 ? 's' : ''} and all related payments and audit entries.`,
+      confirmLabel: `Delete ${ids.length} Order${ids.length > 1 ? 's' : ''}`,
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setBulkLoading(true)
+        let failed = 0
+        for (const id of ids) {
+          const res = await apiFetch('/api/pos/delete-order', { orderId: id })
+          if (res.ok) {
+            setOrders(prev => prev.filter(o => o.id !== id))
+            setSelectedOrders(prev => { const s = new Set(prev); s.delete(id); return s })
+          } else { failed++ }
+        }
+        setBulkLoading(false)
+        if (failed > 0) toast(`${failed} order(s) failed to delete`, 'error')
+        else toast(`${ids.length} order${ids.length > 1 ? 's' : ''} deleted`, 'info')
+      },
+    })
   }
 
   // ── Tables ──────────────────────────────────────────────────────────────────
@@ -182,31 +213,46 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     toast(tableModal.isNew ? 'Table created' : 'Table updated', 'success')
   }
 
-  async function handleDeleteTable(table: PosTable) {
+  function handleDeleteTable(table: PosTable) {
     if (table.current_order_id) { toast('Table has an open order — close it first', 'error'); return }
-    setLoadingId(table.id)
-    const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id: table.id })
-    setLoadingId(null)
-    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
-    setTables(prev => prev.filter(t => t.id !== table.id))
-    setSelectedTables(prev => { const s = new Set(prev); s.delete(table.id); return s })
-    toast('Table deleted', 'info')
+    confirm({
+      title: 'Delete Table',
+      message: `Delete "${table.name}" (${table.section})? This cannot be undone.`,
+      confirmLabel: 'Delete Table',
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setLoadingId(table.id)
+        const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id: table.id })
+        setLoadingId(null)
+        if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+        setTables(prev => prev.filter(t => t.id !== table.id))
+        setSelectedTables(prev => { const s = new Set(prev); s.delete(table.id); return s })
+        toast('Table deleted', 'info')
+      },
+    })
   }
 
-  async function handleBulkDeleteTables() {
+  function handleBulkDeleteTables() {
     const ids = tables.filter(t => selectedTables.has(t.id) && !t.current_order_id).map(t => t.id)
     if (!ids.length) return
-    if (!confirm(`Delete ${ids.length} table${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
-    setBulkLoading(true)
-    let failed = 0
-    for (const id of ids) {
-      const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id })
-      if (res.ok) { setTables(prev => prev.filter(t => t.id !== id)); setSelectedTables(prev => { const s = new Set(prev); s.delete(id); return s }) }
-      else failed++
-    }
-    setBulkLoading(false)
-    if (failed > 0) toast(`${failed} table(s) failed`, 'error')
-    else toast(`${ids.length} table${ids.length > 1 ? 's' : ''} deleted`, 'info')
+    confirm({
+      title: `Delete ${ids.length} Table${ids.length > 1 ? 's' : ''}`,
+      message: `This will permanently delete ${ids.length} table${ids.length > 1 ? 's' : ''}. This cannot be undone.`,
+      confirmLabel: `Delete ${ids.length} Table${ids.length > 1 ? 's' : ''}`,
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setBulkLoading(true)
+        let failed = 0
+        for (const id of ids) {
+          const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id })
+          if (res.ok) { setTables(prev => prev.filter(t => t.id !== id)); setSelectedTables(prev => { const s = new Set(prev); s.delete(id); return s }) }
+          else failed++
+        }
+        setBulkLoading(false)
+        if (failed > 0) toast(`${failed} table(s) failed`, 'error')
+        else toast(`${ids.length} table${ids.length > 1 ? 's' : ''} deleted`, 'info')
+      },
+    })
   }
 
   async function handleToggleTable(table: PosTable) {
@@ -266,30 +312,45 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     toast(menuModal.isNew ? 'Item created' : 'Item updated', 'success')
   }
 
-  async function handleDeleteMenu(item: MenuItem) {
-    setLoadingId(item.id)
-    const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id: item.id })
-    setLoadingId(null)
-    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
-    setMenuItems(prev => prev.filter(m => m.id !== item.id))
-    setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(item.id); return s })
-    toast('Item deleted', 'info')
+  function handleDeleteMenu(item: MenuItem) {
+    confirm({
+      title: 'Delete Menu Item',
+      message: `Delete "${item.name}" (${item.category}, ${fmtRM(item.price)})? This cannot be undone.`,
+      confirmLabel: 'Delete Item',
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setLoadingId(item.id)
+        const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id: item.id })
+        setLoadingId(null)
+        if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+        setMenuItems(prev => prev.filter(m => m.id !== item.id))
+        setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(item.id); return s })
+        toast('Item deleted', 'info')
+      },
+    })
   }
 
-  async function handleBulkDeleteMenuItems() {
+  function handleBulkDeleteMenuItems() {
     const ids = filteredMenu.filter(m => selectedMenuItems.has(m.id)).map(m => m.id)
     if (!ids.length) return
-    if (!confirm(`Delete ${ids.length} item${ids.length > 1 ? 's' : ''}? This cannot be undone.`)) return
-    setBulkLoading(true)
-    let failed = 0
-    for (const id of ids) {
-      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id })
-      if (res.ok) { setMenuItems(prev => prev.filter(m => m.id !== id)); setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(id); return s }) }
-      else failed++
-    }
-    setBulkLoading(false)
-    if (failed > 0) toast(`${failed} item(s) failed`, 'error')
-    else toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'info')
+    confirm({
+      title: `Delete ${ids.length} Menu Item${ids.length > 1 ? 's' : ''}`,
+      message: `This will permanently delete ${ids.length} menu item${ids.length > 1 ? 's' : ''}. This cannot be undone.`,
+      confirmLabel: `Delete ${ids.length} Item${ids.length > 1 ? 's' : ''}`,
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setBulkLoading(true)
+        let failed = 0
+        for (const id of ids) {
+          const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id })
+          if (res.ok) { setMenuItems(prev => prev.filter(m => m.id !== id)); setSelectedMenuItems(prev => { const s = new Set(prev); s.delete(id); return s }) }
+          else failed++
+        }
+        setBulkLoading(false)
+        if (failed > 0) toast(`${failed} item(s) failed`, 'error')
+        else toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'info')
+      },
+    })
   }
 
   async function handleToggleMenu(item: MenuItem) {
@@ -335,30 +396,47 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     toast('Sales record updated', 'success')
   }
 
-  async function handleDeleteSales(row: DailySales) {
-    setLoadingId(row.date)
-    const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date: row.date })
-    setLoadingId(null)
-    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
-    setDailySales(prev => prev.filter(r => r.date !== row.date))
-    setSelectedSales(prev => { const s = new Set(prev); s.delete(row.date); return s })
-    toast('Sales record deleted', 'info')
+  function handleDeleteSales(row: DailySales) {
+    confirm({
+      title: 'Delete Sales Record',
+      message: `Delete the sales record for ${fmtDate(row.date)} (${fmtRM(row.total_revenue ?? 0)} revenue)?`,
+      warning: 'This also removes all cocktail sales for this date and cannot be recovered — not even by the system.',
+      confirmLabel: 'Delete Record',
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setLoadingId(row.date)
+        const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date: row.date })
+        setLoadingId(null)
+        if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+        setDailySales(prev => prev.filter(r => r.date !== row.date))
+        setSelectedSales(prev => { const s = new Set(prev); s.delete(row.date); return s })
+        toast('Sales record deleted', 'info')
+      },
+    })
   }
 
-  async function handleBulkDeleteSales() {
+  function handleBulkDeleteSales() {
     const dates = dailySales.filter(r => selectedSales.has(r.date)).map(r => r.date)
     if (!dates.length) return
-    if (!confirm(`Delete ${dates.length} day${dates.length > 1 ? 's' : ''} of sales data? This also removes cocktail sales for those days.`)) return
-    setBulkLoading(true)
-    let failed = 0
-    for (const date of dates) {
-      const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date })
-      if (res.ok) { setDailySales(prev => prev.filter(r => r.date !== date)); setSelectedSales(prev => { const s = new Set(prev); s.delete(date); return s }) }
-      else failed++
-    }
-    setBulkLoading(false)
-    if (failed > 0) toast(`${failed} record(s) failed`, 'error')
-    else toast(`${dates.length} day${dates.length > 1 ? 's' : ''} of sales deleted`, 'info')
+    confirm({
+      title: `Delete ${dates.length} Day${dates.length > 1 ? 's' : ''} of Sales`,
+      message: `This will permanently delete ${dates.length} day${dates.length > 1 ? 's' : ''} of sales records.`,
+      warning: 'Sales records also include cocktail sales for those dates. This data cannot be recovered — not even by the system.',
+      confirmLabel: `Delete ${dates.length} Record${dates.length > 1 ? 's' : ''}`,
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setBulkLoading(true)
+        let failed = 0
+        for (const date of dates) {
+          const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date })
+          if (res.ok) { setDailySales(prev => prev.filter(r => r.date !== date)); setSelectedSales(prev => { const s = new Set(prev); s.delete(date); return s }) }
+          else failed++
+        }
+        setBulkLoading(false)
+        if (failed > 0) toast(`${failed} record(s) failed`, 'error')
+        else toast(`${dates.length} day${dates.length > 1 ? 's' : ''} of sales deleted`, 'info')
+      },
+    })
   }
 
   const tabs: { id: Tab; label: string }[] = [
@@ -471,7 +549,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                       <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[order.status] ?? ''}`}>{order.status}</span>
                     </td>
                     <td className="py-2.5 pl-3 text-right">
-                      <button onClick={() => setDeleteOrderModal(order)} disabled={loadingId === order.id}
+                      <button onClick={() => handleDeleteOrder(order)} disabled={loadingId === order.id}
                         className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40">
                         <Trash2 size={14} />
                       </button>
@@ -659,27 +737,23 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
         </div>
       )}
 
-      {/* ── DELETE ORDER MODAL ───────────────────────────────────────────────────── */}
-      <Modal isOpen={!!deleteOrderModal} onClose={() => setDeleteOrderModal(null)} title="Delete Order" size="sm">
-        {deleteOrderModal && (
-          <div className="space-y-4">
-            <p className="text-[#9896A4] text-sm">This will permanently delete the order and all related payments, items, and audit entries.</p>
-            <div className="rounded-xl bg-[#141417] border border-[#2A2A30] p-3 space-y-1 text-sm">
-              <div className="flex justify-between"><span className="text-[#9896A4]">Table</span><span className="text-[#F0EEF6]">{deleteOrderModal.table_name ?? 'Walk-in'}</span></div>
-              <div className="flex justify-between"><span className="text-[#9896A4]">Server</span><span className="text-[#F0EEF6]">{deleteOrderModal.server_name ?? '—'}</span></div>
-              <div className="flex justify-between"><span className="text-[#9896A4]">Time</span><span className="text-[#F0EEF6]">{fmtDatetime(deleteOrderModal.opened_at)}</span></div>
-              <div className="flex justify-between"><span className="text-[#9896A4]">Total</span><span className="text-[#F0EEF6] font-semibold">{fmtRM(deleteOrderModal.total)}</span></div>
-              <div className="flex justify-between"><span className="text-[#9896A4]">Status</span><span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[deleteOrderModal.status]}`}>{deleteOrderModal.status}</span></div>
+      {/* ── CONFIRM MODAL ───────────────────────────────────────────────────────── */}
+      <Modal isOpen={confirmModal.open} onClose={() => setConfirmModal(CONFIRM_CLOSED)} title={confirmModal.title} size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">{confirmModal.message}</p>
+          {confirmModal.warning && (
+            <div className="flex gap-2.5 rounded-xl bg-rose-500/10 border border-rose-500/30 px-3 py-2.5">
+              <span className="text-rose-400 text-xs font-semibold shrink-0 mt-0.5">⚠</span>
+              <p className="text-rose-400 text-xs">{confirmModal.warning}</p>
             </div>
-            <div className="flex gap-2 justify-end">
-              <button onClick={() => setDeleteOrderModal(null)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
-              <button onClick={() => handleDeleteOrder(deleteOrderModal)} disabled={loadingId === deleteOrderModal.id}
-                className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50">
-                {loadingId === deleteOrderModal.id ? 'Deleting…' : 'Delete Order'}
-              </button>
-            </div>
+          )}
+          <div className="flex gap-2 justify-end">
+            <button onClick={() => setConfirmModal(CONFIRM_CLOSED)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+            <button onClick={confirmModal.onConfirm} className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all">
+              {confirmModal.confirmLabel}
+            </button>
           </div>
-        )}
+        </div>
       </Modal>
 
       {/* ── TABLE EDIT MODAL ─────────────────────────────────────────────────────── */}
