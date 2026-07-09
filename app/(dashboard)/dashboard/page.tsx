@@ -19,11 +19,11 @@ export default async function DashboardPage() {
     { data: allCOGSRaw },
     { data: allSpirits },
   ] = await Promise.all([
-    supabase.from('daily_sales').select('*').eq('date', today).single(),
-    supabase.from('daily_sales').select('*').gte('date', sixMonthsAgoStr).order('date', { ascending: true }),
+    supabase.from('daily_sales').select('date, total_revenue, total_collected, cash_sales, card_sales, qr_sales, total_cogs, is_balanced').eq('date', today).single(),
+    supabase.from('daily_sales').select('date, total_revenue, total_collected, cash_sales, card_sales, qr_sales, total_cogs').gte('date', sixMonthsAgoStr).order('date', { ascending: true }),
     supabase.from('expenses').select('date, expense_period, category, amount').gte('date', sixMonthsAgoStr).is('deleted_at', null),
     supabase.from('cocktail_sales').select('date, total_cogs, total_revenue').gte('date', sixMonthsAgoStr),
-    supabase.from('bar_spirits').select('name, full_bottles, min_bottles'),
+    supabase.from('bar_spirits').select('name, full_bottles, min_bottles').not('min_bottles', 'is', null),
   ])
 
   return (
