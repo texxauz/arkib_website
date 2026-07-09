@@ -33,7 +33,9 @@ export async function POST(req: NextRequest) {
   const subtotal = items.reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
   const total = subtotal - discountAmount + serviceCharge + taxAmount
   const now = new Date().toISOString()
-  const orderDate = order.opened_at.slice(0, 10)
+  // Use Malaysia timezone (UTC+8) for the business date
+  const mytime = new Date(order.opened_at)
+  const orderDate = new Date(mytime.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
   // 2. Close the order
   const { error: closeErr } = await supabase
@@ -44,7 +46,8 @@ export async function POST(req: NextRequest) {
 
   // 3. Write payments
   for (const p of payments) {
-    await supabase.from('pos_payments').insert({ order_id: orderId, method: p.method, amount: p.amount, captured_by: user.id })
+    const { error: payErr } = await supabase.from('pos_payments').insert({ order_id: orderId, method: p.method, amount: p.amount, captured_by: user.id })
+    if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
   }
 
   // 4. Write cocktail_sales rows
@@ -124,34 +127,20 @@ export async function POST(req: NextRequest) {
     else if (p.method === 'qr_payment') qrCol += p.amount
   }
 
-  const { data: existingDS } = await supabase.from('daily_sales').select('id, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, cash_collected, credit_card_collected, qr_collected, transaction_count').eq('date', orderDate).single()
-  if (existingDS) {
-    await supabase.from('daily_sales').update({
-      cocktails_revenue: existingDS.cocktails_revenue + cocktailsRev,
-      beer_revenue: existingDS.beer_revenue + beerRev,
-      wine_revenue: existingDS.wine_revenue + wineRev,
-      food_revenue: existingDS.food_revenue + foodRev,
-      others_revenue: existingDS.others_revenue + othersRev,
-      cash_collected: existingDS.cash_collected + cashCol,
-      credit_card_collected: existingDS.credit_card_collected + cardCol,
-      qr_collected: existingDS.qr_collected + qrCol,
-      transaction_count: (existingDS.transaction_count ?? 0) + 1,
-    }).eq('date', orderDate)
-  } else {
-    await supabase.from('daily_sales').insert({
-      date: orderDate,
-      cocktails_revenue: cocktailsRev,
-      beer_revenue: beerRev,
-      wine_revenue: wineRev,
-      food_revenue: foodRev,
-      others_revenue: othersRev,
-      cash_collected: cashCol,
-      credit_card_collected: cardCol,
-      qr_collected: qrCol,
-      transaction_count: 1,
-      entered_by: user.id,
-    })
-  }
+  // Atomic increment via RPC to avoid read-modify-write race
+  const { error: dsErr } = await supabase.rpc('increment_daily_sales', {
+    p_date: orderDate,
+    p_entered_by: user.id,
+    p_cocktails_revenue: cocktailsRev,
+    p_beer_revenue: beerRev,
+    p_wine_revenue: wineRev,
+    p_food_revenue: foodRev,
+    p_others_revenue: othersRev,
+    p_cash_collected: cashCol,
+    p_credit_card_collected: cardCol,
+    p_qr_collected: qrCol,
+  })
+  if (dsErr) return NextResponse.json({ error: `Daily sales update failed: ${dsErr.message}` }, { status: 500 })
 
   // 10. Clear table current_order_id
   if (order.table_id) {

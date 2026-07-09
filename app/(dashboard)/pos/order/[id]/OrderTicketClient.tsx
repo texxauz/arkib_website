@@ -82,7 +82,7 @@ export function OrderTicketClient({
   const [guestName, setGuestName] = useState(order.customer_name ?? '')
 
   const activeItems = items.filter(i => !i.voided_at)
-  const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price, 0)
+  const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price * (1 - (i.discount ?? 0) / 100), 0)
 
   // Realtime subscription
   useEffect(() => {
@@ -178,16 +178,17 @@ export function OrderTicketClient({
       return
     }
     setLoading(true)
-    const voidedAt = new Date().toISOString()
-    const { error } = await supabase
-      .from('pos_order_items')
-      .update({ voided_at: voidedAt, void_reason: reason, voided_by: userId })
-      .eq('id', itemId)
+    const res = await fetch('/api/pos/void-item', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ itemId, reason }),
+    })
     setLoading(false)
-    if (error) {
-      toast(error.message, 'error')
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }))
+      toast(err.error ?? 'Failed to void item', 'error')
     } else {
-      // Optimistic update
+      const voidedAt = new Date().toISOString()
       setItems(prev => prev.map(i => i.id === itemId ? { ...i, voided_at: voidedAt } : i))
       toast('Item voided', 'info')
       setVoidModal({ open: false, itemId: null, reason: '' })

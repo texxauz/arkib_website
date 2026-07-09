@@ -82,14 +82,28 @@ function fmtDatetime(iso: string) {
 
 const PAYMENT_COLORS: Record<string, string> = {
   cash: '#34d399',
+  credit_card: '#38bdf8',
+  debit_card: '#38bdf8',
   card: '#38bdf8',
+  qr_payment: '#a78bfa',
   qr: '#a78bfa',
 }
 
 const PAYMENT_LABELS: Record<string, string> = {
   cash: 'Cash',
+  credit_card: 'Card',
+  debit_card: 'Card',
   card: 'Card',
+  qr_payment: 'QR',
   qr: 'QR',
+}
+
+// Normalize payment method keys for consistent grouping
+function normalizeMethod(method: string): 'cash' | 'card' | 'qr' {
+  const m = method.toLowerCase()
+  if (m === 'cash') return 'cash'
+  if (m === 'credit_card' || m === 'debit_card' || m === 'card') return 'card'
+  return 'qr'
 }
 
 // eslint-disable-next-line @typescript-eslint/no-explicit-any
@@ -146,6 +160,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
   const topItems = useMemo(() => {
     const map: Record<string, { qty: number; revenue: number }> = {}
     for (const item of items) {
+      if (item.voided_at) continue
       if (!map[item.item_name]) map[item.item_name] = { qty: 0, revenue: 0 }
       map[item.item_name].qty += item.quantity
       map[item.item_name].revenue += item.quantity * item.unit_price
@@ -170,6 +185,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
   const allItemRows = useMemo(() => {
     const map: Record<string, { category: string | null; qty: number; unit_price: number; revenue: number }> = {}
     for (const item of items) {
+      if (item.voided_at) continue
       if (!map[item.item_name]) map[item.item_name] = { category: item.category, qty: 0, unit_price: item.unit_price, revenue: 0 }
       map[item.item_name].qty += item.quantity
       map[item.item_name].revenue += item.quantity * item.unit_price
@@ -185,20 +201,22 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
 
   // ── Payments ─────────────────────────────────────────────────────────────────
   const paymentStats = useMemo(() => {
-    const map: Record<string, number> = {}
+    const map: Record<string, number> = { cash: 0, card: 0, qr: 0 }
     for (const p of payments) {
-      const key = p.method.toLowerCase()
+      const key = normalizeMethod(p.method)
       map[key] = (map[key] ?? 0) + p.amount
     }
     return map
   }, [payments])
 
   const paymentPieData = useMemo(() =>
-    Object.entries(paymentStats).map(([method, amount]) => ({
-      name: PAYMENT_LABELS[method] ?? method,
-      value: amount,
-      fill: PAYMENT_COLORS[method] ?? '#6B7280',
-    })),
+    Object.entries(paymentStats)
+      .filter(([, amount]) => amount > 0)
+      .map(([method, amount]) => ({
+        name: PAYMENT_LABELS[method] ?? method,
+        value: amount,
+        fill: PAYMENT_COLORS[method] ?? '#6B7280',
+      })),
     [paymentStats]
   )
 
@@ -508,7 +526,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
                   </thead>
                   <tbody>
                     {recentPayments.map((p, i) => {
-                      const key = p.method.toLowerCase()
+                      const key = normalizeMethod(p.method)
                       return (
                         <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
                           <td className="py-2.5 pr-4">
