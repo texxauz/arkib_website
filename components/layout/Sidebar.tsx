@@ -7,7 +7,7 @@ import {
   GlassWater, Building, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -39,6 +39,7 @@ const POS_ITEMS = [
   { href: '/pos/production',   label: 'Production Queue', icon: Zap,               key: 'pos-production' },
   { href: '/pos/reports',      label: 'POS Reports',      icon: BarChart3,         key: 'pos-reports' },
   { href: '/pos/audit',        label: 'Audit Log',        icon: Shield,            key: 'pos-audit' },
+  { href: '/pos/data',         label: 'Data Manager',     icon: Database,          key: 'pos-data' },
   { href: '/pos/settings',     label: 'POS Settings',     icon: SlidersHorizontal, key: 'pos-settings' },
 ]
 
@@ -54,7 +55,7 @@ function getMgmtItems(userRole: string, tabPermissions: Record<string, string> |
 function getPosItems(userRole: string, tabPermissions: Record<string, string> | null) {
   const isAdmin = userRole === 'owner' || userRole === 'manager'
   return POS_ITEMS.filter(item => {
-    if (item.key === 'pos-audit' || item.key === 'pos-settings') return isAdmin
+    if (item.key === 'pos-audit' || item.key === 'pos-settings' || item.key === 'pos-data') return isAdmin
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })

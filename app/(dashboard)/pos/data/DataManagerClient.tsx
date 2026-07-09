@@ -1,0 +1,666 @@
+'use client'
+
+import { useState, useMemo } from 'react'
+import { TopBar } from '@/components/layout/TopBar'
+import { Modal } from '@/components/ui/Modal'
+import { useToast } from '@/components/ui/Toast'
+import { Trash2, Pencil, Plus, Check, X, ChevronDown } from 'lucide-react'
+
+type Order = {
+  id: string; table_name: string | null; section: string | null
+  server_name: string | null; covers: number; status: string
+  total: number; opened_at: string; closed_at: string | null
+}
+type PosTable = {
+  id: string; name: string; section: string; capacity: number
+  sort_order: number; is_active: boolean; current_order_id: string | null
+}
+type MenuItem = {
+  id: string; name: string; category: string; price: number
+  is_active: boolean; sort_order: number
+}
+type DailySales = {
+  date: string; cocktails_revenue: number; beer_revenue: number
+  wine_revenue: number; food_revenue: number; others_revenue: number
+  cash_collected: number; credit_card_collected: number; qr_collected: number
+  transaction_count: number; total_revenue: number | null; total_collected: number | null
+}
+
+interface Props {
+  orders: Order[]
+  tables: PosTable[]
+  menuItems: MenuItem[]
+  dailySales: DailySales[]
+}
+
+type Tab = 'orders' | 'tables' | 'menu' | 'sales'
+
+const MENU_CATEGORIES = ['house_cocktail', 'classic', 'beer', 'wine', 'whisky', 'food', 'others']
+
+function fmtRM(n: number) {
+  return `RM ${(n ?? 0).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+function fmtDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })
+}
+function fmtDatetime(iso: string) {
+  return new Date(iso).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit' })
+}
+
+const STATUS_STYLES: Record<string, string> = {
+  open:   'bg-emerald-500/15 text-emerald-400 border-emerald-500/30',
+  closed: 'bg-[#8B5CF6]/15 text-[#A78BFA] border-[#8B5CF6]/30',
+  voided: 'bg-rose-500/15 text-rose-400 border-rose-500/30',
+}
+
+async function apiFetch(url: string, body: object): Promise<{ ok: boolean; error?: string }> {
+  const res = await fetch(url, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(body) })
+  if (!res.ok) {
+    const data = await res.json().catch(() => ({}))
+    return { ok: false, error: data.error ?? 'Something went wrong' }
+  }
+  return { ok: true }
+}
+
+export function DataManagerClient({ orders: initialOrders, tables: initialTables, menuItems: initialMenuItems, dailySales: initialDailySales }: Props) {
+  const { toast } = useToast()
+  const [activeTab, setActiveTab] = useState<Tab>('orders')
+
+  // ── Orders state ────────────────────────────────────────────────────────────
+  const [orders, setOrders] = useState<Order[]>(initialOrders)
+  const [orderStatusFilter, setOrderStatusFilter] = useState<string>('all')
+  const [deleteOrderModal, setDeleteOrderModal] = useState<Order | null>(null)
+  const [loadingId, setLoadingId] = useState<string | null>(null)
+
+  const filteredOrders = useMemo(() => {
+    if (orderStatusFilter === 'all') return orders
+    return orders.filter(o => o.status === orderStatusFilter)
+  }, [orders, orderStatusFilter])
+
+  async function handleDeleteOrder(order: Order) {
+    setLoadingId(order.id)
+    const res = await apiFetch('/api/pos/delete-order', { orderId: order.id })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setOrders(prev => prev.filter(o => o.id !== order.id))
+    setDeleteOrderModal(null)
+    toast('Order deleted', 'info')
+  }
+
+  // ── Tables state ────────────────────────────────────────────────────────────
+  const [tables, setTables] = useState<PosTable[]>(initialTables)
+  const [tableModal, setTableModal] = useState<{ open: boolean; table: Partial<PosTable> | null; isNew: boolean }>({ open: false, table: null, isNew: false })
+  const [tableLoading, setTableLoading] = useState(false)
+
+  const sections = [...new Set(tables.map(t => t.section))].sort()
+
+  function openTableEdit(table: PosTable) {
+    setTableModal({ open: true, table: { ...table }, isNew: false })
+  }
+  function openTableCreate() {
+    setTableModal({ open: true, table: { name: '', section: sections[0] ?? '', capacity: 4, sort_order: 99, is_active: true }, isNew: true })
+  }
+
+  async function handleSaveTable() {
+    const t = tableModal.table
+    if (!t?.name?.trim() || !t?.section?.trim()) { toast('Name and section required', 'error'); return }
+    setTableLoading(true)
+    if (tableModal.isNew) {
+      const res = await apiFetch('/api/pos/manage-table', { action: 'create', name: t.name, section: t.section, capacity: t.capacity, sort_order: t.sort_order })
+      setTableLoading(false)
+      if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+      // Reload by refetching — simple: just reload page state
+      setTables(prev => [...prev, { ...t, id: crypto.randomUUID(), current_order_id: null, is_active: true } as PosTable])
+    } else {
+      const res = await apiFetch('/api/pos/manage-table', { action: 'update', id: t.id, name: t.name, section: t.section, capacity: t.capacity, sort_order: t.sort_order, is_active: t.is_active })
+      setTableLoading(false)
+      if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+      setTables(prev => prev.map(x => x.id === t.id ? { ...x, ...t } as PosTable : x))
+    }
+    setTableModal({ open: false, table: null, isNew: false })
+    toast(tableModal.isNew ? 'Table created' : 'Table updated', 'success')
+  }
+
+  async function handleDeleteTable(table: PosTable) {
+    if (table.current_order_id) { toast('Table has an open order — close it first', 'error'); return }
+    if (!confirm(`Delete table "${table.name}"? This cannot be undone.`)) return
+    setLoadingId(table.id)
+    const res = await apiFetch('/api/pos/manage-table', { action: 'delete', id: table.id })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setTables(prev => prev.filter(t => t.id !== table.id))
+    toast('Table deleted', 'info')
+  }
+
+  async function handleToggleTable(table: PosTable) {
+    setLoadingId(table.id)
+    const res = await apiFetch('/api/pos/manage-table', { action: 'update', id: table.id, is_active: !table.is_active })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setTables(prev => prev.map(t => t.id === table.id ? { ...t, is_active: !t.is_active } : t))
+  }
+
+  // ── Menu Items state ─────────────────────────────────────────────────────────
+  const [menuItems, setMenuItems] = useState<MenuItem[]>(initialMenuItems)
+  const [menuModal, setMenuModal] = useState<{ open: boolean; item: Partial<MenuItem> | null; isNew: boolean }>({ open: false, item: null, isNew: false })
+  const [menuLoading, setMenuLoading] = useState(false)
+  const [menuCatFilter, setMenuCatFilter] = useState('all')
+
+  const filteredMenu = useMemo(() => {
+    if (menuCatFilter === 'all') return menuItems
+    return menuItems.filter(m => m.category === menuCatFilter)
+  }, [menuItems, menuCatFilter])
+
+  function openMenuEdit(item: MenuItem) {
+    setMenuModal({ open: true, item: { ...item }, isNew: false })
+  }
+  function openMenuCreate() {
+    setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, is_active: true, sort_order: 99 }, isNew: true })
+  }
+
+  async function handleSaveMenu() {
+    const m = menuModal.item
+    if (!m?.name?.trim()) { toast('Name required', 'error'); return }
+    if (!m?.price || m.price <= 0) { toast('Price must be greater than 0', 'error'); return }
+    setMenuLoading(true)
+    if (menuModal.isNew) {
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'create', name: m.name, category: m.category, price: m.price, sort_order: m.sort_order })
+      setMenuLoading(false)
+      if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+      setMenuItems(prev => [...prev, { ...m, id: crypto.randomUUID(), is_active: true } as MenuItem])
+    } else {
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: m.id, name: m.name, category: m.category, price: m.price, is_active: m.is_active, sort_order: m.sort_order })
+      setMenuLoading(false)
+      if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+      setMenuItems(prev => prev.map(x => x.id === m.id ? { ...x, ...m } as MenuItem : x))
+    }
+    setMenuModal({ open: false, item: null, isNew: false })
+    toast(menuModal.isNew ? 'Item created' : 'Item updated', 'success')
+  }
+
+  async function handleDeleteMenu(item: MenuItem) {
+    if (!confirm(`Delete "${item.name}"? This cannot be undone.`)) return
+    setLoadingId(item.id)
+    const res = await apiFetch('/api/pos/manage-menu-item', { action: 'delete', id: item.id })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setMenuItems(prev => prev.filter(m => m.id !== item.id))
+    toast('Item deleted', 'info')
+  }
+
+  async function handleToggleMenu(item: MenuItem) {
+    setLoadingId(item.id)
+    const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: item.id, is_active: !item.is_active })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setMenuItems(prev => prev.map(m => m.id === item.id ? { ...m, is_active: !m.is_active } : m))
+  }
+
+  // ── Daily Sales state ────────────────────────────────────────────────────────
+  const [dailySales, setDailySales] = useState<DailySales[]>(initialDailySales)
+  const [salesModal, setSalesModal] = useState<{ open: boolean; row: DailySales | null }>({ open: false, row: null })
+  const [salesLoading, setSalesLoading] = useState(false)
+  const [editRow, setEditRow] = useState<Partial<DailySales>>({})
+
+  function openSalesEdit(row: DailySales) {
+    setEditRow({ ...row })
+    setSalesModal({ open: true, row })
+  }
+
+  async function handleSaveSales() {
+    if (!editRow.date) return
+    setSalesLoading(true)
+    const { date, ...updates } = editRow
+    const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'update', date, updates })
+    setSalesLoading(false)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setDailySales(prev => prev.map(r => r.date === date ? { ...r, ...editRow } as DailySales : r))
+    setSalesModal({ open: false, row: null })
+    toast('Sales record updated', 'success')
+  }
+
+  async function handleDeleteSales(row: DailySales) {
+    if (!confirm(`Delete all sales data for ${row.date}? This also removes cocktail sales for that day.`)) return
+    setLoadingId(row.date)
+    const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'delete', date: row.date })
+    setLoadingId(null)
+    if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+    setDailySales(prev => prev.filter(r => r.date !== row.date))
+    toast('Sales record deleted', 'info')
+  }
+
+  const tabs: { id: Tab; label: string }[] = [
+    { id: 'orders', label: `Orders (${orders.length})` },
+    { id: 'tables', label: `Tables (${tables.length})` },
+    { id: 'menu', label: `Menu Items (${menuItems.length})` },
+    { id: 'sales', label: `Daily Sales (${dailySales.length})` },
+  ]
+
+  return (
+    <div className="space-y-6">
+      <TopBar title="Data Manager" subtitle="Admin only — edit or delete records" />
+
+      {/* Tab bar */}
+      <div className="flex gap-2 overflow-x-auto pb-1">
+        {tabs.map(tab => (
+          <button
+            key={tab.id}
+            onClick={() => setActiveTab(tab.id)}
+            className={`px-4 py-1.5 rounded-lg text-sm font-medium whitespace-nowrap transition-all border ${
+              activeTab === tab.id
+                ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
+                : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42]'
+            }`}
+          >
+            {tab.label}
+          </button>
+        ))}
+      </div>
+
+      {/* ── ORDERS ─────────────────────────────────────────────────────────────── */}
+      {activeTab === 'orders' && (
+        <div className="card space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="section-title">Last 30 Days</p>
+            <div className="flex gap-1 ml-auto">
+              {(['all', 'open', 'closed', 'voided'] as const).map(s => (
+                <button
+                  key={s}
+                  onClick={() => setOrderStatusFilter(s)}
+                  className={`px-3 py-1 rounded-lg text-xs font-medium border transition-all capitalize ${
+                    orderStatusFilter === s
+                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
+                      : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
+                  }`}
+                >
+                  {s}
+                </button>
+              ))}
+            </div>
+          </div>
+
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Date / Time</th>
+                  <th className="text-left py-2 pr-3">Table</th>
+                  <th className="text-left py-2 pr-3">Server</th>
+                  <th className="text-right py-2 px-3">Covers</th>
+                  <th className="text-right py-2 px-3">Total</th>
+                  <th className="text-center py-2 px-3">Status</th>
+                  <th className="py-2 pl-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredOrders.length === 0 ? (
+                  <tr><td colSpan={7} className="text-center py-10 text-[#5A5865]">No orders found</td></tr>
+                ) : filteredOrders.map(order => (
+                  <tr key={order.id} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                    <td className="py-2.5 pr-3 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(order.opened_at)}</td>
+                    <td className="py-2.5 pr-3 text-[#F0EEF6]">{order.table_name ?? 'Walk-in'}</td>
+                    <td className="py-2.5 pr-3 text-[#9896A4] text-xs">{order.server_name ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{order.covers}</td>
+                    <td className="py-2.5 px-3 text-right text-[#F0EEF6] font-medium tabular-nums">{fmtRM(order.total)}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[order.status] ?? ''}`}>
+                        {order.status}
+                      </span>
+                    </td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <button
+                        onClick={() => setDeleteOrderModal(order)}
+                        disabled={loadingId === order.id}
+                        className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
+                      >
+                        <Trash2 size={14} />
+                      </button>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── TABLES ─────────────────────────────────────────────────────────────── */}
+      {activeTab === 'tables' && (
+        <div className="card space-y-4">
+          <div className="flex items-center justify-between">
+            <p className="section-title">All Tables</p>
+            <button onClick={openTableCreate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] text-sm hover:bg-[#8B5CF6]/30 transition-colors">
+              <Plus size={14} /> Add Table
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Name</th>
+                  <th className="text-left py-2 pr-3">Section</th>
+                  <th className="text-right py-2 px-3">Capacity</th>
+                  <th className="text-right py-2 px-3">Sort</th>
+                  <th className="text-center py-2 px-3">Active</th>
+                  <th className="py-2 pl-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {tables.map(table => (
+                  <tr key={table.id} className={`border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors ${!table.is_active ? 'opacity-50' : ''}`}>
+                    <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{table.name}</td>
+                    <td className="py-2.5 pr-3 text-[#9896A4]">{table.section}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{table.capacity}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{table.sort_order}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <button
+                        onClick={() => handleToggleTable(table)}
+                        disabled={loadingId === table.id}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${table.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}
+                      >
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${table.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openTableEdit(table)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteTable(table)}
+                          disabled={!!table.current_order_id || loadingId === table.id}
+                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+                          title={table.current_order_id ? 'Has open order' : 'Delete'}
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── MENU ITEMS ──────────────────────────────────────────────────────────── */}
+      {activeTab === 'menu' && (
+        <div className="card space-y-4">
+          <div className="flex items-center gap-3 flex-wrap">
+            <p className="section-title">Menu Items</p>
+            <div className="flex gap-1 ml-auto flex-wrap">
+              {(['all', ...MENU_CATEGORIES] as const).map(c => (
+                <button
+                  key={c}
+                  onClick={() => setMenuCatFilter(c)}
+                  className={`px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+                    menuCatFilter === c
+                      ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
+                      : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
+                  }`}
+                >
+                  {c}
+                </button>
+              ))}
+            </div>
+            <button onClick={openMenuCreate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] text-sm hover:bg-[#8B5CF6]/30 transition-colors">
+              <Plus size={14} /> Add Item
+            </button>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Name</th>
+                  <th className="text-left py-2 pr-3">Category</th>
+                  <th className="text-right py-2 px-3">Price</th>
+                  <th className="text-right py-2 px-3">Sort</th>
+                  <th className="text-center py-2 px-3">Active</th>
+                  <th className="py-2 pl-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {filteredMenu.length === 0 ? (
+                  <tr><td colSpan={6} className="text-center py-10 text-[#5A5865]">No items found</td></tr>
+                ) : filteredMenu.map(item => (
+                  <tr key={item.id} className={`border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors ${!item.is_active ? 'opacity-50' : ''}`}>
+                    <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{item.name}</td>
+                    <td className="py-2.5 pr-3">
+                      <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20">{item.category}</span>
+                    </td>
+                    <td className="py-2.5 px-3 text-right text-[#F0EEF6] tabular-nums">{fmtRM(item.price)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{item.sort_order}</td>
+                    <td className="py-2.5 px-3 text-center">
+                      <button
+                        onClick={() => handleToggleMenu(item)}
+                        disabled={loadingId === item.id}
+                        className={`w-8 h-4 rounded-full transition-colors relative ${item.is_active ? 'bg-emerald-500' : 'bg-[#2A2A30]'}`}
+                      >
+                        <span className={`absolute top-0.5 w-3 h-3 rounded-full bg-white transition-transform ${item.is_active ? 'translate-x-4' : 'translate-x-0.5'}`} />
+                      </button>
+                    </td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openMenuEdit(item)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteMenu(item)}
+                          disabled={loadingId === item.id}
+                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── DAILY SALES ─────────────────────────────────────────────────────────── */}
+      {activeTab === 'sales' && (
+        <div className="card space-y-4">
+          <p className="section-title">Daily Sales Records — Last 30 Days</p>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Date</th>
+                  <th className="text-right py-2 px-3">Cocktails</th>
+                  <th className="text-right py-2 px-3">Beer</th>
+                  <th className="text-right py-2 px-3">Wine</th>
+                  <th className="text-right py-2 px-3">Food</th>
+                  <th className="text-right py-2 px-3">Others</th>
+                  <th className="text-right py-2 px-3">Txns</th>
+                  <th className="py-2 pl-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {dailySales.length === 0 ? (
+                  <tr><td colSpan={8} className="text-center py-10 text-[#5A5865]">No sales records found</td></tr>
+                ) : dailySales.map(row => (
+                  <tr key={row.date} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                    <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium whitespace-nowrap">{fmtDate(row.date)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.cocktails_revenue)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.beer_revenue)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.wine_revenue)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.food_revenue)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{fmtRM(row.others_revenue)}</td>
+                    <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{row.transaction_count}</td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <div className="flex items-center justify-end gap-1">
+                        <button onClick={() => openSalesEdit(row)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors">
+                          <Pencil size={13} />
+                        </button>
+                        <button
+                          onClick={() => handleDeleteSales(row)}
+                          disabled={loadingId === row.date}
+                          className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-40"
+                        >
+                          <Trash2 size={13} />
+                        </button>
+                      </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETE ORDER MODAL ───────────────────────────────────────────────────── */}
+      <Modal isOpen={!!deleteOrderModal} onClose={() => setDeleteOrderModal(null)} title="Delete Order" size="sm">
+        {deleteOrderModal && (
+          <div className="space-y-4">
+            <p className="text-[#9896A4] text-sm">This will permanently delete the order and all related payments, items, and audit entries.</p>
+            <div className="rounded-xl bg-[#141417] border border-[#2A2A30] p-3 space-y-1 text-sm">
+              <div className="flex justify-between"><span className="text-[#9896A4]">Table</span><span className="text-[#F0EEF6]">{deleteOrderModal.table_name ?? 'Walk-in'}</span></div>
+              <div className="flex justify-between"><span className="text-[#9896A4]">Server</span><span className="text-[#F0EEF6]">{deleteOrderModal.server_name ?? '—'}</span></div>
+              <div className="flex justify-between"><span className="text-[#9896A4]">Time</span><span className="text-[#F0EEF6]">{fmtDatetime(deleteOrderModal.opened_at)}</span></div>
+              <div className="flex justify-between"><span className="text-[#9896A4]">Total</span><span className="text-[#F0EEF6] font-semibold">{fmtRM(deleteOrderModal.total)}</span></div>
+              <div className="flex justify-between"><span className="text-[#9896A4]">Status</span><span className={`inline-flex px-2 py-0.5 rounded-full text-xs border ${STATUS_STYLES[deleteOrderModal.status]}`}>{deleteOrderModal.status}</span></div>
+            </div>
+            <div className="flex gap-2 justify-end">
+              <button onClick={() => setDeleteOrderModal(null)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+              <button
+                onClick={() => handleDeleteOrder(deleteOrderModal)}
+                disabled={loadingId === deleteOrderModal.id}
+                className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50"
+              >
+                {loadingId === deleteOrderModal.id ? 'Deleting…' : 'Delete Order'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── TABLE EDIT MODAL ─────────────────────────────────────────────────────── */}
+      <Modal isOpen={tableModal.open} onClose={() => setTableModal({ open: false, table: null, isNew: false })} title={tableModal.isNew ? 'Add Table' : 'Edit Table'} size="sm">
+        {tableModal.table && (
+          <div className="space-y-4">
+            {[
+              { label: 'Name', key: 'name', type: 'text', placeholder: 'e.g. Table 1' },
+              { label: 'Section', key: 'section', type: 'text', placeholder: 'e.g. Indoor' },
+              { label: 'Capacity', key: 'capacity', type: 'number', placeholder: '4' },
+              { label: 'Sort Order', key: 'sort_order', type: 'number', placeholder: '1' },
+            ].map(field => (
+              <div key={field.key}>
+                <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">{field.label}</label>
+                <input
+                  type={field.type}
+                  value={(tableModal.table as Record<string, unknown>)[field.key] as string ?? ''}
+                  onChange={e => setTableModal(prev => ({ ...prev, table: { ...prev.table, [field.key]: field.type === 'number' ? Number(e.target.value) : e.target.value } }))}
+                  placeholder={field.placeholder}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+                />
+              </div>
+            ))}
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setTableModal({ open: false, table: null, isNew: false })} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+              <button onClick={handleSaveTable} disabled={tableLoading} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all disabled:opacity-50">
+                {tableLoading ? 'Saving…' : tableModal.isNew ? 'Create Table' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── MENU ITEM EDIT MODAL ─────────────────────────────────────────────────── */}
+      <Modal isOpen={menuModal.open} onClose={() => setMenuModal({ open: false, item: null, isNew: false })} title={menuModal.isNew ? 'Add Menu Item' : 'Edit Menu Item'} size="sm">
+        {menuModal.item && (
+          <div className="space-y-4">
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Name</label>
+              <input
+                type="text"
+                value={menuModal.item.name ?? ''}
+                onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, name: e.target.value } }))}
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+              />
+            </div>
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Category</label>
+              <div className="relative">
+                <select
+                  value={menuModal.item.category ?? MENU_CATEGORIES[0]}
+                  onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, category: e.target.value } }))}
+                  className="w-full appearance-none bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
+                >
+                  {MENU_CATEGORIES.map(c => <option key={c} value={c}>{c}</option>)}
+                </select>
+                <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] pointer-events-none" />
+              </div>
+            </div>
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Price (RM)</label>
+              <input
+                type="number"
+                step="0.01"
+                value={menuModal.item.price ?? ''}
+                onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, price: parseFloat(e.target.value) } }))}
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
+              />
+            </div>
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Sort Order</label>
+              <input
+                type="number"
+                value={menuModal.item.sort_order ?? 99}
+                onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, sort_order: parseInt(e.target.value) } }))}
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
+              />
+            </div>
+            <div className="flex gap-2 justify-end pt-1">
+              <button onClick={() => setMenuModal({ open: false, item: null, isNew: false })} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+              <button onClick={handleSaveMenu} disabled={menuLoading} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all disabled:opacity-50">
+                {menuLoading ? 'Saving…' : menuModal.isNew ? 'Create Item' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+
+      {/* ── DAILY SALES EDIT MODAL ───────────────────────────────────────────────── */}
+      <Modal isOpen={salesModal.open} onClose={() => setSalesModal({ open: false, row: null })} title={`Edit Sales — ${salesModal.row?.date ?? ''}`} size="sm">
+        {salesModal.row && (
+          <div className="space-y-3">
+            <p className="text-[#9896A4] text-xs">Revenue figures only — adjust if an entry was incorrectly recorded.</p>
+            {([
+              { label: 'Cocktails Revenue', key: 'cocktails_revenue' },
+              { label: 'Beer Revenue', key: 'beer_revenue' },
+              { label: 'Wine Revenue', key: 'wine_revenue' },
+              { label: 'Food Revenue', key: 'food_revenue' },
+              { label: 'Others Revenue', key: 'others_revenue' },
+              { label: 'Cash Collected', key: 'cash_collected' },
+              { label: 'Card Collected', key: 'credit_card_collected' },
+              { label: 'QR Collected', key: 'qr_collected' },
+            ] as const).map(field => (
+              <div key={field.key} className="flex items-center gap-3">
+                <label className="text-[#9896A4] text-xs w-36 shrink-0">{field.label}</label>
+                <input
+                  type="number"
+                  step="0.01"
+                  value={(editRow as Record<string, unknown>)[field.key] as number ?? 0}
+                  onChange={e => setEditRow(prev => ({ ...prev, [field.key]: parseFloat(e.target.value) || 0 }))}
+                  className="flex-1 bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7] tabular-nums"
+                />
+              </div>
+            ))}
+            <div className="flex gap-2 justify-end pt-2">
+              <button onClick={() => setSalesModal({ open: false, row: null })} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+              <button onClick={handleSaveSales} disabled={salesLoading} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all disabled:opacity-50">
+                {salesLoading ? 'Saving…' : 'Save Changes'}
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
+    </div>
+  )
+}
