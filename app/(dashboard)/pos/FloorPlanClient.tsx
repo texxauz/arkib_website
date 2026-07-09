@@ -2,7 +2,7 @@
 
 import { useState, useEffect } from 'react'
 import { useRouter } from 'next/navigation'
-import { Users, Plus, Clock, ChevronRight } from 'lucide-react'
+import { Users, Plus, Clock, ChevronRight, ChevronDown, WifiOff } from 'lucide-react'
 import { createClient } from '@/lib/supabase/client'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
@@ -40,6 +40,7 @@ interface Props {
   userName: string
   isAdmin: boolean
   config: ConfigMap
+  staffList: string[]
 }
 
 const statusStyles = {
@@ -78,6 +79,7 @@ export function FloorPlanClient({
   userName,
   isAdmin,
   config,
+  staffList,
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -94,6 +96,39 @@ export function FloorPlanClient({
   })
   const [covers, setCovers] = useState(2)
   const [loading, setLoading] = useState(false)
+  const [isOnline, setIsOnline] = useState(true)
+  const [serverSwitchOpen, setServerSwitchOpen] = useState(false)
+
+  // Active server: persisted per-device so staff just tap their name when they pick up the iPad
+  const [activeServer, setActiveServer] = useState<string>(() => {
+    if (typeof window !== 'undefined') {
+      return localStorage.getItem('pos_active_server') ?? userName
+    }
+    return userName
+  })
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    update()
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
+  }, [])
+
+  useEffect(() => {
+    if (!serverSwitchOpen) return
+    const close = (e: MouseEvent) => {
+      if (!(e.target as Element).closest('[data-server-switcher]')) setServerSwitchOpen(false)
+    }
+    document.addEventListener('mousedown', close)
+    return () => document.removeEventListener('mousedown', close)
+  }, [serverSwitchOpen])
+
+  function switchServer(name: string) {
+    setActiveServer(name)
+    localStorage.setItem('pos_active_server', name)
+    setServerSwitchOpen(false)
+  }
 
   const sections = [...new Set(tables.map(t => t.section))]
 
@@ -122,7 +157,7 @@ export function FloorPlanClient({
           tableName: newOrderModal.table?.name ?? null,
           section: newOrderModal.table?.section ?? null,
           covers,
-          serverName: userName,
+          serverName: activeServer,
           userId,
         }),
       })
@@ -193,17 +228,58 @@ export function FloorPlanClient({
 
   return (
     <div className="min-h-screen bg-[#0D0D0F] p-4 sm:p-6">
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-sm">
+          <WifiOff size={15} />
+          <span className="font-medium">You're offline.</span>
+          <span className="text-amber-300/70">Orders cannot be opened until connection is restored.</span>
+        </div>
+      )}
+
       <TopBar
         title="Floor Plan"
         subtitle={`${occupiedCount} of ${totalTables} tables occupied`}
         actions={
-          <button
-            onClick={() => { setCovers(2); setNewOrderModal({ open: true, table: null }) }}
-            className="btn-primary flex items-center gap-1.5 text-sm px-3 py-1.5"
-          >
-            <Plus size={15} />
-            Walk-in
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Active server switcher */}
+            <div className="relative" data-server-switcher>
+              <button
+                onClick={() => setServerSwitchOpen(v => !v)}
+                className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#1A1A1E] border border-[#2A2A30] text-sm text-[#F0EEF6] hover:border-[#8B5CF6]/50 transition-colors"
+              >
+                <span className="w-2 h-2 rounded-full bg-emerald-400 shrink-0" />
+                <span className="max-w-[100px] truncate">{activeServer}</span>
+                <ChevronDown size={13} className="text-[#9896A4]" />
+              </button>
+              {serverSwitchOpen && (
+                <div className="absolute right-0 top-full mt-1 z-50 w-44 rounded-xl bg-[#1A1A1E] border border-[#2A2A30] shadow-xl overflow-hidden">
+                  <p className="px-3 py-2 text-[#5A5865] text-xs uppercase tracking-wider">Switch server</p>
+                  {staffList.map(name => (
+                    <button
+                      key={name}
+                      onClick={() => switchServer(name)}
+                      className={`w-full text-left px-3 py-2 text-sm transition-colors ${
+                        name === activeServer
+                          ? 'text-[#A78BFA] bg-[#8B5CF6]/10'
+                          : 'text-[#F0EEF6] hover:bg-[#2A2A30]'
+                      }`}
+                    >
+                      {name}
+                    </button>
+                  ))}
+                </div>
+              )}
+            </div>
+            <button
+              onClick={() => { setCovers(2); setNewOrderModal({ open: true, table: null }) }}
+              disabled={!isOnline}
+              className="btn-primary flex items-center gap-1.5 text-sm px-3 py-1.5 disabled:opacity-40 disabled:cursor-not-allowed"
+            >
+              <Plus size={15} />
+              Walk-in
+            </button>
+          </div>
         }
       />
 
@@ -260,11 +336,13 @@ export function FloorPlanClient({
                 onClick={() => {
                   if (status === 'occupied' && table.current_order_id) {
                     router.push(`/pos/order/${table.current_order_id}`)
-                  } else if (status === 'available') {
+                  } else if (status === 'available' && isOnline) {
                     handleOpenOrder(table)
+                  } else if (status === 'available' && !isOnline) {
+                    toast('Cannot open orders while offline', 'error')
                   }
                 }}
-                className={`relative flex flex-col gap-2 rounded-xl border p-4 text-left transition-all hover:brightness-110 active:scale-95 ${s.card}`}
+                className={`relative flex flex-col gap-2 rounded-xl border p-4 text-left transition-all hover:brightness-110 active:scale-95 ${s.card} ${status === 'available' && !isOnline ? 'opacity-50' : ''}`}
               >
                 {/* Table name */}
                 <div className="flex items-start justify-between gap-1">

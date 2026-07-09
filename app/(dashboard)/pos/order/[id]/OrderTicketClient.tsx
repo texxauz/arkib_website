@@ -9,7 +9,7 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Plus, Minus, Trash2, Send, CreditCard, Search,
-  ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound
+  ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound, WifiOff
 } from 'lucide-react'
 
 type PosOrder = {
@@ -83,6 +83,15 @@ export function OrderTicketClient({
   const [cancelModal, setCancelModal] = useState(false)
   const [cancelReason, setCancelReason] = useState('')
   const [cancelPin, setCancelPin] = useState('')
+  const [isOnline, setIsOnline] = useState(true)
+
+  useEffect(() => {
+    const update = () => setIsOnline(navigator.onLine)
+    window.addEventListener('online', update)
+    window.addEventListener('offline', update)
+    update()
+    return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
+  }, [])
 
   const activeItems = items.filter(i => !i.voided_at)
   const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price * (1 - (i.discount ?? 0) / 100), 0)
@@ -585,6 +594,15 @@ export function OrderTicketClient({
 
   return (
     <div className="fixed inset-0 lg:left-56 z-20 flex flex-col bg-[#0A0A0D] overflow-hidden">
+      {/* Offline banner */}
+      {!isOnline && (
+        <div className="mx-4 mt-4 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs shrink-0">
+          <WifiOff size={13} />
+          <span className="font-medium">Offline</span>
+          <span className="text-amber-300/70">— changes will not save until connection is restored.</span>
+        </div>
+      )}
+
       {/* TopBar */}
       <div className="px-4 pt-4 shrink-0">
         <TopBar

@@ -13,10 +13,11 @@ export default async function POSPage() {
     .from('users').select('role, full_name, tab_permissions').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
 
-  const [{ data: tables }, { data: orders }, { data: config }] = await Promise.all([
+  const [{ data: tables }, { data: orders }, { data: config }, { data: staffList }] = await Promise.all([
     supabase.from('pos_tables').select('*').eq('is_active', true).order('section').order('sort_order'),
     supabase.from('pos_orders').select('id, table_id, covers, opened_at, server_name, total, status').eq('status', 'open'),
     supabase.from('pos_config').select('key, value'),
+    supabase.from('users').select('id, full_name').eq('is_active', true).order('full_name'),
   ])
 
   const configMap = Object.fromEntries((config ?? []).map(c => [c.key, c.value]))
@@ -29,6 +30,7 @@ export default async function POSPage() {
       userName={userProfile?.full_name ?? 'Staff'}
       isAdmin={isAdmin ?? false}
       config={configMap}
+      staffList={(staffList ?? []).map(s => s.full_name).filter(Boolean) as string[]}
     />
   )
 }

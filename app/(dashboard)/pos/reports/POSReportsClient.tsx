@@ -66,7 +66,7 @@ interface Props {
   isAdmin: boolean
 }
 
-type Tab = 'overview' | 'items' | 'payments' | 'voids'
+type Tab = 'overview' | 'items' | 'payments' | 'staff' | 'voids'
 
 function fmtRM(n: number) {
   return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -231,10 +231,26 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
     [voids]
   )
 
+  // ── Staff performance ────────────────────────────────────────────────────────
+  const staffStats = useMemo(() => {
+    const map: Record<string, { orders: number; revenue: number; covers: number }> = {}
+    for (const o of orders) {
+      const name = o.server_name ?? 'Unknown'
+      if (!map[name]) map[name] = { orders: 0, revenue: 0, covers: 0 }
+      map[name].orders++
+      map[name].revenue += o.total
+      map[name].covers += o.covers
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v, avgSpend: v.orders > 0 ? v.revenue / v.orders : 0 }))
+      .sort((a, b) => b.revenue - a.revenue)
+  }, [orders])
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'items', label: 'Items Sold' },
     { id: 'payments', label: 'Payments' },
+    { id: 'staff', label: 'Staff' },
     ...(isAdmin ? [{ id: 'voids' as Tab, label: 'Voids & Discounts' }] : []),
   ]
 
@@ -551,6 +567,73 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── STAFF TAB ────────────────────────────────────────────────────────── */}
+      {activeTab === 'staff' && (
+        <div className="space-y-4">
+          {staffStats.length === 0 ? (
+            <div className="card">
+              <p className="text-[#5A5865] text-sm text-center py-8">No closed orders in this period</p>
+            </div>
+          ) : (
+            <>
+              {/* Summary cards */}
+              <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
+                {staffStats.slice(0, 4).map(s => (
+                  <div key={s.name} className="card">
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-1 truncate">{s.name}</p>
+                    <p className="text-emerald-400 font-bold text-lg tabular-nums">{fmtRM(s.revenue)}</p>
+                    <p className="text-[#5A5865] text-xs mt-1">{s.orders} orders · {s.covers} covers</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Full table */}
+              <div className="card overflow-x-auto">
+                <p className="section-title mb-4">Performance Breakdown — Last 30 Days</p>
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4">Server</th>
+                      <th className="text-right py-2 px-4">Orders</th>
+                      <th className="text-right py-2 px-4">Covers</th>
+                      <th className="text-right py-2 px-4">Avg / Order</th>
+                      <th className="text-right py-2 pl-4">Total Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {staffStats.map((s, i) => (
+                      <tr key={s.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className="w-6 h-6 rounded-full bg-[#8B5CF6]/20 text-[#A78BFA] text-xs flex items-center justify-center font-medium shrink-0">
+                              {i + 1}
+                            </span>
+                            <span className="text-[#F0EEF6] font-medium">{s.name}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{s.orders}</td>
+                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{s.covers}</td>
+                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{fmtRM(s.avgSpend)}</td>
+                        <td className="py-2.5 pl-4 text-right text-emerald-400 font-semibold tabular-nums">{fmtRM(s.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                  <tfoot>
+                    <tr className="border-t border-[#2A2A30]">
+                      <td className="py-2.5 pr-4 text-[#9896A4] text-xs font-medium">Total</td>
+                      <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums text-xs">{staffStats.reduce((s, r) => s + r.orders, 0)}</td>
+                      <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums text-xs">{staffStats.reduce((s, r) => s + r.covers, 0)}</td>
+                      <td className="py-2.5 px-4" />
+                      <td className="py-2.5 pl-4 text-right text-emerald-400 font-bold tabular-nums text-xs">{fmtRM(staffStats.reduce((s, r) => s + r.revenue, 0))}</td>
+                    </tr>
+                  </tfoot>
+                </table>
+              </div>
+            </>
+          )}
         </div>
       )}
 
