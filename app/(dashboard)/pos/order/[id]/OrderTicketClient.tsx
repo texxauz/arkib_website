@@ -80,6 +80,9 @@ export function OrderTicketClient({
   const [moveTarget, setMoveTarget] = useState<PosTable | null>(null)
   const [guestModal, setGuestModal] = useState(false)
   const [guestName, setGuestName] = useState(order.customer_name ?? '')
+  const [cancelModal, setCancelModal] = useState(false)
+  const [cancelReason, setCancelReason] = useState('')
+  const [cancelPin, setCancelPin] = useState('')
 
   const activeItems = items.filter(i => !i.voided_at)
   const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price * (1 - (i.discount ?? 0) / 100), 0)
@@ -245,14 +248,29 @@ export function OrderTicketClient({
   }, [guestName, currentOrder.id, supabase, toast])
 
   const handleCancelOrder = useCallback(async () => {
-    if (!confirm('Cancel this order and free the table?')) return
+    if (!cancelReason.trim()) {
+      toast('A reason is required to cancel an order', 'error')
+      return
+    }
+    if (!isAdmin && cancelPin.length < 4) {
+      toast('Enter your manager PIN', 'error')
+      return
+    }
     setLoading(true)
-    const { error } = await supabase.from('pos_orders').update({ status: 'voided' }).eq('id', currentOrder.id)
-    if (error) { toast(error.message, 'error'); setLoading(false); return }
-    await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', currentOrder.id)
+    const res = await fetch('/api/pos/cancel-order', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ orderId: currentOrder.id, reason: cancelReason, managerPin: isAdmin ? undefined : cancelPin }),
+    })
     setLoading(false)
-    router.push('/pos')
-  }, [currentOrder.id, supabase, router, toast])
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({ error: 'Unknown error' }))
+      toast(err.error ?? 'Failed to cancel order', 'error')
+    } else {
+      setCancelModal(false)
+      router.push('/pos')
+    }
+  }, [cancelReason, cancelPin, isAdmin, currentOrder.id, router, toast])
 
   const handleSaveNote = useCallback(async () => {
     if (!noteModal.itemId) return
@@ -396,7 +414,7 @@ export function OrderTicketClient({
             </span>
             {currentOrder.status === 'open' && (
               <button
-                onClick={handleCancelOrder}
+                onClick={() => { setCancelReason(''); setCancelPin(''); setCancelModal(true) }}
                 disabled={loading}
                 className="px-2.5 py-1 rounded-lg text-xs font-medium bg-rose-950 text-rose-400 border border-rose-800 hover:bg-rose-900 transition-colors disabled:opacity-50"
               >
@@ -738,6 +756,54 @@ export function OrderTicketClient({
               className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all"
             >
               Save Note
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Cancel Order Modal */}
+      <Modal isOpen={cancelModal} onClose={() => setCancelModal(false)} title="Cancel Order" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">
+            This will void all items and free the table. Every cancellation is permanently logged.
+          </p>
+          <div>
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Reason <span className="text-rose-400">*</span></label>
+            <input
+              type="text"
+              value={cancelReason}
+              onChange={e => setCancelReason(e.target.value)}
+              placeholder="e.g. Customer left, wrong table opened…"
+              className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+            />
+          </div>
+          {!isAdmin && (
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Manager PIN <span className="text-rose-400">*</span></label>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={cancelPin}
+                onChange={e => setCancelPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="••••"
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7] tracking-widest"
+              />
+            </div>
+          )}
+          <div className="flex gap-2 justify-end pt-1">
+            <button
+              onClick={() => setCancelModal(false)}
+              className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all"
+            >
+              Go Back
+            </button>
+            <button
+              onClick={handleCancelOrder}
+              disabled={loading || !cancelReason.trim()}
+              className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50"
+            >
+              {loading ? 'Cancelling…' : 'Cancel Order'}
             </button>
           </div>
         </div>
