@@ -26,11 +26,20 @@ type DailySales = {
   transaction_count: number; total_revenue: number | null; total_collected: number | null
 }
 
+type SalesBackup = {
+  id: string
+  original_date: string
+  deleted_at: string
+  deleted_by_name: string | null
+  data: Record<string, unknown>
+}
+
 interface Props {
   orders: Order[]
   tables: PosTable[]
   menuItems: MenuItem[]
   dailySales: DailySales[]
+  salesBackups: SalesBackup[]
 }
 
 type Tab = 'orders' | 'tables' | 'menu' | 'sales'
@@ -89,7 +98,7 @@ type ConfirmModal = {
 
 const CONFIRM_CLOSED: ConfirmModal = { open: false, title: '', message: '', confirmLabel: 'Delete', onConfirm: () => {} }
 
-export function DataManagerClient({ orders: initialOrders, tables: initialTables, menuItems: initialMenuItems, dailySales: initialDailySales }: Props) {
+export function DataManagerClient({ orders: initialOrders, tables: initialTables, menuItems: initialMenuItems, dailySales: initialDailySales, salesBackups: initialBackups }: Props) {
   const { toast } = useToast()
   const [activeTab, setActiveTab] = useState<Tab>('orders')
   const [bulkLoading, setBulkLoading] = useState(false)
@@ -439,6 +448,19 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     })
   }
 
+  // ── Sales Backups ────────────────────────────────────────────────────────────
+  const [backups, setBackups] = useState<SalesBackup[]>(initialBackups)
+  const [restoreLoading, setRestoreLoading] = useState<string | null>(null)
+
+  async function handleRestore(backup: SalesBackup) {
+    setRestoreLoading(backup.id)
+    const res = await apiFetch('/api/pos/manage-daily-sales', { action: 'restore', date: backup.original_date })
+    setRestoreLoading(null)
+    if (!res.ok) { toast(res.error ?? 'Failed to restore', 'error'); return }
+    setBackups(prev => prev.filter(b => b.id !== backup.id))
+    toast(`Sales for ${fmtDate(backup.original_date)} restored`, 'success')
+  }
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'orders', label: `Orders (${orders.length})` },
     { id: 'tables', label: `Tables (${tables.length})` },
@@ -728,6 +750,51 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                           <Trash2 size={13} />
                         </button>
                       </div>
+                    </td>
+                  </tr>
+                ))}
+              </tbody>
+            </table>
+          </div>
+        </div>
+      )}
+
+      {/* ── DELETED SALES BACKUPS ───────────────────────────────────────────────── */}
+      {activeTab === 'sales' && backups.length > 0 && (
+        <div className="card space-y-3">
+          <div className="flex items-center gap-2">
+            <p className="section-title">Deleted Records</p>
+            <span className="text-xs text-[#9896A4] bg-[#1A1A1E] border border-[#2A2A30] rounded-full px-2 py-0.5">{backups.length}</span>
+            <span className="text-xs text-[#5A5865] ml-1">— click Restore to recover</span>
+          </div>
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Date</th>
+                  <th className="text-right py-2 px-3">Total Revenue</th>
+                  <th className="text-left py-2 px-3">Deleted By</th>
+                  <th className="text-left py-2 px-3">Deleted At</th>
+                  <th className="py-2 pl-3" />
+                </tr>
+              </thead>
+              <tbody>
+                {backups.map(b => (
+                  <tr key={b.id} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                    <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium whitespace-nowrap">{fmtDate(b.original_date)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">
+                      {fmtRM((b.data.total_revenue as number) ?? 0)}
+                    </td>
+                    <td className="py-2.5 px-3 text-[#9896A4] text-xs">{b.deleted_by_name ?? '—'}</td>
+                    <td className="py-2.5 px-3 text-[#5A5865] text-xs whitespace-nowrap">{fmtDatetime(b.deleted_at)}</td>
+                    <td className="py-2.5 pl-3 text-right">
+                      <button
+                        onClick={() => handleRestore(b)}
+                        disabled={restoreLoading === b.id}
+                        className="px-3 py-1 rounded-lg text-xs font-medium bg-emerald-500/15 border border-emerald-500/30 text-emerald-400 hover:bg-emerald-500/25 transition-colors disabled:opacity-50"
+                      >
+                        {restoreLoading === b.id ? 'Restoring…' : 'Restore'}
+                      </button>
                     </td>
                   </tr>
                 ))}

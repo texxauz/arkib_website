@@ -10,7 +10,11 @@ export function formatCurrency(amount: number, currency = 'RM'): string {
 }
 
 export function formatDate(date: string | Date): string {
-  return new Date(date).toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })
+  // Parse date strings as local date to avoid UTC offset shifting the day
+  const d = typeof date === 'string' && /^\d{4}-\d{2}-\d{2}$/.test(date)
+    ? new Date(date + 'T00:00:00')
+    : new Date(date)
+  return d.toLocaleDateString('en-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
 }
 
 export function formatMonth(month: number, year: number): string {
