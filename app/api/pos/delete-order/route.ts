@@ -16,10 +16,9 @@ export async function POST(req: NextRequest) {
   const { data: order } = await supabase.from('pos_orders').select('id, table_id, opened_at, table_name, total').eq('id', orderId).single()
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  // Cascade delete in correct order
+  // Cascade delete in correct order — audit log is intentionally preserved
   await supabase.from('pos_payments').delete().eq('order_id', orderId)
   await supabase.from('pos_order_items').delete().eq('order_id', orderId)
-  await supabase.from('pos_audit_log').delete().eq('entity_id', orderId)
   if (order.table_id) {
     await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', orderId)
   }

@@ -138,11 +138,23 @@ export function PaymentClient({
     setSelectedDiscount(discount)
   }
 
-  function handleApprovalSubmit() {
-    // In a real system this would validate the PIN against a manager credential.
-    // For now, accept any non-empty PIN and surface the discount.
+  const [approvalLoading, setApprovalLoading] = useState(false)
+
+  async function handleApprovalSubmit() {
     if (approvalPin.trim().length < 4) {
       toast('Enter a 4-digit manager PIN', 'error')
+      return
+    }
+    setApprovalLoading(true)
+    const res = await fetch('/api/pos/verify-manager-pin', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ pin: approvalPin.trim() }),
+    })
+    setApprovalLoading(false)
+    if (!res.ok) {
+      toast('Invalid manager PIN', 'error')
+      setApprovalPin('')
       return
     }
     if (approvalModal.discount) setSelectedDiscount(approvalModal.discount)
@@ -634,10 +646,11 @@ export function PaymentClient({
             <button
               type="button"
               onClick={handleApprovalSubmit}
-              className="flex-1 btn-primary text-sm py-2 flex items-center justify-center gap-1.5"
+              disabled={approvalLoading}
+              className="flex-1 btn-primary text-sm py-2 flex items-center justify-center gap-1.5 disabled:opacity-50"
             >
               <ChevronRight size={14} />
-              Apply Discount
+              {approvalLoading ? 'Verifying…' : 'Apply Discount'}
             </button>
           </div>
         </div>

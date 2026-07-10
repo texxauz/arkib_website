@@ -94,7 +94,7 @@ export function OrderTicketClient({
   }, [])
 
   const activeItems = items.filter(i => !i.voided_at)
-  const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price * (1 - (i.discount ?? 0) / 100), 0)
+  const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price - (i.discount ?? 0), 0)
 
   // Realtime subscription
   useEffect(() => {
