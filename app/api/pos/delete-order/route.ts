@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getBusinessDate } from '@/lib/utils'
 
 const normName = (n: string) =>
   n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -77,8 +78,10 @@ export async function POST(req: NextRequest) {
         if (sp) await supabase.from('bar_spirits').update({ used_classics_ml: Math.max(0, sp.used_classics_ml - ml) }).eq('id', id)
       }
 
-      // Revert daily_sales for the order date
-      const orderDate = new Date(new Date(order.opened_at).getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+      // Revert daily_sales for the correct business date (respects post-midnight cutoff)
+      const { data: config } = await supabase.from('pos_config').select('key, value').in('key', ['business_day_cutoff_hour'])
+      const cutoffHour = parseInt(config?.find(c => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
+      const orderDate = getBusinessDate(order.opened_at, cutoffHour)
       let cocktailsRev = 0, beerRev = 0, wineRev = 0, foodRev = 0, othersRev = 0
       for (const item of items) {
         const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)

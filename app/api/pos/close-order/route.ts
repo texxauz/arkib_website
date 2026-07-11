@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { getBusinessDate } from '@/lib/utils'
 
 const normName = (n: string) =>
   n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -43,9 +44,12 @@ export async function POST(req: NextRequest) {
   }
   const total = subtotal - discountAmount + serviceCharge + taxAmount
   const now = new Date().toISOString()
-  // Use Malaysia timezone (UTC+8) for the business date
-  const mytime = new Date(order.opened_at)
-  const orderDate = new Date(mytime.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
+
+  // Business date: Malaysia UTC+8, with a cutoff so post-midnight orders (e.g. 1am Saturday)
+  // are attributed to the previous trading day (Friday) if before the cutoff hour.
+  const { data: config } = await supabase.from('pos_config').select('key, value').in('key', ['business_day_cutoff_hour'])
+  const cutoffHour = parseInt(config?.find(c => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
+  const orderDate = getBusinessDate(order.opened_at, cutoffHour)
 
   // 2. Close the order atomically (guards against double-close race)
   const { data: closed, error: closeErr } = await supabase

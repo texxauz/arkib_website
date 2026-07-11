@@ -5,6 +5,20 @@ export function cn(...inputs: ClassValue[]) {
   return twMerge(clsx(inputs))
 }
 
+/**
+ * Returns the business date (YYYY-MM-DD) for a given UTC timestamp.
+ * Malaysia is UTC+8. If the local time is before cutoffHour (default 6am),
+ * the sale is attributed to the previous calendar day — covering bars that
+ * trade past midnight (e.g. Friday night service ending at 2am Saturday).
+ */
+export function getBusinessDate(utcTimestamp: string, cutoffHour = 6): string {
+  const myTime = new Date(new Date(utcTimestamp).getTime() + 8 * 60 * 60 * 1000)
+  if (myTime.getUTCHours() < cutoffHour) {
+    myTime.setUTCDate(myTime.getUTCDate() - 1)
+  }
+  return myTime.toISOString().slice(0, 10)
+}
+
 export function formatCurrency(amount: number, currency = 'RM'): string {
   return `${currency}${amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
