@@ -16,16 +16,16 @@ export async function POST(req: NextRequest) {
   const { data: order } = await supabase.from('pos_orders').select('id, table_id, opened_at, table_name, total').eq('id', orderId).single()
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  // Cascade delete in correct order — audit log is intentionally preserved
-  await supabase.from('pos_payments').delete().eq('order_id', orderId)
-  await supabase.from('pos_order_items').delete().eq('order_id', orderId)
+  // Use RPC to cascade-delete with elevated privileges (bypasses RLS on child tables)
+  const { error: rpcErr } = await supabase.rpc('admin_delete_order', { p_order_id: orderId })
+  if (rpcErr) return NextResponse.json({ error: rpcErr.message }, { status: 500 })
+
+  // Clear table link
   if (order.table_id) {
     await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', orderId)
   }
-  const { error } = await supabase.from('pos_orders').delete().eq('id', orderId)
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 
-  // Log the admin deletion
+  // Log the admin deletion (audit log is preserved — this adds a record, not replaces)
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,
     actor_name: profile?.full_name ?? null,
