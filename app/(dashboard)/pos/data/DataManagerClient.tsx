@@ -222,6 +222,24 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     toast(tableModal.isNew ? 'Table created' : 'Table updated', 'success')
   }
 
+  function handleReleaseTable(table: PosTable) {
+    confirm({
+      title: `Release ${table.name}`,
+      message: `Force-clear the stuck order from ${table.name} (${table.section})? Only use this when the linked order is already closed or cancelled.`,
+      warning: 'This logs a "force_released" event in the audit log.',
+      confirmLabel: 'Release Table',
+      onConfirm: async () => {
+        setConfirmModal(CONFIRM_CLOSED)
+        setLoadingId(table.id)
+        const res = await apiFetch('/api/pos/manage-table', { action: 'release', id: table.id })
+        setLoadingId(null)
+        if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
+        setTables(prev => prev.map(t => t.id === table.id ? { ...t, current_order_id: null } : t))
+        toast(`${table.name} released`, 'success')
+      },
+    })
+  }
+
   function handleDeleteTable(table: PosTable) {
     if (table.current_order_id) { toast('Table has an open order — close it first', 'error'); return }
     confirm({
@@ -627,6 +645,13 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                     <td className="py-2.5 pl-3 text-right">
                       <div className="flex items-center justify-end gap-1">
                         <button onClick={() => openTableEdit(table)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={13} /></button>
+                        {table.current_order_id && (
+                          <button onClick={() => handleReleaseTable(table)} disabled={loadingId === table.id}
+                            className="px-2 py-1 rounded-lg text-xs font-medium bg-amber-500/15 border border-amber-500/30 text-amber-400 hover:bg-amber-500/25 transition-colors disabled:opacity-50"
+                            title="Force-release stuck table">
+                            Release
+                          </button>
+                        )}
                         <button onClick={() => handleDeleteTable(table)} disabled={!!table.current_order_id || loadingId === table.id}
                           className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
                           title={table.current_order_id ? 'Has open order' : 'Delete'}>

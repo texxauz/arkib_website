@@ -32,6 +32,25 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ success: true })
   }
 
+  if (action === 'release') {
+    if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+    const { data: table } = await supabase.from('pos_tables').select('current_order_id, name').eq('id', id).single()
+    if (!table?.current_order_id) return NextResponse.json({ error: 'Table is already free' }, { status: 400 })
+    // Only allow if the linked order is not open
+    const { data: order } = await supabase.from('pos_orders').select('status').eq('id', table.current_order_id).maybeSingle()
+    if (order?.status === 'open') return NextResponse.json({ error: 'Order is still open — close or cancel it first' }, { status: 400 })
+    const { error } = await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', id)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    await supabase.from('pos_audit_log').insert({
+      actor_id: user.id,
+      event: 'table.force_released',
+      entity_type: 'pos_tables',
+      entity_id: id,
+      payload: { table_name: table.name, cleared_order_id: table.current_order_id },
+    })
+    return NextResponse.json({ success: true })
+  }
+
   if (action === 'delete') {
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
     const { data: table } = await supabase.from('pos_tables').select('current_order_id').eq('id', id).single()
