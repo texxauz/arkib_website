@@ -10,14 +10,23 @@ export async function POST(req: NextRequest) {
   if (!itemId) return NextResponse.json({ error: 'itemId required' }, { status: 400 })
 
   const { data: item } = await supabase
-    .from('pos_order_items').select('*, pos_orders(server_id)').eq('id', itemId).single()
+    .from('pos_order_items').select('*, pos_orders(server_id, status)').eq('id', itemId).single()
   if (!item) return NextResponse.json({ error: 'Item not found' }, { status: 404 })
   if (item.voided_at) return NextResponse.json({ error: 'Item already voided' }, { status: 400 })
+
+  const parentOrder = item.pos_orders as { server_id: string; status: string } | null
+  if (parentOrder?.status !== 'open') {
+    return NextResponse.json({ error: 'Cannot void items on a closed or cancelled order' }, { status: 400 })
+  }
 
   const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
 
-  // Non-admin can only void pending items they added, or need a reason
+  if (!isAdmin && parentOrder?.server_id !== user.id) {
+    return NextResponse.json({ error: 'You can only void items from your own orders' }, { status: 403 })
+  }
+
+  // Non-admin can only void pending items without a reason; sent items need manager approval
   if (!isAdmin && item.status !== 'pending' && !reason?.trim()) {
     return NextResponse.json({ error: 'Manager approval required to void sent items' }, { status: 403 })
   }

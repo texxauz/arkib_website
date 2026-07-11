@@ -84,6 +84,7 @@ export function OrderTicketClient({
   const [cancelReason, setCancelReason] = useState('')
   const [cancelPin, setCancelPin] = useState('')
   const [isOnline, setIsOnline] = useState(true)
+  const [isPaying, setIsPaying] = useState(false)
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine)
@@ -123,19 +124,24 @@ export function OrderTicketClient({
   }, [order.id])
 
   const addItem = useCallback(async (item: Cocktail | MenuItem, type: 'cocktail' | 'menu_item', category: string) => {
+    if (currentOrder.status !== 'open') {
+      toast('Order is no longer open', 'error')
+      return
+    }
+
     const unitPrice = type === 'cocktail' ? (item as Cocktail).selling_price : (item as MenuItem).price
     const unitCost = type === 'cocktail' ? (item as Cocktail).total_cost : 0
 
     const existing = activeItems.find(i => i.item_id === item.id && i.item_type === type)
     if (existing) {
-      // Optimistic update
+      // Optimistic update using functional form to avoid stale closure
       setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i))
+      const newQty = existing.quantity + 1
       const { error } = await supabase
         .from('pos_order_items')
-        .update({ quantity: existing.quantity + 1 })
+        .update({ quantity: newQty })
         .eq('id', existing.id)
       if (error) {
-        // Revert
         setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: existing.quantity } : i))
         toast(error.message, 'error')
       }
@@ -583,8 +589,9 @@ export function OrderTicketClient({
         </button>
         {currentOrder.status === 'open' ? (
           <button
-            onClick={() => router.push(`/pos/payment/${order.id}`)}
-            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all"
+            onClick={() => { if (isPaying) return; setIsPaying(true); router.push(`/pos/payment/${order.id}`) }}
+            disabled={isPaying}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all disabled:opacity-60"
           >
             <CreditCard size={14} />
             Payment

@@ -16,11 +16,18 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'orderId and payments required' }, { status: 400 })
   }
 
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+
   // 1. Load order + items
   const { data: order, error: orderErr } = await supabase
     .from('pos_orders').select('*').eq('id', orderId).single()
   if (orderErr || !order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.status !== 'open') return NextResponse.json({ error: 'Order already closed' }, { status: 400 })
+
+  if (!isAdmin && order.server_id !== user.id) {
+    return NextResponse.json({ error: 'You can only close your own orders' }, { status: 403 })
+  }
 
   const { data: items } = await supabase
     .from('pos_order_items')
@@ -31,18 +38,22 @@ export async function POST(req: NextRequest) {
   if (!items?.length) return NextResponse.json({ error: 'No items on order' }, { status: 400 })
 
   const subtotal = items.reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
+  if (discountAmount > subtotal) {
+    return NextResponse.json({ error: 'Discount cannot exceed subtotal' }, { status: 400 })
+  }
   const total = subtotal - discountAmount + serviceCharge + taxAmount
   const now = new Date().toISOString()
   // Use Malaysia timezone (UTC+8) for the business date
   const mytime = new Date(order.opened_at)
   const orderDate = new Date(mytime.getTime() + 8 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  // 2. Close the order
-  const { error: closeErr } = await supabase
+  // 2. Close the order atomically (guards against double-close race)
+  const { data: closed, error: closeErr } = await supabase
     .from('pos_orders')
     .update({ status: 'closed', closed_at: now, subtotal, discount_amount: discountAmount, discount_label: discountLabel, service_charge: serviceCharge, tax_amount: taxAmount, total })
-    .eq('id', orderId)
+    .eq('id', orderId).eq('status', 'open').select('id')
   if (closeErr) return NextResponse.json({ error: closeErr.message }, { status: 500 })
+  if (!closed?.length) return NextResponse.json({ error: 'Order was already closed by another request' }, { status: 409 })
 
   // 3. Write payments
   for (const p of payments) {

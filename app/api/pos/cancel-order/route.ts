@@ -14,16 +14,17 @@ export async function POST(req: NextRequest) {
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
 
   // Non-admins must supply a manager PIN
+  let approvedByName: string | null = null
   if (!isAdmin) {
     if (!managerPin) return NextResponse.json({ error: 'Manager PIN required to cancel an order' }, { status: 403 })
-    // Verify PIN against users table
     const { data: manager } = await supabase
       .from('users')
-      .select('id')
+      .select('id, full_name')
       .eq('manager_pin', managerPin)
       .in('role', ['owner', 'manager'])
       .maybeSingle()
     if (!manager) return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
+    approvedByName = manager.full_name ?? null
   }
 
   // Load order
@@ -78,6 +79,7 @@ export async function POST(req: NextRequest) {
       opened_at: order.opened_at,
       cancelled_at: now,
       reason: reason || null,
+      approved_by: approvedByName,
       cancelled_value: cancelledValue,
       items: itemSummary,
     },

@@ -98,6 +98,7 @@ export function FloorPlanClient({
   const [loading, setLoading] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
   const [serverSwitchOpen, setServerSwitchOpen] = useState(false)
+  const [, setTick] = useState(0)
 
   // Active server: persisted per-device so staff just tap their name when they pick up the iPad
   const [activeServer, setActiveServer] = useState<string>(() => {
@@ -113,6 +114,12 @@ export function FloorPlanClient({
     window.addEventListener('offline', update)
     update()
     return () => { window.removeEventListener('online', update); window.removeEventListener('offline', update) }
+  }, [])
+
+  // Re-render elapsed times every 30 seconds
+  useEffect(() => {
+    const id = setInterval(() => setTick(t => t + 1), 30_000)
+    return () => clearInterval(id)
   }, [])
 
   useEffect(() => {
@@ -131,6 +138,13 @@ export function FloorPlanClient({
   }
 
   const sections = [...new Set(tables.map(t => t.section))]
+
+  // Keep activeSection valid when sections change
+  useEffect(() => {
+    if (sections.length > 0 && !sections.includes(activeSection)) {
+      setActiveSection(sections[0])
+    }
+  }, [sections.join(',')])
 
   function getTableOrder(tableId: string): OpenOrder | undefined {
     return orders.find(o => o.table_id === tableId)
