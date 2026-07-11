@@ -581,13 +581,20 @@ export function OrderTicketClient({
             <span className="ml-1 px-1.5 py-0.5 bg-amber-500/20 text-amber-400 text-xs rounded">{pendingCount}</span>
           )}
         </button>
-        <button
-          onClick={() => router.push(`/pos/payment/${order.id}`)}
-          className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all"
-        >
-          <CreditCard size={14} />
-          Payment
-        </button>
+        {currentOrder.status === 'open' ? (
+          <button
+            onClick={() => router.push(`/pos/payment/${order.id}`)}
+            className="w-full flex items-center justify-center gap-2 py-3 rounded-xl font-semibold text-sm bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all"
+          >
+            <CreditCard size={14} />
+            Payment
+          </button>
+        ) : (
+          <div className="w-full flex items-center justify-center gap-2 py-3 rounded-xl text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#5A5865] cursor-not-allowed">
+            <CreditCard size={14} />
+            Order {currentOrder.status}
+          </div>
+        )}
       </div>
     </div>
   )
