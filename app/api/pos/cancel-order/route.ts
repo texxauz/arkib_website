@@ -40,9 +40,10 @@ export async function POST(req: NextRequest) {
 
   // Mark all active items as voided
   if (activeItems.length > 0) {
-    await supabase.from('pos_order_items')
+    const { error: voidErr } = await supabase.from('pos_order_items')
       .update({ voided_at: now, voided_by: user.id, void_reason: reason || 'Order cancelled', status: 'voided' })
       .in('id', activeItems.map((i: any) => i.id))
+    if (voidErr) return NextResponse.json({ error: `Failed to void items: ${voidErr.message}` }, { status: 500 })
   }
 
   // Mark order as voided

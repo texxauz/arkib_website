@@ -171,7 +171,7 @@ export function PaymentClient({
     }
 
     // Validate cash entry
-    if (payMethod === 'cash' && cashValue < total) {
+    if (payMethod === 'cash' && (isNaN(cashValue) || cashValue < total)) {
       toast('Cash entered is less than the total', 'error')
       return
     }

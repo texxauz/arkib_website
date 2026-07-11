@@ -32,14 +32,15 @@ export async function POST(req: NextRequest) {
   }
 
   const now = new Date().toISOString()
-  const { error } = await supabase.from('pos_order_items').update({
+  const { data: voided, error } = await supabase.from('pos_order_items').update({
     voided_at: now,
     voided_by: user.id,
     void_reason: reason ?? null,
     status: 'voided',
-  }).eq('id', itemId)
+  }).eq('id', itemId).is('voided_at', null).select('id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!voided?.length) return NextResponse.json({ error: 'Item was already voided' }, { status: 409 })
 
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,

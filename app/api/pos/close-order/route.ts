@@ -55,11 +55,11 @@ export async function POST(req: NextRequest) {
   if (closeErr) return NextResponse.json({ error: closeErr.message }, { status: 500 })
   if (!closed?.length) return NextResponse.json({ error: 'Order was already closed by another request' }, { status: 409 })
 
-  // 3. Write payments
-  for (const p of payments) {
-    const { error: payErr } = await supabase.from('pos_payments').insert({ order_id: orderId, method: p.method, amount: p.amount, captured_by: user.id })
-    if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
-  }
+  // 3. Write payments (batch insert — atomic for all payment rows)
+  const { error: payErr } = await supabase.from('pos_payments').insert(
+    payments.map((p: { method: string; amount: number }) => ({ order_id: orderId, method: p.method, amount: p.amount, captured_by: user.id }))
+  )
+  if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
 
   // 4. Write cocktail_sales rows
   const salesRows = items.map(i => ({
@@ -72,7 +72,8 @@ export async function POST(req: NextRequest) {
     category: i.category ?? 'other',
     logged_by: user.id,
   }))
-  await supabase.from('cocktail_sales').insert(salesRows)
+  const { error: salesErr } = await supabase.from('cocktail_sales').insert(salesRows)
+  if (salesErr) console.error('cocktail_sales insert failed:', salesErr.message)
 
   // 5. Load bar_premixes + bar_spirits for deduction
   const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name, sold_serves')
@@ -138,6 +139,11 @@ export async function POST(req: NextRequest) {
     else if (p.method === 'qr_payment') qrCol += p.amount
   }
 
+  // 10. Clear table current_order_id (always runs — must not be gated on later steps)
+  if (order.table_id) {
+    await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
+  }
+
   // Atomic increment via RPC to avoid read-modify-write race
   const { error: dsErr } = await supabase.rpc('increment_daily_sales', {
     p_date: orderDate,
@@ -151,12 +157,7 @@ export async function POST(req: NextRequest) {
     p_credit_card_collected: cardCol,
     p_qr_collected: qrCol,
   })
-  if (dsErr) return NextResponse.json({ error: `Daily sales update failed: ${dsErr.message}` }, { status: 500 })
-
-  // 10. Clear table current_order_id
-  if (order.table_id) {
-    await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
-  }
+  if (dsErr) console.error('increment_daily_sales failed:', dsErr.message)
 
   // 11. Audit log
   await supabase.from('pos_audit_log').insert({

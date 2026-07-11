@@ -15,7 +15,13 @@ export async function POST(req: NextRequest) {
 
   if (action === 'update') {
     if (!date || !updates) return NextResponse.json({ error: 'date and updates required' }, { status: 400 })
-    const { error } = await supabase.from('daily_sales').update(updates).eq('date', date)
+    const ALLOWED_FIELDS = ['cocktails_revenue','beer_revenue','wine_revenue','food_revenue','others_revenue','cash_collected','credit_card_collected','qr_collected','online_collected','transaction_count','notes','attachment_url','is_balanced','discount_amount','discount_notes']
+    const safeUpdates: Record<string, unknown> = {}
+    for (const key of ALLOWED_FIELDS) {
+      if (key in updates) safeUpdates[key] = updates[key]
+    }
+    if (Object.keys(safeUpdates).length === 0) return NextResponse.json({ error: 'No valid fields to update' }, { status: 400 })
+    const { error } = await supabase.from('daily_sales').update(safeUpdates).eq('date', date)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })
   }

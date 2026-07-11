@@ -147,7 +147,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   function handleDeleteOrder(order: Order) {
     confirm({
       title: 'Delete Order',
-      message: `Delete the order for ${order.table_name ?? 'Walk-in'} (${fmtRM(order.total)}) opened at ${fmtDatetime(order.opened_at)}? This also removes all payments and audit entries for this order.`,
+      message: `Delete the order for ${order.table_name ?? 'Walk-in'} (${fmtRM(order.total)}) opened at ${fmtDatetime(order.opened_at)}? This removes all items and payments. Audit log entries are preserved.`,
       confirmLabel: 'Delete Order',
       onConfirm: () => doDeleteOrder(order),
     })
@@ -158,7 +158,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     if (!ids.length) return
     confirm({
       title: `Delete ${ids.length} Order${ids.length > 1 ? 's' : ''}`,
-      message: `This will permanently delete ${ids.length} order${ids.length > 1 ? 's' : ''} and all related payments and audit entries.`,
+      message: `This will permanently delete ${ids.length} order${ids.length > 1 ? 's' : ''} and all related payments. Audit log entries are preserved.`,
       confirmLabel: `Delete ${ids.length} Order${ids.length > 1 ? 's' : ''}`,
       onConfirm: async () => {
         setConfirmModal(CONFIRM_CLOSED)
