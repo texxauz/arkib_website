@@ -1,0 +1,414 @@
+'use client'
+
+import { useState, useMemo } from 'react'
+import { TopBar } from '@/components/layout/TopBar'
+import {
+  Users, Receipt, TrendingUp, ChevronDown, ChevronUp,
+  Search, Calendar, CreditCard, Banknote, QrCode, Clock
+} from 'lucide-react'
+
+type Order = {
+  id: string
+  table_name: string | null
+  section: string | null
+  covers: number
+  opened_at: string
+  closed_at: string | null
+  subtotal: number
+  discount_amount: number
+  discount_label: string | null
+  service_charge: number
+  tax_amount: number
+  total: number
+  server_name: string | null
+  status: string
+}
+
+type Item = {
+  order_id: string
+  item_name: string
+  category: string | null
+  quantity: number
+  unit_price: number
+  discount: number | null
+  voided_at: string | null
+}
+
+type Payment = {
+  order_id: string
+  method: string
+  amount: number
+}
+
+interface Props {
+  orders: Order[]
+  items: Item[]
+  payments: Payment[]
+  isAdmin: boolean
+}
+
+const CATEGORY_LABELS: Record<string, string> = {
+  house_cocktail: 'House Cocktail',
+  classic: 'Classic',
+  beer: 'Beer',
+  wine: 'Wine',
+  whisky: 'Whisky',
+  food: 'Food',
+  mocktail: 'Mocktail',
+  others: 'Others',
+}
+
+const METHOD_ICONS: Record<string, React.ReactNode> = {
+  cash: <Banknote size={12} />,
+  credit_card: <CreditCard size={12} />,
+  debit_card: <CreditCard size={12} />,
+  qr_payment: <QrCode size={12} />,
+}
+
+const METHOD_LABELS: Record<string, string> = {
+  cash: 'Cash',
+  credit_card: 'Card',
+  debit_card: 'Card',
+  qr_payment: 'QR',
+  online: 'Online',
+}
+
+function fmt(n: number) {
+  return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+}
+
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
+}
+
+function formatDate(iso: string) {
+  return new Date(iso).toLocaleDateString('en-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+}
+
+function getDuration(opened: string, closed: string) {
+  const ms = new Date(closed).getTime() - new Date(opened).getTime()
+  const mins = Math.floor(ms / 60000)
+  if (mins < 60) return `${mins}m`
+  return `${Math.floor(mins / 60)}h ${mins % 60}m`
+}
+
+// Group orders by business date (Malaysia UTC+8)
+function getBusinessDateStr(iso: string) {
+  const myt = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000)
+  if (myt.getUTCHours() < 6) myt.setUTCDate(myt.getUTCDate() - 1)
+  return myt.toISOString().slice(0, 10)
+}
+
+export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) {
+  const [search, setSearch] = useState('')
+  const [expandedId, setExpandedId] = useState<string | null>(null)
+  const [dateFilter, setDateFilter] = useState<string>('') // YYYY-MM-DD
+
+  // Build lookup maps
+  const itemsByOrder = useMemo(() => {
+    const m = new Map<string, Item[]>()
+    for (const item of items) {
+      if (!m.has(item.order_id)) m.set(item.order_id, [])
+      m.get(item.order_id)!.push(item)
+    }
+    return m
+  }, [items])
+
+  const paymentsByOrder = useMemo(() => {
+    const m = new Map<string, Payment[]>()
+    for (const p of payments) {
+      if (!m.has(p.order_id)) m.set(p.order_id, [])
+      m.get(p.order_id)!.push(p)
+    }
+    return m
+  }, [payments])
+
+  // Available dates for the date filter dropdown
+  const availableDates = useMemo(() => {
+    const dates = [...new Set(orders.map(o => getBusinessDateStr(o.closed_at ?? o.opened_at)))]
+    return dates.sort((a, b) => b.localeCompare(a))
+  }, [orders])
+
+  const filtered = useMemo(() => {
+    return orders.filter(o => {
+      const q = search.toLowerCase()
+      const matchesSearch = !q ||
+        (o.table_name ?? '').toLowerCase().includes(q) ||
+        (o.server_name ?? '').toLowerCase().includes(q) ||
+        (o.section ?? '').toLowerCase().includes(q)
+      const matchesDate = !dateFilter || getBusinessDateStr(o.closed_at ?? o.opened_at) === dateFilter
+      return matchesSearch && matchesDate
+    })
+  }, [orders, search, dateFilter])
+
+  // Summary stats for filtered set
+  const stats = useMemo(() => {
+    const totalRevenue = filtered.reduce((s, o) => s + (o.total ?? 0), 0)
+    const totalCovers = filtered.reduce((s, o) => s + (o.covers ?? 0), 0)
+    const avgBill = filtered.length > 0 ? totalRevenue / filtered.length : 0
+    const avgPerCover = totalCovers > 0 ? totalRevenue / totalCovers : 0
+    return { totalRevenue, totalCovers, avgBill, avgPerCover, count: filtered.length }
+  }, [filtered])
+
+  // Group filtered orders by date
+  const grouped = useMemo(() => {
+    const map = new Map<string, Order[]>()
+    for (const o of filtered) {
+      const d = getBusinessDateStr(o.closed_at ?? o.opened_at)
+      if (!map.has(d)) map.set(d, [])
+      map.get(d)!.push(o)
+    }
+    return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]))
+  }, [filtered])
+
+  return (
+    <div className="min-h-screen bg-[#0D0D10] text-[#F0EEF6] p-4 sm:p-6">
+      <TopBar title="Sales History" subtitle="Closed bills by table" />
+
+      {/* Summary cards */}
+      <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+        <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+          <div className="flex items-center gap-2 text-[#9896A4] text-xs mb-2">
+            <Receipt size={13} /> Tables Served
+          </div>
+          <p className="text-[#F0EEF6] text-2xl font-bold">{stats.count}</p>
+        </div>
+        <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+          <div className="flex items-center gap-2 text-[#9896A4] text-xs mb-2">
+            <Users size={13} /> Total Covers
+          </div>
+          <p className="text-[#F0EEF6] text-2xl font-bold">{stats.totalCovers}</p>
+        </div>
+        <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+          <div className="flex items-center gap-2 text-[#9896A4] text-xs mb-2">
+            <TrendingUp size={13} /> Total Revenue
+          </div>
+          <p className="text-[#F0EEF6] text-lg font-bold">{fmt(stats.totalRevenue)}</p>
+        </div>
+        <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+          <div className="flex items-center gap-2 text-[#9896A4] text-xs mb-2">
+            <TrendingUp size={13} /> Avg Bill
+          </div>
+          <p className="text-[#F0EEF6] text-lg font-bold">{fmt(stats.avgBill)}</p>
+          <p className="text-[#5A5865] text-xs mt-0.5">{fmt(stats.avgPerCover)} / cover</p>
+        </div>
+      </div>
+
+      {/* Filters */}
+      <div className="flex flex-col sm:flex-row gap-2 mb-5">
+        <div className="relative flex-1">
+          <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+          <input
+            type="text"
+            placeholder="Search table, server, section…"
+            value={search}
+            onChange={e => setSearch(e.target.value)}
+            className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg pl-9 pr-4 py-2 text-sm text-[#F0EEF6] placeholder-[#5A5865] focus:outline-none focus:border-[#6C63FF]/60"
+          />
+        </div>
+        <div className="relative">
+          <Calendar size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+          <select
+            value={dateFilter}
+            onChange={e => setDateFilter(e.target.value)}
+            className="bg-[#141417] border border-[#2A2A30] rounded-lg pl-9 pr-8 py-2 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#6C63FF]/60 appearance-none"
+          >
+            <option value="">All dates</option>
+            {availableDates.map(d => (
+              <option key={d} value={d}>
+                {new Date(d + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })}
+              </option>
+            ))}
+          </select>
+        </div>
+      </div>
+
+      {/* Grouped order list */}
+      {grouped.length === 0 ? (
+        <div className="flex flex-col items-center justify-center py-20 text-[#5A5865]">
+          <Receipt size={32} className="mb-3 opacity-40" />
+          <p className="text-sm">No closed bills found.</p>
+        </div>
+      ) : (
+        <div className="space-y-6">
+          {grouped.map(([date, dayOrders]) => {
+            const dayRevenue = dayOrders.reduce((s, o) => s + (o.total ?? 0), 0)
+            const dayCovers = dayOrders.reduce((s, o) => s + (o.covers ?? 0), 0)
+            return (
+              <div key={date}>
+                {/* Date header */}
+                <div className="flex items-center justify-between mb-2">
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#F0EEF6] font-semibold text-sm">
+                      {new Date(date + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
+                    </span>
+                    <span className="text-[#5A5865] text-xs">{dayOrders.length} tables · {dayCovers} covers</span>
+                  </div>
+                  <span className="text-[#9896A4] text-sm font-medium">{fmt(dayRevenue)}</span>
+                </div>
+
+                <div className="rounded-xl border border-[#2A2A30] bg-[#141417] overflow-hidden divide-y divide-[#1E1E24]">
+                  {dayOrders.map(order => {
+                    const orderItems = (itemsByOrder.get(order.id) ?? []).filter(i => !i.voided_at)
+                    const orderPayments = paymentsByOrder.get(order.id) ?? []
+                    const isExpanded = expandedId === order.id
+
+                    // Group items by category
+                    const categoryGroups = orderItems.reduce((acc, item) => {
+                      const cat = item.category ?? 'others'
+                      if (!acc[cat]) acc[cat] = []
+                      acc[cat].push(item)
+                      return acc
+                    }, {} as Record<string, Item[]>)
+
+                    return (
+                      <div key={order.id}>
+                        {/* Order row */}
+                        <button
+                          onClick={() => setExpandedId(isExpanded ? null : order.id)}
+                          className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#1A1A20] transition-colors text-left"
+                        >
+                          {/* Table badge */}
+                          <div className="shrink-0 w-10 h-10 rounded-lg bg-[#6C63FF]/15 border border-[#6C63FF]/20 flex flex-col items-center justify-center">
+                            <span className="text-[#6C63FF] text-[10px] font-bold leading-none">
+                              {(order.table_name ?? 'W').slice(0, 2).toUpperCase()}
+                            </span>
+                          </div>
+
+                          {/* Info */}
+                          <div className="flex-1 min-w-0">
+                            <div className="flex items-center gap-2">
+                              <span className="text-[#F0EEF6] font-medium text-sm truncate">
+                                {order.table_name ?? 'Walk-in'}
+                              </span>
+                              {order.section && (
+                                <span className="text-[#5A5865] text-xs shrink-0">{order.section}</span>
+                              )}
+                            </div>
+                            <div className="flex items-center gap-3 mt-0.5 text-[#9896A4] text-xs">
+                              <span className="flex items-center gap-1">
+                                <Users size={10} /> {order.covers}
+                              </span>
+                              <span className="flex items-center gap-1">
+                                <Clock size={10} />
+                                {formatTime(order.opened_at)}
+                                {order.closed_at && ` · ${getDuration(order.opened_at, order.closed_at)}`}
+                              </span>
+                              {order.server_name && (
+                                <span className="truncate">{order.server_name}</span>
+                              )}
+                            </div>
+                          </div>
+
+                          {/* Payment methods */}
+                          <div className="shrink-0 flex items-center gap-1.5 mr-2">
+                            {orderPayments.map((p, i) => (
+                              <span key={i} className="flex items-center gap-1 text-[#9896A4] text-xs bg-[#0E0E11] border border-[#2A2A30] rounded px-1.5 py-0.5">
+                                {METHOD_ICONS[p.method] ?? <CreditCard size={12} />}
+                                {fmt(p.amount)}
+                              </span>
+                            ))}
+                          </div>
+
+                          {/* Total */}
+                          <div className="shrink-0 text-right mr-2">
+                            <p className="text-[#F0EEF6] font-semibold text-sm">{fmt(order.total ?? 0)}</p>
+                            {(order.discount_amount ?? 0) > 0 && (
+                              <p className="text-amber-400 text-xs">-{fmt(order.discount_amount)}</p>
+                            )}
+                          </div>
+
+                          {isExpanded
+                            ? <ChevronUp size={14} className="text-[#5A5865] shrink-0" />
+                            : <ChevronDown size={14} className="text-[#5A5865] shrink-0" />
+                          }
+                        </button>
+
+                        {/* Expanded detail */}
+                        {isExpanded && (
+                          <div className="border-t border-[#1E1E24] bg-[#0E0E11] px-4 py-4">
+                            {orderItems.length === 0 ? (
+                              <p className="text-[#5A5865] text-xs">No items recorded.</p>
+                            ) : (
+                              <div className="space-y-3">
+                                {Object.entries(categoryGroups).map(([cat, catItems]) => (
+                                  <div key={cat}>
+                                    <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-wider mb-1.5">
+                                      {CATEGORY_LABELS[cat] ?? cat}
+                                    </p>
+                                    <div className="space-y-1">
+                                      {catItems.map((item, i) => {
+                                        const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
+                                        return (
+                                          <div key={i} className="flex items-center justify-between text-sm">
+                                            <span className="text-[#F0EEF6] flex-1 truncate">{item.item_name}</span>
+                                            <span className="text-[#9896A4] mx-3 shrink-0 text-xs">×{item.quantity}</span>
+                                            <span className="text-[#F0EEF6] shrink-0 font-medium">{fmt(lineTotal)}</span>
+                                          </div>
+                                        )
+                                      })}
+                                    </div>
+                                  </div>
+                                ))}
+                              </div>
+                            )}
+
+                            {/* Bill summary */}
+                            <div className="mt-4 pt-3 border-t border-[#2A2A30] space-y-1 text-xs">
+                              <div className="flex justify-between text-[#9896A4]">
+                                <span>Subtotal</span>
+                                <span>{fmt(order.subtotal ?? 0)}</span>
+                              </div>
+                              {(order.discount_amount ?? 0) > 0 && (
+                                <div className="flex justify-between text-amber-400">
+                                  <span>Discount{order.discount_label ? ` (${order.discount_label})` : ''}</span>
+                                  <span>-{fmt(order.discount_amount)}</span>
+                                </div>
+                              )}
+                              {(order.service_charge ?? 0) > 0 && (
+                                <div className="flex justify-between text-[#9896A4]">
+                                  <span>Service Charge</span>
+                                  <span>{fmt(order.service_charge)}</span>
+                                </div>
+                              )}
+                              {(order.tax_amount ?? 0) > 0 && (
+                                <div className="flex justify-between text-[#9896A4]">
+                                  <span>Tax</span>
+                                  <span>{fmt(order.tax_amount)}</span>
+                                </div>
+                              )}
+                              <div className="flex justify-between text-[#F0EEF6] font-semibold pt-1 border-t border-[#2A2A30]">
+                                <span>Total</span>
+                                <span>{fmt(order.total ?? 0)}</span>
+                              </div>
+                            </div>
+
+                            {/* Payments */}
+                            {orderPayments.length > 0 && (
+                              <div className="mt-3 pt-3 border-t border-[#2A2A30]">
+                                <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-wider mb-1.5">Payments</p>
+                                <div className="flex flex-wrap gap-2">
+                                  {orderPayments.map((p, i) => (
+                                    <span key={i} className="flex items-center gap-1.5 text-xs bg-[#141417] border border-[#2A2A30] rounded-lg px-2.5 py-1.5 text-[#F0EEF6]">
+                                      {METHOD_ICONS[p.method] ?? <CreditCard size={12} />}
+                                      <span className="text-[#9896A4]">{METHOD_LABELS[p.method] ?? p.method}</span>
+                                      <span className="font-medium">{fmt(p.amount)}</span>
+                                    </span>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    )
+                  })}
+                </div>
+              </div>
+            )
+          })}
+        </div>
+      )}
+    </div>
+  )
+}

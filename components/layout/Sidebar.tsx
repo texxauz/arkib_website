@@ -7,7 +7,7 @@ import {
   GlassWater, Building, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -35,6 +35,7 @@ const POS_ITEMS = [
   { href: '/pos',              label: 'Floor Plan',       icon: MonitorSmartphone, key: 'pos' },
   { href: '/pos/kds',          label: 'Bar Display',      icon: ChefHat,           key: 'pos-kds' },
   { href: '/pos/shifts',       label: 'Shifts',           icon: Timer,             key: 'pos-shifts' },
+  { href: '/pos/history',      label: 'Sales History',    icon: History,           key: 'pos-history' },
   { href: '/pos/reservations', label: 'Reservations',     icon: CalendarDays,      key: 'pos-reservations' },
   { href: '/pos/production',   label: 'Production Queue', icon: Zap,               key: 'pos-production' },
   { href: '/pos/reports',      label: 'POS Reports',      icon: BarChart3,         key: 'pos-reports' },
