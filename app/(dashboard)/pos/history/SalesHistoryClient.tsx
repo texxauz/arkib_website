@@ -92,7 +92,7 @@ function getDuration(opened: string, closed: string) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-// Group orders by business date (Malaysia UTC+8)
+// Group orders by business date using opened_at (same logic as close-order RPC)
 function getBusinessDateStr(iso: string) {
   const myt = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000)
   if (myt.getUTCHours() < 6) myt.setUTCDate(myt.getUTCDate() - 1)
@@ -125,7 +125,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
 
   // Available dates for the date filter dropdown
   const availableDates = useMemo(() => {
-    const dates = [...new Set(orders.map(o => getBusinessDateStr(o.closed_at ?? o.opened_at)))]
+    const dates = [...new Set(orders.map(o => getBusinessDateStr(o.opened_at)))]
     return dates.sort((a, b) => b.localeCompare(a))
   }, [orders])
 
@@ -136,7 +136,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
         (o.table_name ?? '').toLowerCase().includes(q) ||
         (o.server_name ?? '').toLowerCase().includes(q) ||
         (o.section ?? '').toLowerCase().includes(q)
-      const matchesDate = !dateFilter || getBusinessDateStr(o.closed_at ?? o.opened_at) === dateFilter
+      const matchesDate = !dateFilter || getBusinessDateStr(o.opened_at) === dateFilter
       return matchesSearch && matchesDate
     })
   }, [orders, search, dateFilter])
@@ -154,7 +154,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
   const grouped = useMemo(() => {
     const map = new Map<string, Order[]>()
     for (const o of filtered) {
-      const d = getBusinessDateStr(o.closed_at ?? o.opened_at)
+      const d = getBusinessDateStr(o.opened_at)
       if (!map.has(d)) map.set(d, [])
       map.get(d)!.push(o)
     }
