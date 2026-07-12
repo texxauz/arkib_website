@@ -5,7 +5,7 @@ import { StatCard } from '@/components/ui/StatCard'
 import { formatCurrency, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
 import {
   TrendingUp, DollarSign, ArrowDownCircle, BarChart2,
-  AlertTriangle, CheckCircle2, ShoppingCart, ChevronLeft, ChevronRight
+  AlertTriangle, CheckCircle2, ShoppingCart, ChevronLeft, ChevronRight, CalendarDays
 } from 'lucide-react'
 import {
   AreaChart, Area, BarChart, Bar, XAxis, YAxis, Tooltip,
@@ -27,7 +27,7 @@ interface Props {
   lowStock: { name: string; current_stock: number; min_stock_level: number }[]
 }
 
-type PeriodMode = 'week' | 'month'
+type PeriodMode = 'week' | 'month' | 'custom'
 
 const CHART_COLORS = ['#8B5CF6', '#F59E0B', '#10B981', '#3B82F6', '#EF4444', '#EC4899']
 
@@ -89,20 +89,34 @@ export function DashboardClient({ todaySales, allSales, allExpenses, allCOGS, lo
   })
   // For week mode: anchor is Monday of displayed week
   const [weekAnchor, setWeekAnchor] = useState(() => weekStart(new Date()))
+  // For custom mode: from/to date strings
+  const [customFrom, setCustomFrom] = useState(() => formatDateStr(new Date()))
+  const [customTo, setCustomTo] = useState(() => formatDateStr(new Date()))
 
   const { fromStr, toStr, periodLabel } = useMemo(() => {
     if (mode === 'week') {
       const mon = weekAnchor
       const sun = new Date(mon); sun.setDate(mon.getDate() + 6)
       return { fromStr: formatDateStr(mon), toStr: formatDateStr(sun), periodLabel: weekLabel(mon) }
+    } else if (mode === 'custom') {
+      const from = customFrom
+      const to = customTo >= customFrom ? customTo : customFrom
+      const isSingleDay = from === to
+      const fmtDate = (d: string) => new Date(d + 'T00:00:00').toLocaleDateString('en-MY', { day: '2-digit', month: 'short', year: 'numeric' })
+      return {
+        fromStr: from,
+        toStr: to,
+        periodLabel: isSingleDay ? fmtDate(from) : `${fmtDate(from)} – ${fmtDate(to)}`,
+      }
     } else {
       const from = monthAnchor
       const to = new Date(from.getFullYear(), from.getMonth() + 1, 0)
       return { fromStr: formatDateStr(from), toStr: formatDateStr(to), periodLabel: monthLabelFull(from) }
     }
-  }, [mode, monthAnchor, weekAnchor])
+  }, [mode, monthAnchor, weekAnchor, customFrom, customTo])
 
   const isCurrentPeriod = useMemo(() => {
+    if (mode === 'custom') return false
     const today = new Date(); today.setHours(0,0,0,0)
     if (mode === 'week') return formatDateStr(weekAnchor) === formatDateStr(weekStart(today))
     return monthAnchor.getFullYear() === today.getFullYear() && monthAnchor.getMonth() === today.getMonth()
@@ -110,15 +124,15 @@ export function DashboardClient({ todaySales, allSales, allExpenses, allCOGS, lo
 
   const prev = () => {
     if (mode === 'week') setWeekAnchor(d => addWeeks(d, -1))
-    else setMonthAnchor(d => addMonths(d, -1))
+    else if (mode === 'month') setMonthAnchor(d => addMonths(d, -1))
   }
   const next = () => {
     if (mode === 'week') setWeekAnchor(d => addWeeks(d, 1))
-    else setMonthAnchor(d => addMonths(d, 1))
+    else if (mode === 'month') setMonthAnchor(d => addMonths(d, 1))
   }
   const goNow = () => {
     if (mode === 'week') setWeekAnchor(weekStart(new Date()))
-    else setMonthAnchor(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
+    else if (mode === 'month') setMonthAnchor(new Date(new Date().getFullYear(), new Date().getMonth(), 1))
   }
 
   // Filtered data for selected period
@@ -195,19 +209,47 @@ export function DashboardClient({ todaySales, allSales, allExpenses, allCOGS, lo
       {/* Period picker */}
       <div className="flex flex-wrap items-center gap-3">
         <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1">
-          {(['week', 'month'] as const).map(m => (
+          {(['week', 'month', 'custom'] as const).map(m => (
             <button key={m} onClick={() => setMode(m)}
               className={`px-4 py-1.5 rounded-lg text-sm font-medium transition-all capitalize ${mode === m ? 'bg-[#8B5CF6]/20 text-[#A78BFA] border border-[#8B5CF6]/30' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
-              {m === 'week' ? 'Weekly' : 'Monthly'}
+              {m === 'week' ? 'Weekly' : m === 'month' ? 'Monthly' : 'Custom'}
             </button>
           ))}
         </div>
-        <div className="flex items-center gap-1">
-          <button onClick={prev} className="btn-ghost p-2"><ChevronLeft size={16} /></button>
-          <span className="text-[#F0EEF6] text-sm font-medium min-w-[180px] text-center">{periodLabel}</span>
-          <button onClick={next} disabled={isCurrentPeriod} className="btn-ghost p-2 disabled:opacity-30"><ChevronRight size={16} /></button>
-        </div>
-        {!isCurrentPeriod && (
+
+        {mode === 'custom' ? (
+          <div className="flex items-center gap-2">
+            <CalendarDays size={14} className="text-[#5A5865]" />
+            <input
+              type="date"
+              value={customFrom}
+              onChange={e => setCustomFrom(e.target.value)}
+              className="bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#8B5CF6]/60"
+            />
+            <span className="text-[#5A5865] text-sm">to</span>
+            <input
+              type="date"
+              value={customTo}
+              min={customFrom}
+              onChange={e => setCustomTo(e.target.value)}
+              className="bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#8B5CF6]/60"
+            />
+            <button
+              onClick={() => { setCustomFrom(formatDateStr(new Date())); setCustomTo(formatDateStr(new Date())) }}
+              className="btn-secondary text-xs"
+            >
+              Today
+            </button>
+          </div>
+        ) : (
+          <div className="flex items-center gap-1">
+            <button onClick={prev} className="btn-ghost p-2"><ChevronLeft size={16} /></button>
+            <span className="text-[#F0EEF6] text-sm font-medium min-w-[180px] text-center">{periodLabel}</span>
+            <button onClick={next} disabled={isCurrentPeriod} className="btn-ghost p-2 disabled:opacity-30"><ChevronRight size={16} /></button>
+          </div>
+        )}
+
+        {!isCurrentPeriod && mode !== 'custom' && (
           <button onClick={goNow} className="btn-secondary text-xs">Today</button>
         )}
       </div>
