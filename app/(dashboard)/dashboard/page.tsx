@@ -5,10 +5,11 @@ import { DashboardClient } from './DashboardClient'
 
 export default async function DashboardPage() {
   const supabase = await createClient()
-  const today = new Date().toISOString().split('T')[0]
+  // Use Malaysia time (UTC+8) for today's date
+  const today = new Date(Date.now() + 8 * 60 * 60 * 1000).toISOString().split('T')[0]
 
   // Fetch last 6 months of raw data so the client can filter by any period
-  const sixMonthsAgo = new Date()
+  const sixMonthsAgo = new Date(Date.now() + 8 * 60 * 60 * 1000)
   sixMonthsAgo.setMonth(sixMonthsAgo.getMonth() - 6)
   const sixMonthsAgoStr = sixMonthsAgo.toISOString().split('T')[0]
 
@@ -19,8 +20,8 @@ export default async function DashboardPage() {
     { data: allCOGSRaw },
     { data: allSpirits },
   ] = await Promise.all([
-    supabase.from('daily_sales').select('date, total_revenue, total_collected, cash_sales, card_sales, qr_sales, total_cogs, is_balanced').eq('date', today).single(),
-    supabase.from('daily_sales').select('date, total_revenue, total_collected, cash_sales, card_sales, qr_sales, total_cogs').gte('date', sixMonthsAgoStr).order('date', { ascending: true }),
+    supabase.from('daily_sales').select('date, total_revenue, total_collected, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, cash_collected, credit_card_collected, qr_collected, transaction_count, is_balanced').eq('date', today).single(),
+    supabase.from('daily_sales').select('date, total_revenue, total_collected, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, transaction_count, discount_amount').gte('date', sixMonthsAgoStr).order('date', { ascending: true }),
     supabase.from('expenses').select('date, expense_period, category, amount').gte('date', sixMonthsAgoStr).is('deleted_at', null),
     supabase.from('cocktail_sales').select('date, total_cogs, total_revenue').gte('date', sixMonthsAgoStr),
     supabase.from('bar_spirits').select('name, full_bottles, min_bottles').not('min_bottles', 'is', null),
