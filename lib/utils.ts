@@ -36,11 +36,11 @@ export function formatMonth(month: number, year: number): string {
 }
 
 export function getCurrentMonth(): number {
-  return new Date().getMonth() + 1
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCMonth() + 1
 }
 
 export function getCurrentYear(): number {
-  return new Date().getFullYear()
+  return new Date(Date.now() + 8 * 60 * 60 * 1000).getUTCFullYear()
 }
 
 export function getMonthName(month: number): string {
