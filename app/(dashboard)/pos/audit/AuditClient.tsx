@@ -23,9 +23,11 @@ const EVENT_TYPES = [
   'all',
   'order.created',
   'order.closed',
-  'order.voided',
+  'order.cancelled',
+  'order.admin_deleted',
   'item.voided',
   'discount.applied',
+  'table.force_released',
   'shift.opened',
   'shift.closed',
 ] as const
@@ -53,22 +55,26 @@ function getPayloadSummary(event: string, payload: Record<string, unknown> | nul
   if (event === 'order.closed') {
     const parts: string[] = []
     if (payload.total != null) parts.push(`Total: RM ${Number(payload.total).toFixed(2)}`)
-    if (payload.items != null) parts.push(`Items: ${payload.items}`)
+    if (payload.items_count != null) parts.push(`Items: ${payload.items_count}`)
     return parts.join(', ') || '—'
   }
 
   if (event === 'item.voided') {
-    return payload.void_reason ? String(payload.void_reason) : '—'
+    return payload.reason ? String(payload.reason) : (payload.void_reason ? String(payload.void_reason) : '—')
   }
 
-  if (event === 'order.voided') {
-    return payload.void_reason ? String(payload.void_reason) : '—'
+  if (event === 'order.cancelled' || event === 'order.admin_deleted') {
+    const parts: string[] = []
+    if (payload.table_name) parts.push(`Table: ${payload.table_name}`)
+    if (payload.total != null) parts.push(`RM ${Number(payload.total).toFixed(2)}`)
+    return parts.join(', ') || '—'
   }
 
   if (event === 'discount.applied') {
     const parts: string[] = []
     if (payload.discount_type != null) parts.push(String(payload.discount_type))
-    if (payload.amount != null) parts.push(`RM ${Number(payload.amount).toFixed(2)}`)
+    const amt = payload.discount_amount ?? payload.amount
+    if (amt != null) parts.push(`RM ${Number(amt).toFixed(2)}`)
     return parts.join(' — ') || '—'
   }
 
@@ -86,7 +92,8 @@ function getPayloadSummary(event: string, payload: Record<string, unknown> | nul
   }
 
   if (event === 'order.created') {
-    if (payload.table_name != null) return `Table: ${payload.table_name}`
+    const name = payload.table_name ?? payload.tableName
+    if (name != null) return `Table: ${name}`
     return '—'
   }
 

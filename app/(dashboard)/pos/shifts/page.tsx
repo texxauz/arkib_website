@@ -22,13 +22,30 @@ export default async function ShiftsPage() {
     .limit(1)
     .maybeSingle()
 
-  // Get shift history (last 10 closed)
-  const { data: shiftHistory } = await supabase
+  // Get shift history (last 10 closed) — opened_by/closed_by reference auth.users which PostgREST
+  // cannot expose via FK embed; resolve names from public.users after fetching scalar IDs.
+  const { data: shiftHistoryRaw } = await supabase
     .from('pos_shifts')
-    .select('*, users_opened:opened_by(full_name), users_closed:closed_by(full_name)')
+    .select('*')
     .eq('status', 'closed')
     .order('closed_at', { ascending: false })
     .limit(10)
+
+  // Collect unique user IDs and resolve names from public.users
+  const userIds = [...new Set([
+    ...(shiftHistoryRaw ?? []).map(s => s.opened_by).filter(Boolean),
+    ...(shiftHistoryRaw ?? []).map(s => s.closed_by).filter(Boolean),
+  ])]
+  const { data: userNames } = userIds.length
+    ? await supabase.from('users').select('id, full_name').in('id', userIds)
+    : { data: [] }
+  const nameMap = Object.fromEntries((userNames ?? []).map(u => [u.id, u.full_name]))
+
+  const shiftHistory = (shiftHistoryRaw ?? []).map(s => ({
+    ...s,
+    users_opened: s.opened_by ? { full_name: nameMap[s.opened_by] ?? 'Unknown' } : null,
+    users_closed: s.closed_by ? { full_name: nameMap[s.closed_by] ?? 'Unknown' } : null,
+  }))
 
   // If there's an open shift, get its orders summary
   let shiftOrders: { count: number; revenue: number; payment_breakdown: Record<string,number> } | null = null

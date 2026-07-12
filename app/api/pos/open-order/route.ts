@@ -24,6 +24,14 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase.from('users').select('full_name').eq('id', user.id).single()
 
+  const { data: openShift } = await supabase
+    .from('pos_shifts')
+    .select('id')
+    .eq('status', 'open')
+    .order('opened_at', { ascending: false })
+    .limit(1)
+    .maybeSingle()
+
   const { data: order, error } = await supabase
     .from('pos_orders')
     .insert({
@@ -34,6 +42,7 @@ export async function POST(req: NextRequest) {
       server_name: profile?.full_name ?? 'Staff',
       covers,
       status: 'open',
+      shift_id: openShift?.id ?? null,
     })
     .select()
     .single()
@@ -49,7 +58,7 @@ export async function POST(req: NextRequest) {
     event: 'order.created',
     entity_type: 'pos_orders',
     entity_id: order.id,
-    payload: { tableId, tableName, covers },
+    payload: { table_name: resolvedTableName, covers },
   })
 
   return NextResponse.json({ orderId: order.id })

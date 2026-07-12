@@ -157,7 +157,7 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
 
         {/* Column header */}
         <div style={{ ...s, fontWeight: 'bold' }}>
-          {pad('ITEM', 20)}{pad('QTY', 4)}{pad('U.P(RM)', 8, true)}{pad('DISC%', 6, true)}{pad('AMT(RM)', 8, true)}
+          {pad('ITEM', 20)}{pad('QTY', 4)}{pad('U.P(RM)', 8, true)}{pad('DISC(RM)', 8, true)}{pad('AMT(RM)', 8, true)}
         </div>
 
         <div style={{ ...s, borderTop: '1px dashed #000', margin: '2px 0' }} />
@@ -167,7 +167,7 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
           <div key={cat} style={s}>
             <div style={{ fontWeight: 'bold', marginTop: '2px' }}>{cat}</div>
             {catItems.map(item => {
-              const amt = item.quantity * item.unit_price * (1 - item.discount / 100)
+              const amt = item.quantity * item.unit_price - (item.discount ?? 0)
               return (
                 <div key={item.id}>
                   {pad(item.item_name, 20)}{pad(String(item.quantity), 4)}{pad(fmt(item.unit_price), 8, true)}{pad(fmt(item.discount), 6, true)}{pad(fmt(amt), 8, true)}

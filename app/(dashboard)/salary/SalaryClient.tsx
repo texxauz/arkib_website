@@ -50,7 +50,7 @@ export function SalaryClient({ employees, attendance: initialAttendance, salaryR
       if (emp.salary_type === 'hourly') {
         const rate = emp.hourly_rate ?? 0
         baseSalary = normalHours * rate
-        phBonus = phHours * rate * 0.5
+        phBonus = phHours * rate * 1.5
       } else {
         baseSalary = emp.fixed_monthly_salary ?? 0
       }

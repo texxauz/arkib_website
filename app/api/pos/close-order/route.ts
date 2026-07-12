@@ -127,16 +127,25 @@ export async function POST(req: NextRequest) {
   }
 
   // 9. Upsert daily_sales revenue buckets
-  let cocktailsRev = 0, beerRev = 0, wineRev = 0, foodRev = 0, othersRev = 0
-  let cashCol = 0, cardCol = 0, qrCol = 0
+  // First accumulate gross per category, then prorate the order-level discount.
+  let cocktailsGross = 0, beerGross = 0, wineGross = 0, foodGross = 0, othersGross = 0
   for (const item of items) {
     const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
-    if (item.category === 'house_cocktail' || item.category === 'classic') cocktailsRev += lineTotal
-    else if (item.category === 'beer') beerRev += lineTotal
-    else if (item.category === 'wine') wineRev += lineTotal
-    else if (item.category === 'food') foodRev += lineTotal
-    else othersRev += lineTotal
+    if (item.category === 'house_cocktail' || item.category === 'classic') cocktailsGross += lineTotal
+    else if (item.category === 'beer') beerGross += lineTotal
+    else if (item.category === 'wine') wineGross += lineTotal
+    else if (item.category === 'food') foodGross += lineTotal
+    else othersGross += lineTotal
   }
+  const grossSubtotal = cocktailsGross + beerGross + wineGross + foodGross + othersGross
+  const discountRatio = grossSubtotal > 0 ? discountAmount / grossSubtotal : 0
+  const cocktailsRev = cocktailsGross * (1 - discountRatio)
+  const beerRev = beerGross * (1 - discountRatio)
+  const wineRev = wineGross * (1 - discountRatio)
+  const foodRev = foodGross * (1 - discountRatio)
+  // service charge goes into others
+  let othersRev = othersGross * (1 - discountRatio) + serviceCharge
+  let cashCol = 0, cardCol = 0, qrCol = 0
   for (const p of payments) {
     if (p.method === 'cash') cashCol += p.amount
     else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount

@@ -119,8 +119,8 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
     }
   }
 
-  const paymentMethods = ['cash', 'card', 'qr']
-  const methodLabels: Record<string, string> = { cash: 'Cash', card: 'Card', qr: 'QR' }
+  const paymentMethods = ['cash', 'credit_card', 'qr_payment']
+  const methodLabels: Record<string, string> = { cash: 'Cash', credit_card: 'Card', qr_payment: 'QR' }
 
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
