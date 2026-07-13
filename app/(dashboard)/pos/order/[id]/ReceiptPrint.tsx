@@ -28,6 +28,7 @@ export type ReceiptData = {
   total: number
   payments: Payment[]
   footerNote: string
+  isPreliminary?: boolean
 }
 
 const W = 42 // chars per line on 80mm thermal
@@ -122,6 +123,13 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
 
   const add = (text: string, opts?: { bold?: boolean; centre?: boolean; size?: string }) =>
     lines.push({ text, ...opts })
+
+  // ── Preliminary banner ───────────────────────────────────────────
+  if (data.isPreliminary) {
+    add(centre('*** PRELIMINARY BILL ***'), { bold: true })
+    add(centre('Payment not yet received'))
+    add('')
+  }
 
   // ── Header ──────────────────────────────────────────────────────
   add('ARKIB BAR', { bold: true, centre: true, size: '15px' })

@@ -9,8 +9,10 @@ import { useToast } from '@/components/ui/Toast'
 import { cn } from '@/lib/utils'
 import {
   Plus, Minus, Trash2, Send, CreditCard, Search,
-  ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound, WifiOff
+  ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound, WifiOff,
+  Printer, Mail,
 } from 'lucide-react'
+import { ReceiptPrint, ReceiptData } from './ReceiptPrint'
 
 type PosOrder = {
   id: string; table_id: string | null; table_name: string | null; section: string | null
@@ -85,6 +87,10 @@ export function OrderTicketClient({
   const [cancelPin, setCancelPin] = useState('')
   const [isOnline, setIsOnline] = useState(true)
   const [isPaying, setIsPaying] = useState(false)
+  const [showBillPreview, setShowBillPreview] = useState(false)
+  const [emailModal, setEmailModal] = useState(false)
+  const [emailAddress, setEmailAddress] = useState('')
+  const [emailSending, setEmailSending] = useState(false)
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine)
@@ -337,6 +343,61 @@ export function OrderTicketClient({
 
   const pendingCount = activeItems.filter(i => i.status === 'pending').length
 
+  function buildCurrentReceiptData(isPreliminary = true): ReceiptData {
+    const liveSubtotal = activeItems.reduce((s, i) => s + i.quantity * i.unit_price - (i.discount ?? 0), 0)
+    const discount = currentOrder.discount_amount ?? 0
+    const sc = currentOrder.service_charge ?? 0
+    const tax = currentOrder.tax_amount ?? 0
+    const total = liveSubtotal - discount + sc + tax
+    return {
+      orderId: currentOrder.id,
+      tableName: currentOrder.table_name,
+      serverName: currentOrder.server_name,
+      covers: currentOrder.covers,
+      openedAt: currentOrder.opened_at,
+      closedAt: null,
+      items: activeItems.map(i => ({
+        id: i.id,
+        item_name: i.item_name,
+        category: i.category,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        discount: i.discount,
+        voided_at: i.voided_at,
+      })),
+      subtotal: liveSubtotal,
+      discountAmount: discount,
+      discountLabel: null,
+      serviceCharge: sc,
+      taxAmount: tax,
+      total,
+      payments: [],
+      footerNote: config.receipt_footer ?? 'Thank you and Come Again!',
+      isPreliminary,
+    }
+  }
+
+  const handleEmailBill = async () => {
+    if (!emailAddress.trim()) return
+    setEmailSending(true)
+    try {
+      const res = await fetch('/api/pos/email-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ email: emailAddress.trim(), receiptData: buildCurrentReceiptData(true) }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to send')
+      toast(`Bill sent to ${emailAddress.trim()}`, 'success')
+      setEmailModal(false)
+      setEmailAddress('')
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to send email', 'error')
+    } finally {
+      setEmailSending(false)
+    }
+  }
+
   const MenuPanel = (
     <div className="flex flex-col h-full bg-[#0E0E11]">
       {/* Search */}
@@ -571,6 +632,25 @@ export function OrderTicketClient({
 
       {/* Action buttons */}
       <div className="p-4 pt-0 space-y-2">
+        {/* Print Bill + Email Bill row */}
+        {currentOrder.status === 'open' && activeItems.length > 0 && (
+          <div className="flex gap-2">
+            <button
+              onClick={() => setShowBillPreview(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42] transition-colors"
+            >
+              <Printer size={12} />
+              Print Bill
+            </button>
+            <button
+              onClick={() => setEmailModal(true)}
+              className="flex-1 flex items-center justify-center gap-1.5 py-2 rounded-xl text-xs font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42] transition-colors"
+            >
+              <Mail size={12} />
+              Email Bill
+            </button>
+          </div>
+        )}
         <button
           onClick={handleSendToKDS}
           disabled={loading || pendingCount === 0}
@@ -788,6 +868,45 @@ export function OrderTicketClient({
               className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all"
             >
               Save Note
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Bill Preview (print) */}
+      {showBillPreview && (
+        <ReceiptPrint
+          data={buildCurrentReceiptData(true)}
+          onClose={() => setShowBillPreview(false)}
+        />
+      )}
+
+      {/* Email Bill Modal */}
+      <Modal isOpen={emailModal} onClose={() => { setEmailModal(false); setEmailAddress('') }} title="Email Bill to Guest" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">Enter the guest's email address to send them a copy of the current bill.</p>
+          <input
+            type="email"
+            value={emailAddress}
+            onChange={e => setEmailAddress(e.target.value)}
+            onKeyDown={e => { if (e.key === 'Enter') handleEmailBill() }}
+            placeholder="guest@example.com"
+            autoFocus
+            className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+          />
+          <div className="flex gap-2 justify-end">
+            <button
+              onClick={() => { setEmailModal(false); setEmailAddress('') }}
+              className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={handleEmailBill}
+              disabled={emailSending || !emailAddress.trim()}
+              className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] disabled:opacity-40 transition-all"
+            >
+              {emailSending ? 'Sending…' : 'Send Email'}
             </button>
           </div>
         </div>
