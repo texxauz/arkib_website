@@ -95,6 +95,25 @@ function LiveClock() {
 
 type ServedItem = KDSItem & { servedAt: number }
 
+function playNewOrderChime() {
+  try {
+    const ctx = new (window.AudioContext || (window as any).webkitAudioContext)()
+    const times = [0, 0.18, 0.36]
+    for (const t of times) {
+      const osc = ctx.createOscillator()
+      const gain = ctx.createGain()
+      osc.connect(gain)
+      gain.connect(ctx.destination)
+      osc.frequency.value = t === 0 ? 880 : t === 0.18 ? 1100 : 880
+      osc.type = 'sine'
+      gain.gain.setValueAtTime(0.25, ctx.currentTime + t)
+      gain.gain.exponentialRampToValueAtTime(0.001, ctx.currentTime + t + 0.25)
+      osc.start(ctx.currentTime + t)
+      osc.stop(ctx.currentTime + t + 0.25)
+    }
+  } catch {}
+}
+
 export function KDSClient({ initialItems }: Props) {
   const [items, setItems] = useState<KDSItem[]>(initialItems)
   const [servedItems, setServedItems] = useState<ServedItem[]>([])
@@ -127,6 +146,7 @@ export function KDSClient({ initialItems }: Props) {
                   if (data) {
                     setItems((prev) => {
                       if (prev.find((i) => i.id === data.id)) return prev
+                      playNewOrderChime()
                       return [...prev, data as KDSItem]
                     })
                   }

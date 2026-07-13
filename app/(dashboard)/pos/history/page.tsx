@@ -25,7 +25,7 @@ export default async function SalesHistoryPage() {
       .order('closed_at', { ascending: false }),
     supabase
       .from('pos_order_items')
-      .select('order_id, item_name, category, quantity, unit_price, discount, voided_at')
+      .select('id, order_id, item_name, category, quantity, unit_price, discount, voided_at')
       .gte('created_at', from + 'T00:00:00'),
     supabase
       .from('pos_payments')

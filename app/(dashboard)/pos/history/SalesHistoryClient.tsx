@@ -1,11 +1,15 @@
 'use client'
 
-import { useState, useMemo } from 'react'
+import { useState, useMemo, useRef } from 'react'
+import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import {
   Users, Receipt, TrendingUp, ChevronDown, ChevronUp,
-  Search, Calendar, CreditCard, Banknote, QrCode, Clock
+  Search, Calendar, CreditCard, Banknote, QrCode, Clock,
+  Printer, Download, RotateCcw,
 } from 'lucide-react'
+import { ReceiptPrint, type ReceiptData } from '@/app/(dashboard)/pos/order/[id]/ReceiptPrint'
+import { useToast } from '@/components/ui/Toast'
 
 type Order = {
   id: string
@@ -25,6 +29,7 @@ type Order = {
 }
 
 type Item = {
+  id: string
   order_id: string
   item_name: string
   category: string | null
@@ -77,12 +82,12 @@ function fmt(n: number) {
   return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
 }
 
-function formatTime(iso: string) {
-  return new Date(iso).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
+function fmtRaw(n: number) {
+  return n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
-function formatDate(iso: string) {
-  return new Date(iso).toLocaleDateString('en-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
 }
 
 function getDuration(opened: string, closed: string) {
@@ -92,7 +97,6 @@ function getDuration(opened: string, closed: string) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-// Group orders by business date using opened_at (same logic as close-order RPC)
 function getBusinessDateStr(iso: string) {
   const myt = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000)
   if (myt.getUTCHours() < 6) myt.setUTCDate(myt.getUTCDate() - 1)
@@ -100,11 +104,14 @@ function getBusinessDateStr(iso: string) {
 }
 
 export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) {
+  const router = useRouter()
+  const { toast } = useToast()
   const [search, setSearch] = useState('')
   const [expandedId, setExpandedId] = useState<string | null>(null)
-  const [dateFilter, setDateFilter] = useState<string>('') // YYYY-MM-DD
+  const [dateFilter, setDateFilter] = useState<string>('')
+  const [reprintData, setReprintData] = useState<ReceiptData | null>(null)
+  const [reopening, setReopening] = useState<string | null>(null)
 
-  // Build lookup maps
   const itemsByOrder = useMemo(() => {
     const m = new Map<string, Item[]>()
     for (const item of items) {
@@ -123,7 +130,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
     return m
   }, [payments])
 
-  // Available dates for the date filter dropdown
   const availableDates = useMemo(() => {
     const dates = [...new Set(orders.map(o => getBusinessDateStr(o.opened_at)))]
     return dates.sort((a, b) => b.localeCompare(a))
@@ -141,7 +147,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
     })
   }, [orders, search, dateFilter])
 
-  // Summary stats for filtered set
   const stats = useMemo(() => {
     const totalRevenue = filtered.reduce((s, o) => s + (o.total ?? 0), 0)
     const totalCovers = filtered.reduce((s, o) => s + (o.covers ?? 0), 0)
@@ -150,7 +155,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
     return { totalRevenue, totalCovers, avgBill, avgPerCover, count: filtered.length }
   }, [filtered])
 
-  // Group filtered orders by date
   const grouped = useMemo(() => {
     const map = new Map<string, Order[]>()
     for (const o of filtered) {
@@ -160,6 +164,89 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
     }
     return [...map.entries()].sort((a, b) => b[0].localeCompare(a[0]))
   }, [filtered])
+
+  function buildReprintData(order: Order): ReceiptData {
+    const orderItems = (itemsByOrder.get(order.id) ?? []).filter(i => !i.voided_at)
+    const orderPayments = paymentsByOrder.get(order.id) ?? []
+    return {
+      orderId: order.id,
+      tableName: order.table_name,
+      serverName: order.server_name,
+      covers: order.covers,
+      openedAt: order.opened_at,
+      closedAt: order.closed_at,
+      items: orderItems.map(i => ({
+        id: i.id,
+        item_name: i.item_name,
+        category: i.category,
+        quantity: i.quantity,
+        unit_price: i.unit_price,
+        discount: i.discount ?? 0,
+        voided_at: i.voided_at,
+      })),
+      subtotal: order.subtotal ?? 0,
+      discountAmount: order.discount_amount ?? 0,
+      discountLabel: order.discount_label,
+      serviceCharge: order.service_charge ?? 0,
+      taxAmount: order.tax_amount ?? 0,
+      total: order.total ?? 0,
+      payments: orderPayments.map(p => ({ method: p.method, amount: p.amount })),
+      footerNote: 'Thank you and Come Again!',
+      isPreliminary: false,
+    }
+  }
+
+  function exportCsv() {
+    const header = ['Date', 'Table', 'Section', 'Server', 'Covers', 'Opened', 'Closed', 'Duration', 'Subtotal', 'Discount', 'Service Charge', 'Tax', 'Total', 'Payment Methods']
+    const rows = filtered.map(o => {
+      const orderPayments = paymentsByOrder.get(o.id) ?? []
+      const payStr = orderPayments.map(p => `${METHOD_LABELS[p.method] ?? p.method} ${fmtRaw(p.amount)}`).join('; ')
+      return [
+        getBusinessDateStr(o.opened_at),
+        o.table_name ?? 'Walk-in',
+        o.section ?? '',
+        o.server_name ?? '',
+        o.covers,
+        formatTime(o.opened_at),
+        o.closed_at ? formatTime(o.closed_at) : '',
+        o.closed_at ? getDuration(o.opened_at, o.closed_at) : '',
+        fmtRaw(o.subtotal ?? 0),
+        fmtRaw(o.discount_amount ?? 0),
+        fmtRaw(o.service_charge ?? 0),
+        fmtRaw(o.tax_amount ?? 0),
+        fmtRaw(o.total ?? 0),
+        payStr,
+      ]
+    })
+    const csv = [header, ...rows].map(r => r.map(c => `"${String(c).replace(/"/g, '""')}"`).join(',')).join('\n')
+    const blob = new Blob([csv], { type: 'text/csv;charset=utf-8;' })
+    const url = URL.createObjectURL(blob)
+    const a = document.createElement('a')
+    a.href = url
+    a.download = `arkib-sales-${dateFilter || 'all'}.csv`
+    a.click()
+    URL.revokeObjectURL(url)
+  }
+
+  async function handleReopen(orderId: string) {
+    if (!confirm('Reopen this order? This will reverse payments and daily sales figures. The order will return to the floor and must be paid again.')) return
+    setReopening(orderId)
+    try {
+      const res = await fetch('/api/pos/reopen-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to reopen')
+      toast('Order reopened — it\'s back on the floor', 'success')
+      router.refresh()
+    } catch (err: unknown) {
+      toast(err instanceof Error ? err.message : 'Failed to reopen order', 'error')
+    } finally {
+      setReopening(null)
+    }
+  }
 
   return (
     <div className="min-h-screen bg-[#0D0D10] text-[#F0EEF6] p-4 sm:p-6">
@@ -194,7 +281,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
         </div>
       </div>
 
-      {/* Filters */}
+      {/* Filters + Export */}
       <div className="flex flex-col sm:flex-row gap-2 mb-5">
         <div className="relative flex-1">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
@@ -221,6 +308,13 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
             ))}
           </select>
         </div>
+        <button
+          onClick={exportCsv}
+          className="flex items-center gap-2 bg-[#141417] border border-[#2A2A30] hover:border-[#6C63FF]/40 rounded-lg px-4 py-2 text-sm text-[#9896A4] hover:text-[#F0EEF6] transition-colors shrink-0"
+        >
+          <Download size={14} />
+          Export CSV
+        </button>
       </div>
 
       {/* Grouped order list */}
@@ -236,7 +330,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
             const dayCovers = dayOrders.reduce((s, o) => s + (o.covers ?? 0), 0)
             return (
               <div key={date}>
-                {/* Date header */}
                 <div className="flex items-center justify-between mb-2">
                   <div className="flex items-center gap-3">
                     <span className="text-[#F0EEF6] font-semibold text-sm">
@@ -253,7 +346,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                     const orderPayments = paymentsByOrder.get(order.id) ?? []
                     const isExpanded = expandedId === order.id
 
-                    // Group items by category
                     const categoryGroups = orderItems.reduce((acc, item) => {
                       const cat = item.category ?? 'others'
                       if (!acc[cat]) acc[cat] = []
@@ -263,19 +355,16 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
 
                     return (
                       <div key={order.id}>
-                        {/* Order row */}
                         <button
                           onClick={() => setExpandedId(isExpanded ? null : order.id)}
                           className="w-full flex items-center gap-3 px-4 py-3 hover:bg-[#1A1A20] transition-colors text-left"
                         >
-                          {/* Table badge */}
                           <div className="shrink-0 w-10 h-10 rounded-lg bg-[#6C63FF]/15 border border-[#6C63FF]/20 flex flex-col items-center justify-center">
                             <span className="text-[#6C63FF] text-[10px] font-bold leading-none">
                               {(order.table_name ?? 'W').slice(0, 2).toUpperCase()}
                             </span>
                           </div>
 
-                          {/* Info */}
                           <div className="flex-1 min-w-0">
                             <div className="flex items-center gap-2">
                               <span className="text-[#F0EEF6] font-medium text-sm truncate">
@@ -300,7 +389,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                             </div>
                           </div>
 
-                          {/* Payment methods */}
                           <div className="shrink-0 flex items-center gap-1.5 mr-2">
                             {orderPayments.map((p, i) => (
                               <span key={i} className="flex items-center gap-1 text-[#9896A4] text-xs bg-[#0E0E11] border border-[#2A2A30] rounded px-1.5 py-0.5">
@@ -310,7 +398,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                             ))}
                           </div>
 
-                          {/* Total */}
                           <div className="shrink-0 text-right mr-2">
                             <p className="text-[#F0EEF6] font-semibold text-sm">{fmt(order.total ?? 0)}</p>
                             {(order.discount_amount ?? 0) > 0 && (
@@ -324,7 +411,6 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                           }
                         </button>
 
-                        {/* Expanded detail */}
                         {isExpanded && (
                           <div className="border-t border-[#1E1E24] bg-[#0E0E11] px-4 py-4">
                             {orderItems.length === 0 ? (
@@ -398,6 +484,27 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                                 </div>
                               </div>
                             )}
+
+                            {/* Actions */}
+                            <div className="mt-4 pt-3 border-t border-[#2A2A30] flex flex-wrap gap-2">
+                              <button
+                                onClick={() => setReprintData(buildReprintData(order))}
+                                className="flex items-center gap-1.5 text-xs bg-[#141417] border border-[#2A2A30] hover:border-[#6C63FF]/40 rounded-lg px-3 py-1.5 text-[#9896A4] hover:text-[#F0EEF6] transition-colors"
+                              >
+                                <Printer size={12} />
+                                Reprint Receipt
+                              </button>
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleReopen(order.id)}
+                                  disabled={reopening === order.id}
+                                  className="flex items-center gap-1.5 text-xs bg-amber-500/10 border border-amber-500/20 hover:border-amber-500/40 rounded-lg px-3 py-1.5 text-amber-400 hover:text-amber-300 transition-colors disabled:opacity-50"
+                                >
+                                  <RotateCcw size={12} />
+                                  {reopening === order.id ? 'Reopening…' : 'Reopen Order'}
+                                </button>
+                              )}
+                            </div>
                           </div>
                         )}
                       </div>
@@ -408,6 +515,13 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
             )
           })}
         </div>
+      )}
+
+      {reprintData && (
+        <ReceiptPrint
+          data={reprintData}
+          onClose={() => setReprintData(null)}
+        />
       )}
     </div>
   )

@@ -19,11 +19,11 @@ export async function POST(req: NextRequest) {
 
   const { data: order } = await supabase
     .from('pos_orders')
-    .select('id, table_id, opened_at, table_name, total, status')
+    .select('id, table_id, opened_at, table_name, total, status, discount_amount, service_charge')
     .eq('id', orderId).single()
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
-  // Only revert inventory for closed orders (open/voided orders were never deducted)
+  // Only revert inventory/financials for closed orders (open/voided orders were never counted)
   if (order.status === 'closed') {
     const { data: items } = await supabase
       .from('pos_order_items')
@@ -32,10 +32,10 @@ export async function POST(req: NextRequest) {
       .is('voided_at', null)
 
     if (items?.length) {
-      const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name, sold_serves')
-      const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles, used_classics_ml')
+      // Revert inventory — atomic RPCs (no read-modify-write race)
+      const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name')
+      const { data: spirits } = await supabase.from('bar_spirits').select('id, name')
 
-      // Revert premix sold_serves for house cocktails
       const premixDelta = new Map<string, number>()
       for (const item of items) {
         if (item.category !== 'house_cocktail') continue
@@ -43,11 +43,10 @@ export async function POST(req: NextRequest) {
         if (match) premixDelta.set(match.id, (premixDelta.get(match.id) ?? 0) + item.quantity)
       }
       for (const [id, delta] of premixDelta) {
-        const pm = premixes?.find(p => p.id === id)
-        if (pm) await supabase.from('bar_premixes').update({ sold_serves: Math.max(0, pm.sold_serves - delta) }).eq('id', id)
+        const { error } = await supabase.rpc('decrement_premix_serves', { p_id: id, p_delta: delta })
+        if (error) console.error('decrement_premix_serves failed:', error.message)
       }
 
-      // Revert bar_spirits full_bottles for wine/whisky
       const spiritBottleDelta = new Map<string, number>()
       for (const item of items) {
         if (item.category !== 'wine' && item.category !== 'whisky') continue
@@ -55,11 +54,10 @@ export async function POST(req: NextRequest) {
         if (match) spiritBottleDelta.set(match.id, (spiritBottleDelta.get(match.id) ?? 0) + item.quantity)
       }
       for (const [id, delta] of spiritBottleDelta) {
-        const sp = spirits?.find(s => s.id === id)
-        if (sp) await supabase.from('bar_spirits').update({ full_bottles: sp.full_bottles + delta }).eq('id', id)
+        const { error } = await supabase.rpc('increment_spirit_bottles', { p_id: id, p_delta: delta })
+        if (error) console.error('increment_spirit_bottles failed:', error.message)
       }
 
-      // Revert bar_spirits used_classics_ml for classics
       const classicMlDelta = new Map<string, number>()
       for (const item of items) {
         if (item.category !== 'classic') continue
@@ -74,24 +72,27 @@ export async function POST(req: NextRequest) {
         } catch {}
       }
       for (const [id, ml] of classicMlDelta) {
-        const sp = spirits?.find(s => s.id === id)
-        if (sp) await supabase.from('bar_spirits').update({ used_classics_ml: Math.max(0, sp.used_classics_ml - ml) }).eq('id', id)
+        const { error } = await supabase.rpc('decrement_spirit_ml', { p_id: id, p_ml: ml })
+        if (error) console.error('decrement_spirit_ml failed:', error.message)
       }
 
-      // Revert daily_sales for the correct business date (respects post-midnight cutoff)
+      // Fix: prorate order-level discount across categories (matches close-order logic)
       const { data: config } = await supabase.from('pos_config').select('key, value').in('key', ['business_day_cutoff_hour'])
       const cutoffHour = parseInt(config?.find(c => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
       const orderDate = getBusinessDate(order.opened_at, cutoffHour)
-      let cocktailsRev = 0, beerRev = 0, wineRev = 0, foodRev = 0, othersRev = 0
+
+      let cocktailsGross = 0, beerGross = 0, wineGross = 0, foodGross = 0, othersGross = 0
       for (const item of items) {
         const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
-        if (item.category === 'house_cocktail' || item.category === 'classic') cocktailsRev += lineTotal
-        else if (item.category === 'beer') beerRev += lineTotal
-        else if (item.category === 'wine') wineRev += lineTotal
-        else if (item.category === 'food') foodRev += lineTotal
-        else othersRev += lineTotal
+        if (item.category === 'house_cocktail' || item.category === 'classic') cocktailsGross += lineTotal
+        else if (item.category === 'beer') beerGross += lineTotal
+        else if (item.category === 'wine') wineGross += lineTotal
+        else if (item.category === 'food') foodGross += lineTotal
+        else othersGross += lineTotal
       }
-      // Fetch payments to revert collection totals
+      const grossSubtotal = cocktailsGross + beerGross + wineGross + foodGross + othersGross
+      const discountRatio = grossSubtotal > 0 ? (order.discount_amount ?? 0) / grossSubtotal : 0
+
       const { data: payments } = await supabase.from('pos_payments').select('method, amount').eq('order_id', orderId)
       let cashCol = 0, cardCol = 0, qrCol = 0
       for (const p of payments ?? []) {
@@ -99,13 +100,14 @@ export async function POST(req: NextRequest) {
         else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount
         else if (p.method === 'qr_payment') qrCol += p.amount
       }
+
       await supabase.rpc('decrement_daily_sales', {
         p_date: orderDate,
-        p_cocktails_revenue: cocktailsRev,
-        p_beer_revenue: beerRev,
-        p_wine_revenue: wineRev,
-        p_food_revenue: foodRev,
-        p_others_revenue: othersRev,
+        p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
+        p_beer_revenue: beerGross * (1 - discountRatio),
+        p_wine_revenue: wineGross * (1 - discountRatio),
+        p_food_revenue: foodGross * (1 - discountRatio),
+        p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0),
         p_cash_collected: cashCol,
         p_credit_card_collected: cardCol,
         p_qr_collected: qrCol,
@@ -122,7 +124,6 @@ export async function POST(req: NextRequest) {
     await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', orderId)
   }
 
-  // Log the admin deletion (audit log is preserved — this adds a record, not replaces)
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,
     actor_name: profile?.full_name ?? null,
