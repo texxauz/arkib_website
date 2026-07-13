@@ -385,7 +385,7 @@ export function OrderTicketClient({
       const res = await fetch('/api/pos/email-receipt', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ email: emailAddress.trim(), receiptData: buildCurrentReceiptData(true) }),
+        body: JSON.stringify({ email: emailAddress.trim(), orderId: currentOrder.id }),
       })
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to send')

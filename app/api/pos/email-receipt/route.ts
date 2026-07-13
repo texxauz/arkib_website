@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
+import { getBusinessDate } from '@/lib/utils'
 
 function fmt(n: number) { return n.toFixed(2) }
 
@@ -187,19 +188,68 @@ export async function POST(req: NextRequest) {
   const resend = new Resend(process.env.RESEND_API_KEY)
 
   const body = await req.json()
-  const { email, receiptData } = body as {
-    email: string
-    receiptData: Parameters<typeof buildReceiptHtml>[0]
+  // Fix: accept only orderId + email — never trust client-supplied receipt data
+  const { email, orderId } = body as { email: string; orderId: string }
+
+  if (!email || !orderId) {
+    return NextResponse.json({ error: 'Missing email or orderId' }, { status: 400 })
   }
 
-  if (!email || !receiptData) {
-    return NextResponse.json({ error: 'Missing email or receipt data' }, { status: 400 })
+  // Fetch order data authoritatively from the database
+  const [
+    { data: order },
+    { data: items },
+    { data: payments },
+    { data: config },
+  ] = await Promise.all([
+    supabase.from('pos_orders').select('*').eq('id', orderId).single(),
+    supabase.from('pos_order_items').select('*').eq('order_id', orderId),
+    supabase.from('pos_payments').select('method, amount').eq('order_id', orderId),
+    supabase.from('pos_config').select('key, value').eq('key', 'receipt_footer'),
+  ])
+
+  if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
+  if (order.status === 'voided') return NextResponse.json({ error: 'Cannot email a voided order' }, { status: 400 })
+
+  const activeItems = (items ?? []).filter((i: any) => !i.voided_at)
+  const subtotal = activeItems.reduce((s: number, i: any) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
+  const discountAmount = order.discount_amount ?? 0
+  const serviceCharge = order.service_charge ?? 0
+  const taxAmount = order.tax_amount ?? 0
+  const total = subtotal - discountAmount + serviceCharge + taxAmount
+  const isPreliminary = order.status === 'open'
+  const footerNote = config?.[0]?.value ?? 'Thank you and Come Again!'
+
+  const receiptData = {
+    orderId: order.id,
+    tableName: order.table_name,
+    serverName: order.server_name,
+    covers: order.covers,
+    openedAt: order.opened_at,
+    closedAt: order.closed_at ?? null,
+    items: activeItems.map((i: any) => ({
+      item_name: i.item_name,
+      category: i.category,
+      quantity: i.quantity,
+      unit_price: i.unit_price,
+      discount: i.discount ?? 0,
+      voided_at: i.voided_at,
+    })),
+    subtotal,
+    discountAmount,
+    discountLabel: order.discount_label ?? null,
+    serviceCharge,
+    taxAmount,
+    total,
+    payments: (payments ?? []) as Array<{ method: string; amount: number }>,
+    footerNote,
+    isPreliminary,
   }
 
   const html = buildReceiptHtml(receiptData)
-  const subject = receiptData.isPreliminary
-    ? `Your bill from ARKIB BAR — Table ${receiptData.tableName ?? 'Walk-in'}`
-    : `Receipt from ARKIB BAR — Table ${receiptData.tableName ?? 'Walk-in'}`
+  const subject = isPreliminary
+    ? `Your bill from ARKIB BAR — Table ${order.table_name ?? 'Walk-in'}`
+    : `Receipt from ARKIB BAR — Table ${order.table_name ?? 'Walk-in'}`
 
   const { error } = await resend.emails.send({
     from: process.env.RESEND_FROM_EMAIL ?? 'receipt@arkibbar.com',

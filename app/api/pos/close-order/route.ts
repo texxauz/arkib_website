@@ -79,11 +79,11 @@ export async function POST(req: NextRequest) {
   const { error: salesErr } = await supabase.from('cocktail_sales').insert(salesRows)
   if (salesErr) console.error('cocktail_sales insert failed:', salesErr.message)
 
-  // 5. Load bar_premixes + bar_spirits for deduction
-  const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name, sold_serves')
-  const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles, used_classics_ml')
+  // 5. Load bar_premixes + bar_spirits for name matching (RPCs handle atomic deduction)
+  const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name')
+  const { data: spirits } = await supabase.from('bar_spirits').select('id, name')
 
-  // 6. Deduct premix sold_serves for house_cocktail
+  // 6. Deduct premix sold_serves for house_cocktail — atomic via RPC to avoid read-modify-write race
   const premixDelta = new Map<string, number>()
   for (const item of items) {
     if (item.category !== 'house_cocktail') continue
@@ -91,11 +91,11 @@ export async function POST(req: NextRequest) {
     if (match) premixDelta.set(match.id, (premixDelta.get(match.id) ?? 0) + item.quantity)
   }
   for (const [id, delta] of premixDelta) {
-    const pm = premixes?.find(p => p.id === id)
-    if (pm) await supabase.from('bar_premixes').update({ sold_serves: pm.sold_serves + delta }).eq('id', id)
+    const { error: pmErr } = await supabase.rpc('increment_premix_serves', { p_id: id, p_delta: delta })
+    if (pmErr) console.error('increment_premix_serves failed:', pmErr.message)
   }
 
-  // 7. Deduct bar_spirits for wine/whisky (full bottles)
+  // 7. Deduct bar_spirits for wine/whisky (full bottles) — atomic via RPC
   const spiritBottleDelta = new Map<string, number>()
   for (const item of items) {
     if (item.category !== 'wine' && item.category !== 'whisky') continue
@@ -103,11 +103,11 @@ export async function POST(req: NextRequest) {
     if (match) spiritBottleDelta.set(match.id, (spiritBottleDelta.get(match.id) ?? 0) + item.quantity)
   }
   for (const [id, delta] of spiritBottleDelta) {
-    const sp = spirits?.find(s => s.id === id)
-    if (sp) await supabase.from('bar_spirits').update({ full_bottles: Math.max(0, sp.full_bottles - delta) }).eq('id', id)
+    const { error: spErr } = await supabase.rpc('decrement_spirit_bottles', { p_id: id, p_delta: delta })
+    if (spErr) console.error('decrement_spirit_bottles failed:', spErr.message)
   }
 
-  // 8. Deduct bar_spirits for classic (used_classics_ml via item notes JSON)
+  // 8. Deduct bar_spirits for classic (used_classics_ml via item notes JSON) — atomic via RPC
   const classicMlDelta = new Map<string, number>()
   for (const item of items) {
     if (item.category !== 'classic') continue
@@ -122,8 +122,8 @@ export async function POST(req: NextRequest) {
     } catch {}
   }
   for (const [id, ml] of classicMlDelta) {
-    const sp = spirits?.find(s => s.id === id)
-    if (sp) await supabase.from('bar_spirits').update({ used_classics_ml: sp.used_classics_ml + ml }).eq('id', id)
+    const { error: mlErr } = await supabase.rpc('increment_spirit_ml', { p_id: id, p_ml: ml })
+    if (mlErr) console.error('increment_spirit_ml failed:', mlErr.message)
   }
 
   // 9. Upsert daily_sales revenue buckets
