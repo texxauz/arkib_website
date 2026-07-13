@@ -6,11 +6,6 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  if (!profile || !['owner', 'manager'].includes(profile.role)) {
-    return NextResponse.json({ error: 'Manager access required' }, { status: 403 })
-  }
-
   const { shiftId, closingCash, notes } = await req.json()
   if (!shiftId) return NextResponse.json({ error: 'shiftId required' }, { status: 400 })
 

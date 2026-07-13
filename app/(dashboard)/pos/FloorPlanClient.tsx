@@ -239,6 +239,7 @@ export function FloorPlanClient({
   const sectionTables = tables.filter(t => t.section === activeSection)
   const totalTables = sectionTables.length
   const occupiedCount = sectionTables.filter(t => getTableStatus(t) === 'occupied').length
+  const allOpenCount = tables.filter(t => getTableStatus(t) === 'occupied').length
 
   return (
     <div className="min-h-screen bg-[#0D0D0F] p-4 sm:p-6">
@@ -248,6 +249,15 @@ export function FloorPlanClient({
           <WifiOff size={15} />
           <span className="font-medium">You're offline.</span>
           <span className="text-amber-300/70">Orders cannot be opened until connection is restored.</span>
+        </div>
+      )}
+
+      {/* Open tables warning banner */}
+      {allOpenCount > 0 && (
+        <div className="flex items-center gap-2 mb-4 px-4 py-2.5 rounded-xl bg-red-500/10 border border-red-500/30 text-red-400 text-sm">
+          <Clock size={15} className="shrink-0" />
+          <span className="font-medium">{allOpenCount} table{allOpenCount > 1 ? 's' : ''} still open.</span>
+          <span className="text-red-300/70">Close all tables before ending the shift.</span>
         </div>
       )}
 

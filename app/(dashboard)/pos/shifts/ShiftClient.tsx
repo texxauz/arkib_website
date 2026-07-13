@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2 } from 'lucide-react'
+import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react'
 
 type PosShift = {
   id: string; opened_by: string; closed_by: string | null
@@ -56,6 +56,10 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [openModal, setOpenModal] = useState(false)
   const [closeModal, setCloseModal] = useState(false)
   const [openFloat, setOpenFloat] = useState('0')
+  const [openPassword, setOpenPassword] = useState('')
+  const [closePassword, setClosePassword] = useState('')
+  const [showOpenPwd, setShowOpenPwd] = useState(false)
+  const [showClosePwd, setShowClosePwd] = useState(false)
   const [closingCash, setClosingCash] = useState('')
   const [shiftNotes, setShiftNotes] = useState('')
   const [loading, setLoading] = useState(false)
@@ -68,9 +72,25 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
     ? openShift.opening_float + (shiftOrders?.payment_breakdown?.cash ?? 0)
     : 0
 
+  async function verifyPassword(password: string): Promise<boolean> {
+    const res = await fetch('/api/pos/verify-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ password }),
+    })
+    if (!res.ok) {
+      const err = await res.json().catch(() => ({}))
+      toast(err.error ?? 'Incorrect password', 'error')
+      return false
+    }
+    return true
+  }
+
   async function handleOpenShift() {
+    if (!openPassword) { toast('Please enter your password', 'error'); return }
     setLoading(true)
     try {
+      if (!await verifyPassword(openPassword)) return
       const res = await fetch('/api/pos/open-shift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -83,6 +103,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
       }
       toast('Shift opened successfully', 'success')
       setOpenModal(false)
+      setOpenPassword('')
       router.refresh()
     } catch {
       toast('Failed to open shift', 'error')
@@ -93,8 +114,10 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
 
   async function handleCloseShift() {
     if (!openShift) return
+    if (!closePassword) { toast('Please enter your password', 'error'); return }
     setLoading(true)
     try {
+      if (!await verifyPassword(closePassword)) return
       const res = await fetch('/api/pos/close-shift', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
@@ -111,6 +134,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
       }
       toast('Shift closed successfully', 'success')
       setCloseModal(false)
+      setClosePassword('')
       router.refresh()
     } catch {
       toast('Failed to close shift', 'error')
@@ -269,7 +293,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
       )}
 
       {/* Open Shift Modal */}
-      <Modal isOpen={openModal} onClose={() => setOpenModal(false)} title="Open New Shift" size="sm">
+      <Modal isOpen={openModal} onClose={() => { setOpenModal(false); setOpenPassword('') }} title="Open New Shift" size="sm">
         <div className="space-y-4">
           <div>
             <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Opening Float (MYR)</label>
@@ -284,16 +308,32 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             />
             <p className="text-[#5A5865] text-xs mt-1">Enter the cash amount in the drawer at shift start.</p>
           </div>
+          <div>
+            <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Your Password</label>
+            <div className="relative">
+              <input
+                type={showOpenPwd ? 'text' : 'password'}
+                value={openPassword}
+                onChange={e => setOpenPassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleOpenShift()}
+                className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 pr-10 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
+                placeholder="Enter your login password"
+              />
+              <button type="button" onClick={() => setShowOpenPwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4]">
+                {showOpenPwd ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
           <div className="flex gap-2 pt-1">
             <button
-              onClick={() => setOpenModal(false)}
+              onClick={() => { setOpenModal(false); setOpenPassword('') }}
               className="flex-1 bg-[#1A1A1E] hover:bg-[#222228] text-[#9896A4] text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleOpenShift}
-              disabled={loading}
+              disabled={loading || !openPassword}
               className="flex-1 bg-[#7C3AED] hover:bg-[#6D28D9] disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {loading ? 'Opening…' : 'Open Shift'}
@@ -356,16 +396,33 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             />
           </div>
 
+          <div>
+            <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Your Password</label>
+            <div className="relative">
+              <input
+                type={showClosePwd ? 'text' : 'password'}
+                value={closePassword}
+                onChange={e => setClosePassword(e.target.value)}
+                onKeyDown={e => e.key === 'Enter' && handleCloseShift()}
+                className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 pr-10 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
+                placeholder="Enter your login password"
+              />
+              <button type="button" onClick={() => setShowClosePwd(v => !v)} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4]">
+                {showClosePwd ? <EyeOff size={14} /> : <Eye size={14} />}
+              </button>
+            </div>
+          </div>
+
           <div className="flex gap-2 pt-1">
             <button
-              onClick={() => setCloseModal(false)}
+              onClick={() => { setCloseModal(false); setClosePassword('') }}
               className="flex-1 bg-[#1A1A1E] hover:bg-[#222228] text-[#9896A4] text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               Cancel
             </button>
             <button
               onClick={handleCloseShift}
-              disabled={loading || closingCash === ''}
+              disabled={loading || closingCash === '' || !closePassword}
               className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {loading ? 'Closing…' : 'Confirm Close'}
