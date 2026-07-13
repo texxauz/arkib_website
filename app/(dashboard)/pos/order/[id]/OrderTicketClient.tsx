@@ -170,7 +170,8 @@ export function OrderTicketClient({
     if (error) {
       toast(error.message, 'error')
     } else if (data) {
-      setItems(prev => [...prev, data as OrderItem])
+      // Realtime INSERT may have already added this item — skip if so
+      setItems(prev => prev.find(i => i.id === (data as OrderItem).id) ? prev : [...prev, data as OrderItem])
     }
   }, [activeItems, order.id, userId, supabase, toast])
 
