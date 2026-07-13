@@ -56,7 +56,7 @@ export async function POST(req: NextRequest) {
       else if (p.method === 'qr_payment') qrCol += p.amount
     }
 
-    await supabase.rpc('decrement_daily_sales', {
+    const { error: dsErr } = await supabase.rpc('decrement_daily_sales', {
       p_date: orderDate,
       p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
       p_beer_revenue: beerGross * (1 - discountRatio),
@@ -67,6 +67,7 @@ export async function POST(req: NextRequest) {
       p_credit_card_collected: cardCol,
       p_qr_collected: qrCol,
     })
+    if (dsErr) return NextResponse.json({ error: `Failed to reverse daily sales: ${dsErr.message}` }, { status: 500 })
 
     // Revert inventory — atomic RPCs
     const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name')
