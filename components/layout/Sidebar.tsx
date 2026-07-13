@@ -70,6 +70,13 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
   const router = useRouter()
   const [mobileOpen, setMobileOpen] = useState(false)
 
+  const isAdmin = userRole === 'owner' || userRole === 'manager'
+  // User has POS access if they're admin, or have at least one pos tab permission set
+  const hasPosAccess = isAdmin || (
+    tabPermissions != null &&
+    Object.entries(tabPermissions).some(([k, v]) => k.startsWith('pos') && v !== 'none')
+  )
+
   const isPOS = pathname.startsWith('/pos')
   const navItems = isPOS ? getPosItems(userRole, tabPermissions) : getMgmtItems(userRole, tabPermissions)
 
@@ -115,16 +122,18 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
                 <p className="text-[#5A5865] text-[10px] tracking-wider">BAR MANAGEMENT</p>
               </div>
             </div>
-            <Link
-              href="/pos"
-              className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-[#A78BFA] text-xs font-medium hover:bg-[#8B5CF6]/20 transition-colors"
-            >
-              <div className="flex items-center gap-1.5">
-                <MonitorSmartphone size={12} />
-                Open POS
-              </div>
-              <ChevronRight size={11} />
-            </Link>
+            {hasPosAccess && (
+              <Link
+                href="/pos"
+                className="flex items-center justify-between px-3 py-1.5 rounded-lg bg-[#8B5CF6]/10 border border-[#8B5CF6]/20 text-[#A78BFA] text-xs font-medium hover:bg-[#8B5CF6]/20 transition-colors"
+              >
+                <div className="flex items-center gap-1.5">
+                  <MonitorSmartphone size={12} />
+                  Open POS
+                </div>
+                <ChevronRight size={11} />
+              </Link>
+            )}
           </div>
         )}
       </div>
