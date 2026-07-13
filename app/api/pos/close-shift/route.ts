@@ -18,6 +18,19 @@ export async function POST(req: NextRequest) {
     .from('pos_shifts').select('*').eq('id', shiftId).eq('status', 'open').single()
   if (!shift) return NextResponse.json({ error: 'Shift not found or already closed' }, { status: 404 })
 
+  // Block close if any tables are still open
+  const { data: openOrders } = await supabase
+    .from('pos_orders')
+    .select('id, table_name')
+    .eq('status', 'open')
+    .limit(10)
+  if (openOrders && openOrders.length > 0) {
+    const names = openOrders.map(o => o.table_name ?? 'Walk-in').join(', ')
+    return NextResponse.json({
+      error: `Cannot close shift — ${openOrders.length} table${openOrders.length > 1 ? 's' : ''} still open: ${names}`,
+    }, { status: 400 })
+  }
+
   // Calculate expected cash
   const { data: payments } = await supabase
     .from('pos_payments')
