@@ -2,8 +2,6 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 
-const resend = new Resend(process.env.RESEND_API_KEY)
-
 function fmt(n: number) { return n.toFixed(2) }
 
 function formatDateTime(iso: string | null) {
@@ -186,6 +184,7 @@ export async function POST(req: NextRequest) {
   if (!process.env.RESEND_API_KEY) {
     return NextResponse.json({ error: 'Email service not configured. Add RESEND_API_KEY to environment variables.' }, { status: 503 })
   }
+  const resend = new Resend(process.env.RESEND_API_KEY)
 
   const body = await req.json()
   const { email, receiptData } = body as {
