@@ -79,12 +79,11 @@ export async function POST(req: NextRequest) {
   const { error: salesErr } = await supabase.from('cocktail_sales').insert(salesRows)
   if (salesErr) console.error('cocktail_sales insert failed:', salesErr.message)
 
-  // 5. Load bar_premixes + bar_spirits + premix ingredients for deduction
+  // 5. Load bar_premixes + bar_spirits for deduction
   const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name, sold_serves')
   const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles, used_classics_ml')
-  const { data: premixIngredients } = await supabase.from('bar_premix_ingredients').select('premix_id, spirit_id, ml_per_serve')
 
-  // 6. Deduct premix sold_serves for house_cocktail + deduct spirit ml via ingredients
+  // 6. Deduct premix sold_serves for house_cocktail
   const premixDelta = new Map<string, number>()
   for (const item of items) {
     if (item.category !== 'house_cocktail') continue
@@ -94,17 +93,6 @@ export async function POST(req: NextRequest) {
   for (const [id, delta] of premixDelta) {
     const pm = premixes?.find(p => p.id === id)
     if (pm) await supabase.from('bar_premixes').update({ sold_serves: pm.sold_serves + delta }).eq('id', id)
-
-    // Deduct spirit ml for each ingredient in this premix
-    const ingredients = premixIngredients?.filter(i => i.premix_id === id) ?? []
-    for (const ing of ingredients) {
-      const sp = spirits?.find(s => s.id === ing.spirit_id)
-      if (sp) {
-        await supabase.from('bar_spirits').update({
-          used_classics_ml: sp.used_classics_ml + ing.ml_per_serve * delta,
-        }).eq('id', ing.spirit_id)
-      }
-    }
   }
 
   // 7. Deduct bar_spirits for wine/whisky (full bottles)

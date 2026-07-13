@@ -34,9 +34,8 @@ export async function POST(req: NextRequest) {
     if (items?.length) {
       const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name, sold_serves')
       const { data: spirits } = await supabase.from('bar_spirits').select('id, name, full_bottles, used_classics_ml')
-      const { data: premixIngredients } = await supabase.from('bar_premix_ingredients').select('premix_id, spirit_id, ml_per_serve')
 
-      // Revert premix sold_serves for house cocktails + revert spirit ml via ingredients
+      // Revert premix sold_serves for house cocktails
       const premixDelta = new Map<string, number>()
       for (const item of items) {
         if (item.category !== 'house_cocktail') continue
@@ -46,17 +45,6 @@ export async function POST(req: NextRequest) {
       for (const [id, delta] of premixDelta) {
         const pm = premixes?.find(p => p.id === id)
         if (pm) await supabase.from('bar_premixes').update({ sold_serves: Math.max(0, pm.sold_serves - delta) }).eq('id', id)
-
-        // Revert spirit ml for each ingredient in this premix
-        const ingredients = premixIngredients?.filter(i => i.premix_id === id) ?? []
-        for (const ing of ingredients) {
-          const sp = spirits?.find(s => s.id === ing.spirit_id)
-          if (sp) {
-            await supabase.from('bar_spirits').update({
-              used_classics_ml: Math.max(0, sp.used_classics_ml - ing.ml_per_serve * delta),
-            }).eq('id', ing.spirit_id)
-          }
-        }
       }
 
       // Revert bar_spirits full_bottles for wine/whisky
