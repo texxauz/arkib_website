@@ -49,6 +49,19 @@ function formatDuration(openedAt: string, closedAt: string) {
   return h > 0 ? `${h}h ${m}m` : `${m}m`
 }
 
+const DENOMINATIONS = [
+  { label: 'RM 100', value: 100 },
+  { label: 'RM 50',  value: 50 },
+  { label: 'RM 20',  value: 20 },
+  { label: 'RM 10',  value: 10 },
+  { label: 'RM 5',   value: 5 },
+  { label: 'RM 1',   value: 1 },
+  { label: '50 sen', value: 0.5 },
+  { label: '20 sen', value: 0.2 },
+  { label: '10 sen', value: 0.1 },
+  { label: '5 sen',  value: 0.05 },
+]
+
 export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, userName, isAdmin }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -60,14 +73,19 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [closePassword, setClosePassword] = useState('')
   const [showOpenPwd, setShowOpenPwd] = useState(false)
   const [showClosePwd, setShowClosePwd] = useState(false)
+  const [denomCounts, setDenomCounts] = useState<Record<number, number>>({})
+  const [useCounter, setUseCounter] = useState(false)
   const [closingCash, setClosingCash] = useState('')
   const [shiftNotes, setShiftNotes] = useState('')
   const [loading, setLoading] = useState(false)
 
+  const denomTotal = DENOMINATIONS.reduce((s, d) => s + d.value * (denomCounts[d.value] ?? 0), 0)
+
   const expectedCash = openShift
     ? openShift.opening_float + (shiftOrders?.payment_breakdown?.cash ?? 0)
     : 0
-  const variance = parseFloat(closingCash || '0') - expectedCash
+  const effectiveClosingCash = useCounter ? denomTotal : parseFloat(closingCash || '0')
+  const variance = effectiveClosingCash - expectedCash
   const cashInDrawer = openShift
     ? openShift.opening_float + (shiftOrders?.payment_breakdown?.cash ?? 0)
     : 0
@@ -123,7 +141,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
         headers: { 'Content-Type': 'application/json' },
         body: JSON.stringify({
           shiftId: openShift.id,
-          closingCash: parseFloat(closingCash),
+          closingCash: effectiveClosingCash,
           notes: shiftNotes,
         }),
       })
@@ -360,20 +378,67 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             </div>
           </div>
 
+          {/* Cash denomination counter */}
           <div>
-            <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Actual Cash Counted (MYR)</label>
-            <input
-              type="number"
-              min="0"
-              step="0.01"
-              value={closingCash}
-              onChange={e => setClosingCash(e.target.value)}
-              className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
-              placeholder="0.00"
-            />
+            <div className="flex items-center justify-between mb-2">
+              <label className="block text-[#9896A4] text-xs font-medium">Actual Cash Counted</label>
+              <button
+                type="button"
+                onClick={() => {
+                  setUseCounter(v => !v)
+                  setDenomCounts({})
+                  setClosingCash('')
+                }}
+                className="text-[#6C63FF] text-xs hover:text-[#A78BFA] transition-colors"
+              >
+                {useCounter ? 'Enter manually' : 'Use denomination counter'}
+              </button>
+            </div>
+
+            {useCounter ? (
+              <div className="space-y-2">
+                {DENOMINATIONS.map(d => (
+                  <div key={d.value} className="flex items-center gap-3 bg-[#0E0E11] rounded-lg px-3 py-2">
+                    <span className="text-[#9896A4] text-sm w-16 shrink-0">{d.label}</span>
+                    <button
+                      type="button"
+                      onClick={() => setDenomCounts(c => ({ ...c, [d.value]: Math.max(0, (c[d.value] ?? 0) - 1) }))}
+                      className="w-7 h-7 rounded-md bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] text-lg leading-none flex items-center justify-center"
+                    >−</button>
+                    <span className="flex-1 text-center text-[#F0EEF6] font-mono text-sm tabular-nums">
+                      {denomCounts[d.value] ?? 0}
+                    </span>
+                    <button
+                      type="button"
+                      onClick={() => setDenomCounts(c => ({ ...c, [d.value]: (c[d.value] ?? 0) + 1 }))}
+                      className="w-7 h-7 rounded-md bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] text-lg leading-none flex items-center justify-center"
+                    >+</button>
+                    <span className="text-[#5A5865] text-xs w-16 text-right tabular-nums shrink-0">
+                      {((denomCounts[d.value] ?? 0) * d.value).toFixed(2)}
+                    </span>
+                  </div>
+                ))}
+                <div className="flex items-center justify-between bg-[#1A1A1E] rounded-lg px-4 py-3 border border-[#2A2A30]">
+                  <span className="text-[#9896A4] text-sm font-medium">Total Counted</span>
+                  <span className="text-[#F0EEF6] font-bold text-lg tabular-nums">
+                    {formatCurrency(denomTotal)}
+                  </span>
+                </div>
+              </div>
+            ) : (
+              <input
+                type="number"
+                min="0"
+                step="0.01"
+                value={closingCash}
+                onChange={e => setClosingCash(e.target.value)}
+                className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
+                placeholder="0.00"
+              />
+            )}
           </div>
 
-          {closingCash !== '' && (
+          {(useCounter || closingCash !== '') && (
             <div className={`flex items-center gap-2 rounded-lg px-3 py-2.5 text-sm ${variance < 0 ? 'bg-red-500/10 border border-red-500/20' : variance > 0 ? 'bg-emerald-500/10 border border-emerald-500/20' : 'bg-[#0E0E11] border border-[#2A2A30]'}`}>
               {variance < 0 ? <AlertCircle size={14} className="text-red-400 shrink-0" /> : <CheckCircle2 size={14} className="text-emerald-400 shrink-0" />}
               <span className="text-[#9896A4]">Variance:</span>
@@ -422,7 +487,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             </button>
             <button
               onClick={handleCloseShift}
-              disabled={loading || closingCash === '' || !closePassword}
+              disabled={loading || (!useCounter && closingCash === '') || !closePassword}
               className="flex-1 bg-red-600 hover:bg-red-700 disabled:opacity-50 text-white text-sm font-medium py-2.5 rounded-lg transition-colors"
             >
               {loading ? 'Closing…' : 'Confirm Close'}

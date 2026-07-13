@@ -98,6 +98,7 @@ export function PaymentClient({
   const [payMethod, setPayMethod] = useState<PayMethod>('cash')
   const [cashEntered, setCashEntered] = useState('')
   const [mixedPayments, setMixedPayments] = useState({ cash: '', card: '', qr: '' })
+  const [tipAmount, setTipAmount] = useState(0)
   const [loading, setLoading] = useState(false)
   const [showReceipt, setShowReceipt] = useState(false)
   const [receiptData, setReceiptData] = useState<ReceiptData | null>(null)
@@ -118,7 +119,7 @@ export function PaymentClient({
   const afterDiscount = subtotal - discountAmount
   const serviceChargeAmount = serviceChargeOn ? afterDiscount * (serviceChargePct / 100) : 0
   const taxAmount = taxOn ? (afterDiscount + serviceChargeAmount) * (taxPct / 100) : 0
-  const total = afterDiscount + serviceChargeAmount + taxAmount
+  const total = afterDiscount + serviceChargeAmount + taxAmount + tipAmount
 
   const cashValue = parseFloat(cashEntered || '0')
   const change = payMethod === 'cash' ? cashValue - total : 0
@@ -210,7 +211,7 @@ export function PaymentClient({
           payments,
           discountAmount,
           discountLabel: selectedDiscount?.name ?? null,
-          serviceCharge: serviceChargeAmount,
+          serviceCharge: serviceChargeAmount + tipAmount,
           taxAmount,
         }),
       })
@@ -230,7 +231,7 @@ export function PaymentClient({
         subtotal,
         discountAmount,
         discountLabel: selectedDiscount?.name ?? null,
-        serviceCharge: serviceChargeAmount,
+        serviceCharge: serviceChargeAmount + tipAmount,
         taxAmount,
         total,
         payments,
@@ -429,6 +430,40 @@ export function PaymentClient({
             </div>
           </div>
 
+          {/* Tip */}
+          <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+            <div className="flex items-center justify-between mb-3">
+              <span className="text-[#9896A4] text-xs font-semibold uppercase tracking-widest">Tip (optional)</span>
+              {tipAmount > 0 && (
+                <button onClick={() => setTipAmount(0)} className="text-[#5A5865] text-xs hover:text-[#9896A4]">Clear</button>
+              )}
+            </div>
+            <div className="flex flex-wrap gap-2 mb-3">
+              {[1, 2, 5, 10, 20, 50].map(amt => (
+                <button
+                  key={amt}
+                  onClick={() => setTipAmount(tipAmount === amt ? 0 : amt)}
+                  className={`px-3 py-1.5 rounded-lg text-sm font-medium border transition-all ${
+                    tipAmount === amt
+                      ? 'bg-emerald-500/15 border-emerald-500/40 text-emerald-400'
+                      : 'bg-[#1A1A1E] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42]'
+                  }`}
+                >
+                  RM {amt}
+                </button>
+              ))}
+            </div>
+            <input
+              type="number"
+              min={0}
+              step={1}
+              placeholder="Custom amount"
+              value={tipAmount > 0 && ![1,2,5,10,20,50].includes(tipAmount) ? tipAmount : ''}
+              onChange={e => setTipAmount(parseFloat(e.target.value) || 0)}
+              className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#6C63FF]/60"
+            />
+          </div>
+
           {/* Totals breakdown */}
           <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
             <div className="px-4 py-3 flex flex-col gap-1.5">
@@ -453,6 +488,14 @@ export function PaymentClient({
                   label={`Tax (${pct(taxPct)})`}
                   value={`+ RM ${fmt(taxAmount)}`}
                   muted
+                />
+              )}
+              {tipAmount > 0 && (
+                <TotalRow
+                  label="Tip"
+                  value={`+ RM ${fmt(tipAmount)}`}
+                  muted
+                  accent="text-emerald-400"
                 />
               )}
             </div>
