@@ -128,7 +128,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
         title="Shift Management"
         subtitle={openShift ? `Shift started at ${formatTime(openShift.opened_at)}` : 'No active shift'}
         actions={
-          !openShift && isAdmin ? (
+          !openShift ? (
             <button
               onClick={() => setOpenModal(true)}
               className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white text-sm font-medium px-4 py-2 rounded-lg transition-colors"
@@ -204,19 +204,13 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             <Clock size={28} className="text-[#7C3AED]" />
           </div>
           <h2 className="text-[#F0EEF6] font-semibold text-lg mb-1">No Active Shift</h2>
-          {isAdmin ? (
-            <>
-              <p className="text-[#9896A4] text-sm mb-5 max-w-xs">Open a new shift to start recording orders and track your daily sales.</p>
-              <button
-                onClick={() => setOpenModal(true)}
-                className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-medium px-6 py-2.5 rounded-lg transition-colors"
-              >
-                Open Shift
-              </button>
-            </>
-          ) : (
-            <p className="text-[#9896A4] text-sm max-w-xs">Ask a manager or owner to open the shift before taking orders.</p>
-          )}
+          <p className="text-[#9896A4] text-sm mb-5 max-w-xs">Open a new shift to start recording orders and track your daily sales.</p>
+          <button
+            onClick={() => setOpenModal(true)}
+            className="bg-[#7C3AED] hover:bg-[#6D28D9] text-white font-medium px-6 py-2.5 rounded-lg transition-colors"
+          >
+            Open Shift
+          </button>
         </div>
       )}
 
