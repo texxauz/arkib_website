@@ -47,7 +47,7 @@ interface Props {
   config: Record<string, string>
 }
 
-const MENU_CATEGORIES = ['All', 'Cocktails', 'Beer', 'Wine', 'Spirits', 'Food', 'Others']
+const MENU_CATEGORIES = ['All', 'Cocktails', 'Classics', 'Beer', 'Wine', 'Spirits', 'Food', 'Others']
 
 function formatTime(isoString: string) {
   const d = new Date(isoString)
@@ -320,9 +320,10 @@ export function OrderTicketClient({
       results = cocktails.map(c => ({ id: c.id, name: c.name, price: c.selling_price, type: 'cocktail' as const, category: 'house_cocktail' }))
     } else {
       const catMap: Record<string, string[]> = {
+        Classics: ['classic'],
         Beer: ['beer'],
         Wine: ['wine'],
-        Spirits: ['spirits', 'spirit'],
+        Spirits: ['spirits', 'spirit', 'whisky'],
         Food: ['food'],
         Others: ['other', 'others', 'misc', 'na', 'soft drink', 'water'],
       }
