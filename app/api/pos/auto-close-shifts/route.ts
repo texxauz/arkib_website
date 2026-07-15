@@ -41,10 +41,13 @@ function getExpectedCloseTime(openedAt: string): Date {
 }
 
 export async function POST(req: NextRequest) {
-  // Verify cron secret so only Vercel (or you) can call this
-  const authHeader = req.headers.get('authorization')
+  // CRON_SECRET is required — no secret means no access, not open access.
   const cronSecret = process.env.CRON_SECRET
-  if (cronSecret && authHeader !== `Bearer ${cronSecret}`) {
+  if (!cronSecret) {
+    return NextResponse.json({ error: 'Server misconfiguration: CRON_SECRET is not set' }, { status: 500 })
+  }
+  const authHeader = req.headers.get('authorization')
+  if (authHeader !== `Bearer ${cronSecret}`) {
     return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
   }
 
@@ -70,6 +73,31 @@ export async function POST(req: NextRequest) {
 
     // If the expected close time is in the future, skip — shift may still be active
     if (expectedCloseTime > new Date()) continue
+
+    // Check for open orders under this shift before closing
+    const { data: openOrders } = await supabase
+      .from('pos_orders')
+      .select('id, table_name')
+      .eq('shift_id', shift.id)
+      .eq('status', 'open')
+      .limit(5)
+
+    if (openOrders && openOrders.length > 0) {
+      const tableNames = openOrders.map(o => o.table_name ?? 'Walk-in').join(', ')
+      await supabase.from('pos_audit_log').insert({
+        actor_id: shift.opened_by,
+        event: 'shift.auto_close_blocked',
+        entity_type: 'pos_shifts',
+        entity_id: shift.id,
+        payload: {
+          reason: 'Auto-close blocked — open orders still exist under this shift',
+          open_tables: tableNames,
+          open_count: openOrders.length,
+        },
+      })
+      errors.push({ shiftId: shift.id, error: `${openOrders.length} open order(s) still active: ${tableNames}` })
+      continue
+    }
 
     // Calculate expected cash at close time
     const { data: payments } = await supabase

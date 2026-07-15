@@ -1,12 +1,13 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import bcrypt from 'bcryptjs'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { itemId, reason } = await req.json()
+  const { itemId, reason, managerPin } = await req.json()
   if (!itemId) return NextResponse.json({ error: 'itemId required' }, { status: 400 })
 
   const { data: item } = await supabase
@@ -26,9 +27,28 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'You can only void items from your own orders' }, { status: 403 })
   }
 
-  // Non-admin can only void pending items without a reason; sent items need manager approval
-  if (!isAdmin && item.status !== 'pending' && !reason?.trim()) {
-    return NextResponse.json({ error: 'Manager approval required to void sent items' }, { status: 403 })
+  // Non-admin voiding a sent/made/served item requires a verified manager PIN, not just a reason string.
+  if (!isAdmin && item.status !== 'pending') {
+    if (!managerPin) {
+      return NextResponse.json({ error: 'Manager PIN required to void sent items' }, { status: 403 })
+    }
+    const pinStr = String(managerPin).trim()
+    const { data: managers } = await supabase
+      .from('users')
+      .select('id, manager_pin, manager_pin_hash')
+      .in('role', ['owner', 'manager'])
+      .eq('is_active', true)
+    let pinValid = false
+    for (const mgr of managers ?? []) {
+      if (mgr.manager_pin_hash) {
+        if (await bcrypt.compare(pinStr, mgr.manager_pin_hash)) { pinValid = true; break }
+      } else if (mgr.manager_pin && mgr.manager_pin === pinStr) {
+        pinValid = true; break
+      }
+    }
+    if (!pinValid) {
+      return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
+    }
   }
 
   const now = new Date().toISOString()

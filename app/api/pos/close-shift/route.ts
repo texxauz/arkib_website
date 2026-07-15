@@ -9,14 +9,23 @@ export async function POST(req: NextRequest) {
   const { shiftId, closingCash, notes } = await req.json()
   if (!shiftId) return NextResponse.json({ error: 'shiftId required' }, { status: 400 })
 
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+
   const { data: shift } = await supabase
     .from('pos_shifts').select('*').eq('id', shiftId).eq('status', 'open').single()
   if (!shift) return NextResponse.json({ error: 'Shift not found or already closed' }, { status: 404 })
 
-  // Block close if any tables are still open
+  // Authorization: only the shift opener or an admin can close a shift.
+  if (shift.opened_by !== user.id && !isAdmin) {
+    return NextResponse.json({ error: 'You can only close your own shift' }, { status: 403 })
+  }
+
+  // Block close if any orders under THIS shift are still open (shift-scoped, not global).
   const { data: openOrders } = await supabase
     .from('pos_orders')
     .select('id, table_name')
+    .eq('shift_id', shiftId)
     .eq('status', 'open')
     .limit(10)
   if (openOrders && openOrders.length > 0) {
@@ -26,7 +35,7 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Calculate expected cash
+  // Calculate expected cash from cash payments under this shift's orders.
   const { data: payments } = await supabase
     .from('pos_payments')
     .select('amount, pos_orders!inner(shift_id)')
@@ -46,7 +55,7 @@ export async function POST(req: NextRequest) {
     variance,
     status: 'closed',
     notes: notes ?? null,
-  }).eq('id', shiftId)
+  }).eq('id', shiftId).eq('status', 'open') // optimistic lock prevents double-close
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
 

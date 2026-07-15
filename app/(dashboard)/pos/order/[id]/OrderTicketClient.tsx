@@ -608,27 +608,27 @@ export function OrderTicketClient({
           <span>Subtotal</span>
           <span className="text-[#F0EEF6] font-medium">{formatCurrency(subtotal)}</span>
         </div>
-        {order.service_charge > 0 && (
+        {currentOrder.service_charge > 0 && (
           <div className="flex justify-between text-sm text-[#9896A4]">
             <span>Service charge</span>
-            <span>{formatCurrency(order.service_charge)}</span>
+            <span>{formatCurrency(currentOrder.service_charge)}</span>
           </div>
         )}
-        {order.tax_amount > 0 && (
+        {currentOrder.tax_amount > 0 && (
           <div className="flex justify-between text-sm text-[#9896A4]">
             <span>Tax</span>
-            <span>{formatCurrency(order.tax_amount)}</span>
+            <span>{formatCurrency(currentOrder.tax_amount)}</span>
           </div>
         )}
-        {order.discount_amount > 0 && (
+        {currentOrder.discount_amount > 0 && (
           <div className="flex justify-between text-sm text-[#9896A4]">
             <span>Discount</span>
-            <span className="text-rose-400">-{formatCurrency(order.discount_amount)}</span>
+            <span className="text-rose-400">-{formatCurrency(currentOrder.discount_amount)}</span>
           </div>
         )}
         <div className="flex justify-between text-base font-bold text-[#F0EEF6] pt-1.5 border-t border-[#2A2A30]">
           <span>Total</span>
-          <span className="text-[#7B5EA7]">{formatCurrency(subtotal + order.service_charge + order.tax_amount - order.discount_amount)}</span>
+          <span className="text-[#7B5EA7]">{formatCurrency(subtotal + currentOrder.service_charge + currentOrder.tax_amount - currentOrder.discount_amount)}</span>
         </div>
       </div>
 

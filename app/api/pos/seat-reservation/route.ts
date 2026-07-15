@@ -33,9 +33,19 @@ export async function POST(req: NextRequest) {
 
   if (orderErr || !order) return NextResponse.json({ error: orderErr?.message ?? 'Failed to create order' }, { status: 500 })
 
-  // Update table current_order_id
+  // Update table current_order_id — verify table is free first to avoid orphaning an active order.
   const tableToUse = tableId ?? reservation.table_id
   if (tableToUse) {
+    const { data: table } = await supabase
+      .from('pos_tables')
+      .select('current_order_id')
+      .eq('id', tableToUse)
+      .single()
+    if (table?.current_order_id) {
+      // Roll back the order we just created
+      await supabase.from('pos_orders').delete().eq('id', order.id)
+      return NextResponse.json({ error: 'Table already has an active order — cannot seat reservation here' }, { status: 409 })
+    }
     await supabase.from('pos_tables').update({ current_order_id: order.id }).eq('id', tableToUse)
   }
 

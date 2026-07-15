@@ -1,8 +1,10 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import bcrypt from 'bcryptjs'
 
-// In-memory rate limiter: max 5 attempts per IP per 15 minutes
-// Note: resets on serverless cold start; a Redis-backed solution is more durable.
+// In-memory rate limiter: max 5 attempts per IP per 15 minutes.
+// Note: resets on serverless cold start. For higher security, move to a
+// database-backed rate limit table (see lib/db-rate-limit.ts).
 const pinAttempts = new Map<string, { count: number; resetAt: number }>()
 const MAX_ATTEMPTS = 5
 const WINDOW_MS = 15 * 60 * 1000
@@ -48,19 +50,34 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'PIN required' }, { status: 400 })
   }
 
-  const { data: manager } = await supabase
-    .from('users')
-    .select('id, full_name')
-    .eq('manager_pin', String(pin).trim())
-    .in('role', ['owner', 'manager'])
-    .maybeSingle()
+  const pinStr = String(pin).trim()
 
-  if (!manager) {
+  // Fetch all managers/owners with a PIN set (hash or legacy plain-text).
+  const { data: managers } = await supabase
+    .from('users')
+    .select('id, full_name, manager_pin, manager_pin_hash')
+    .in('role', ['owner', 'manager'])
+    .eq('is_active', true)
+
+  let matched: { id: string; full_name: string | null } | null = null
+
+  for (const mgr of managers ?? []) {
+    if (mgr.manager_pin_hash) {
+      // Preferred path: bcrypt compare
+      const ok = await bcrypt.compare(pinStr, mgr.manager_pin_hash)
+      if (ok) { matched = mgr; break }
+    } else if (mgr.manager_pin) {
+      // Legacy plain-text fallback (until migration is complete)
+      if (mgr.manager_pin === pinStr) { matched = mgr; break }
+    }
+  }
+
+  if (!matched) {
     return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
   }
 
   // Successful auth — reset the rate limit counter for this IP
   resetRateLimit(ip)
 
-  return NextResponse.json({ success: true, approvedBy: manager.full_name })
+  return NextResponse.json({ success: true, approvedBy: matched.full_name })
 }

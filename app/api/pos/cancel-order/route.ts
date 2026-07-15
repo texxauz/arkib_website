@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import bcrypt from 'bcryptjs'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -17,14 +18,22 @@ export async function POST(req: NextRequest) {
   let approvedByName: string | null = null
   if (!isAdmin) {
     if (!managerPin) return NextResponse.json({ error: 'Manager PIN required to cancel an order' }, { status: 403 })
-    const { data: manager } = await supabase
+    const pinStr = String(managerPin).trim()
+    const { data: managers } = await supabase
       .from('users')
-      .select('id, full_name')
-      .eq('manager_pin', managerPin)
+      .select('id, full_name, manager_pin, manager_pin_hash')
       .in('role', ['owner', 'manager'])
-      .maybeSingle()
-    if (!manager) return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
-    approvedByName = manager.full_name ?? null
+      .eq('is_active', true)
+    let matched: { full_name: string | null } | null = null
+    for (const mgr of managers ?? []) {
+      if (mgr.manager_pin_hash) {
+        if (await bcrypt.compare(pinStr, mgr.manager_pin_hash)) { matched = mgr; break }
+      } else if (mgr.manager_pin && mgr.manager_pin === pinStr) {
+        matched = mgr; break
+      }
+    }
+    if (!matched) return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
+    approvedByName = matched.full_name ?? null
   }
 
   // Load order
@@ -64,7 +73,7 @@ export async function POST(req: NextRequest) {
     unit_price: i.unit_price,
     category: i.category,
   }))
-  const cancelledValue = activeItems.reduce((s: number, i: any) => s + i.quantity * i.unit_price, 0)
+  const cancelledValue = activeItems.reduce((s: number, i: any) => s + i.quantity * i.unit_price - (i.discount ?? 0), 0)
 
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,

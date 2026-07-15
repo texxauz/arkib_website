@@ -16,6 +16,10 @@ export default async function SalesHistoryPage() {
   // Last 30 days of closed orders with their items and payments
   const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
+  const { data: configRows } = await supabase
+    .from('pos_config').select('key, value').eq('key', 'business_day_cutoff_hour')
+  const cutoffHour = parseInt(configRows?.find(r => r.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
+
   const [{ data: orders }, { data: items }, { data: payments }, { data: receiptEmails }] = await Promise.all([
     supabase
       .from('pos_orders')
@@ -45,6 +49,7 @@ export default async function SalesHistoryPage() {
       payments={payments ?? []}
       receiptEmails={receiptEmails ?? []}
       isAdmin={isAdmin ?? false}
+      cutoffHour={cutoffHour}
     />
   )
 }

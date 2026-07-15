@@ -23,6 +23,11 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
+  // Enforce minimum password security
+  if (String(password).length < 8) {
+    return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+  }
+
   // Prevent managers from assigning owner role
   if (profile.role === 'manager' && role === 'owner') {
     return NextResponse.json({ error: 'Managers cannot assign the owner role' }, { status: 403 })

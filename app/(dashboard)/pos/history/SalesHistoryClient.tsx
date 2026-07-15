@@ -60,6 +60,7 @@ interface Props {
   payments: Payment[]
   receiptEmails: ReceiptEmail[]
   isAdmin: boolean
+  cutoffHour: number
 }
 
 const CATEGORY_LABELS: Record<string, string> = {
@@ -107,13 +108,13 @@ function getDuration(opened: string, closed: string) {
   return `${Math.floor(mins / 60)}h ${mins % 60}m`
 }
 
-function getBusinessDateStr(iso: string) {
+function getBusinessDateStr(iso: string, cutoffHour: number) {
   const myt = new Date(new Date(iso).getTime() + 8 * 60 * 60 * 1000)
-  if (myt.getUTCHours() < 6) myt.setUTCDate(myt.getUTCDate() - 1)
+  if (myt.getUTCHours() < cutoffHour) myt.setUTCDate(myt.getUTCDate() - 1)
   return myt.toISOString().slice(0, 10)
 }
 
-export function SalesHistoryClient({ orders, items, payments, receiptEmails, isAdmin }: Props) {
+export function SalesHistoryClient({ orders, items, payments, receiptEmails, isAdmin, cutoffHour }: Props) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState('')
@@ -151,7 +152,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   }, [receiptEmails])
 
   const availableDates = useMemo(() => {
-    const dates = [...new Set(orders.map(o => getBusinessDateStr(o.opened_at)))]
+    const dates = [...new Set(orders.map(o => getBusinessDateStr(o.opened_at, cutoffHour)))]
     return dates.sort((a, b) => b.localeCompare(a))
   }, [orders])
 
@@ -162,7 +163,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
         (o.table_name ?? '').toLowerCase().includes(q) ||
         (o.server_name ?? '').toLowerCase().includes(q) ||
         (o.section ?? '').toLowerCase().includes(q)
-      const matchesDate = !dateFilter || getBusinessDateStr(o.opened_at) === dateFilter
+      const matchesDate = !dateFilter || getBusinessDateStr(o.opened_at, cutoffHour) === dateFilter
       return matchesSearch && matchesDate
     })
   }, [orders, search, dateFilter])
@@ -178,7 +179,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   const grouped = useMemo(() => {
     const map = new Map<string, Order[]>()
     for (const o of filtered) {
-      const d = getBusinessDateStr(o.opened_at)
+      const d = getBusinessDateStr(o.opened_at, cutoffHour)
       if (!map.has(d)) map.set(d, [])
       map.get(d)!.push(o)
     }
@@ -222,7 +223,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
       const orderPayments = paymentsByOrder.get(o.id) ?? []
       const payStr = orderPayments.map(p => `${METHOD_LABELS[p.method] ?? p.method} ${fmtRaw(p.amount)}`).join('; ')
       return [
-        getBusinessDateStr(o.opened_at),
+        getBusinessDateStr(o.opened_at, cutoffHour),
         o.table_name ?? 'Walk-in',
         o.section ?? '',
         o.server_name ?? '',

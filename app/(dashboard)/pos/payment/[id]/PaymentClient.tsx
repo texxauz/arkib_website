@@ -219,7 +219,8 @@ export function PaymentClient({
       if (!res.ok) throw new Error(data.error ?? 'Failed to close order')
       toast('Payment collected', 'success')
 
-      // Build receipt data and show receipt instead of navigating immediately
+      // Use server-returned authoritative totals for the receipt.
+      // The server recomputes these from DB values; never trust only the client-side figures.
       const receipt: ReceiptData = {
         orderId: order.id,
         tableName: order.table_name,
@@ -228,12 +229,12 @@ export function PaymentClient({
         openedAt: order.opened_at,
         closedAt: new Date().toISOString(),
         items: items.map(i => ({ ...i, voided_at: null })),
-        subtotal,
-        discountAmount,
+        subtotal: data.subtotal ?? subtotal,
+        discountAmount: data.discountAmount ?? discountAmount,
         discountLabel: selectedDiscount?.name ?? null,
-        serviceCharge: serviceChargeAmount + tipAmount,
-        taxAmount,
-        total,
+        serviceCharge: data.serviceCharge ?? (serviceChargeAmount + tipAmount),
+        taxAmount: data.taxAmount ?? taxAmount,
+        total: data.total ?? total,
         payments,
         footerNote: config.receipt_footer_note ?? 'Thank you for visiting Arkib!',
       }

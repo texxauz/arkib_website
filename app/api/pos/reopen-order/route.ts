@@ -20,7 +20,7 @@ export async function POST(req: NextRequest) {
 
   const { data: order } = await supabase
     .from('pos_orders')
-    .select('id, table_id, table_name, opened_at, closed_at, discount_amount, service_charge, status')
+    .select('id, table_id, table_name, opened_at, closed_at, discount_amount, service_charge, tax_amount, status')
     .eq('id', orderId).single()
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.status !== 'closed') return NextResponse.json({ error: 'Only closed orders can be reopened' }, { status: 400 })
@@ -49,11 +49,12 @@ export async function POST(req: NextRequest) {
     const grossSubtotal = cocktailsGross + beerGross + wineGross + foodGross + othersGross
     const discountRatio = grossSubtotal > 0 ? (order.discount_amount ?? 0) / grossSubtotal : 0
 
-    let cashCol = 0, cardCol = 0, qrCol = 0
+    let cashCol = 0, cardCol = 0, qrCol = 0, onlineCol = 0
     for (const p of payments ?? []) {
       if (p.method === 'cash') cashCol += p.amount
       else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount
       else if (p.method === 'qr_payment') qrCol += p.amount
+      else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
     }
 
     const { error: dsErr } = await supabase.rpc('decrement_daily_sales', {
@@ -62,10 +63,12 @@ export async function POST(req: NextRequest) {
       p_beer_revenue: beerGross * (1 - discountRatio),
       p_wine_revenue: wineGross * (1 - discountRatio),
       p_food_revenue: foodGross * (1 - discountRatio),
-      p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0),
+      // Mirror close-order: service_charge + tax_amount both live in others_revenue
+      p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
       p_cash_collected: cashCol,
       p_credit_card_collected: cardCol,
       p_qr_collected: qrCol,
+      p_online_collected: onlineCol,
     })
     if (dsErr) return NextResponse.json({ error: `Failed to reverse daily sales: ${dsErr.message}` }, { status: 500 })
 

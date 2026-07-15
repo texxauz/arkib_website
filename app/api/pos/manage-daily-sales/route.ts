@@ -49,9 +49,11 @@ export async function POST(req: NextRequest) {
       })
     }
 
-    await supabase.from('cocktail_sales').delete().eq('date', date)
+    // Delete daily_sales first — if this fails, cocktail_sales is untouched.
     const { error } = await supabase.from('daily_sales').delete().eq('date', date)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    // Only delete cocktail_sales after the primary record is confirmed gone.
+    await supabase.from('cocktail_sales').delete().eq('date', date)
 
     await supabase.from('pos_audit_log').insert({
       actor_id: user.id,
