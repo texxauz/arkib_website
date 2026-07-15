@@ -1,6 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
-export type UserRole = 'owner' | 'manager' | 'staff' | 'investor'
+export type UserRole = 'owner' | 'manager' | 'staff' | 'investor' | 'full_timer' | 'part_timer' | 'accountant'
 export type SalaryType = 'hourly' | 'fixed'
 export type PaymentMethod = 'cash' | 'credit_card' | 'qr_payment' | 'online' | 'bank_transfer' | 'other'
 export type ExpenseCategory = 'alcohol' | 'fresh_ingredients' | 'garnish' | 'food' | 'equipment' | 'repair' | 'cleaning' | 'marketing' | 'salary' | 'claims' | 'rental' | 'utilities' | 'others'
