@@ -16,7 +16,7 @@ export default async function SalesHistoryPage() {
   // Last 30 days of closed orders with their items and payments
   const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const [{ data: orders }, { data: items }, { data: payments }] = await Promise.all([
+  const [{ data: orders }, { data: items }, { data: payments }, { data: receiptEmails }] = await Promise.all([
     supabase
       .from('pos_orders')
       .select('id, table_name, section, covers, opened_at, closed_at, subtotal, discount_amount, discount_label, service_charge, tax_amount, total, server_name, status')
@@ -31,6 +31,11 @@ export default async function SalesHistoryPage() {
       .from('pos_payments')
       .select('order_id, method, amount')
       .gte('captured_at', from + 'T00:00:00'),
+    supabase
+      .from('pos_receipt_emails')
+      .select('id, order_id, sent_to, sent_by_name, sent_at, receipt_html')
+      .gte('sent_at', from + 'T00:00:00')
+      .order('sent_at', { ascending: false }),
   ])
 
   return (
@@ -38,6 +43,7 @@ export default async function SalesHistoryPage() {
       orders={orders ?? []}
       items={items ?? []}
       payments={payments ?? []}
+      receiptEmails={receiptEmails ?? []}
       isAdmin={isAdmin ?? false}
     />
   )

@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar'
 import {
   Users, Receipt, TrendingUp, ChevronDown, ChevronUp,
   Search, Calendar, CreditCard, Banknote, QrCode, Clock,
-  Printer, Download, RotateCcw,
+  Printer, Download, RotateCcw, Mail, Eye, X,
 } from 'lucide-react'
 import { ReceiptPrint, type ReceiptData } from '@/app/(dashboard)/pos/order/[id]/ReceiptPrint'
 import { useToast } from '@/components/ui/Toast'
@@ -45,10 +45,20 @@ type Payment = {
   amount: number
 }
 
+type ReceiptEmail = {
+  id: string
+  order_id: string
+  sent_to: string
+  sent_by_name: string | null
+  sent_at: string
+  receipt_html: string
+}
+
 interface Props {
   orders: Order[]
   items: Item[]
   payments: Payment[]
+  receiptEmails: ReceiptEmail[]
   isAdmin: boolean
 }
 
@@ -103,7 +113,7 @@ function getBusinessDateStr(iso: string) {
   return myt.toISOString().slice(0, 10)
 }
 
-export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) {
+export function SalesHistoryClient({ orders, items, payments, receiptEmails, isAdmin }: Props) {
   const router = useRouter()
   const { toast } = useToast()
   const [search, setSearch] = useState('')
@@ -111,6 +121,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
   const [dateFilter, setDateFilter] = useState<string>('')
   const [reprintData, setReprintData] = useState<ReceiptData | null>(null)
   const [reopening, setReopening] = useState<string | null>(null)
+  const [viewingReceiptHtml, setViewingReceiptHtml] = useState<string | null>(null)
 
   const itemsByOrder = useMemo(() => {
     const m = new Map<string, Item[]>()
@@ -129,6 +140,15 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
     }
     return m
   }, [payments])
+
+  const emailsByOrder = useMemo(() => {
+    const m = new Map<string, ReceiptEmail[]>()
+    for (const e of receiptEmails) {
+      if (!m.has(e.order_id)) m.set(e.order_id, [])
+      m.get(e.order_id)!.push(e)
+    }
+    return m
+  }, [receiptEmails])
 
   const availableDates = useMemo(() => {
     const dates = [...new Set(orders.map(o => getBusinessDateStr(o.opened_at)))]
@@ -344,6 +364,7 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                   {dayOrders.map(order => {
                     const orderItems = (itemsByOrder.get(order.id) ?? []).filter(i => !i.voided_at)
                     const orderPayments = paymentsByOrder.get(order.id) ?? []
+                    const orderEmails = emailsByOrder.get(order.id) ?? []
                     const isExpanded = expandedId === order.id
 
                     const categoryGroups = orderItems.reduce((acc, item) => {
@@ -485,6 +506,36 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
                               </div>
                             )}
 
+                            {/* Email receipt log */}
+                            {orderEmails.length > 0 && (
+                              <div className="mt-4 pt-3 border-t border-[#2A2A30]">
+                                <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-wider mb-2 flex items-center gap-1.5">
+                                  <Mail size={10} /> Receipt Emails Sent
+                                </p>
+                                <div className="space-y-1.5">
+                                  {orderEmails.map(e => (
+                                    <div key={e.id} className="flex items-center justify-between gap-2 text-xs">
+                                      <div className="flex items-center gap-2 min-w-0">
+                                        <span className="text-[#F0EEF6] truncate">{e.sent_to}</span>
+                                        <span className="text-[#5A5865] shrink-0">
+                                          {new Date(e.sent_at).toLocaleString('en-MY', { day: '2-digit', month: 'short', hour: '2-digit', minute: '2-digit', hour12: true })}
+                                        </span>
+                                        {e.sent_by_name && (
+                                          <span className="text-[#5A5865] shrink-0">by {e.sent_by_name}</span>
+                                        )}
+                                      </div>
+                                      <button
+                                        onClick={() => setViewingReceiptHtml(e.receipt_html)}
+                                        className="shrink-0 flex items-center gap-1 text-[#6C63FF] hover:text-[#A78BFA] transition-colors"
+                                      >
+                                        <Eye size={11} /> View
+                                      </button>
+                                    </div>
+                                  ))}
+                                </div>
+                              </div>
+                            )}
+
                             {/* Actions */}
                             <div className="mt-4 pt-3 border-t border-[#2A2A30] flex flex-wrap gap-2">
                               <button
@@ -522,6 +573,31 @@ export function SalesHistoryClient({ orders, items, payments, isAdmin }: Props) 
           data={reprintData}
           onClose={() => setReprintData(null)}
         />
+      )}
+
+      {/* View emailed receipt modal */}
+      {viewingReceiptHtml && (
+        <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 p-4">
+          <div className="relative w-full max-w-lg bg-white rounded-xl overflow-hidden shadow-2xl flex flex-col max-h-[90vh]">
+            <div className="flex items-center justify-between px-4 py-3 bg-[#1a0a2e]">
+              <span className="text-white text-sm font-semibold">Emailed Receipt</span>
+              <button
+                onClick={() => setViewingReceiptHtml(null)}
+                className="text-white/60 hover:text-white transition-colors"
+              >
+                <X size={18} />
+              </button>
+            </div>
+            <div className="overflow-y-auto flex-1">
+              <iframe
+                srcDoc={viewingReceiptHtml}
+                className="w-full border-0"
+                style={{ minHeight: '600px' }}
+                title="Receipt"
+              />
+            </div>
+          </div>
+        </div>
       )}
     </div>
   )

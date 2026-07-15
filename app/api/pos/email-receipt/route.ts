@@ -262,5 +262,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: error.message }, { status: 500 })
   }
 
+  // Log the sent receipt for records
+  const { data: profile } = await supabase.from('users').select('full_name').eq('id', user.id).single()
+  await supabase.from('pos_receipt_emails').insert({
+    order_id: orderId,
+    sent_to: email,
+    sent_by: user.id,
+    sent_by_name: profile?.full_name ?? null,
+    receipt_html: html,
+  })
+
   return NextResponse.json({ ok: true })
 }
