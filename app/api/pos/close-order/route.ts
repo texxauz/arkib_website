@@ -244,6 +244,7 @@ export async function POST(req: NextRequest) {
     p_credit_card_collected: cardCol,
     p_qr_collected: qrCol,
     p_online_collected: onlineCol,
+    p_transaction_count: 1,
   })
   if (dsErr) {
     await supabase.from('pos_audit_log').insert({
