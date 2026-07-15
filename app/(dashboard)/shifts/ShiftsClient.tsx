@@ -226,7 +226,7 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit">
         {([
           { key: 'clock', label: 'Clock In/Out', icon: Clock },
-          { key: 'history', label: 'History', icon: Calendar },
+          ...(isAdmin ? [{ key: 'history', label: 'History', icon: Calendar }] : []),
           ...(isAdmin ? [{ key: 'payroll', label: 'Payroll', icon: Users }] : []),
         ] as const).map(({ key, label, icon: Icon }) => (
           <button
@@ -322,7 +322,7 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       )}
 
       {/* ── HISTORY TAB ── */}
-      {activeTab === 'history' && (
+      {activeTab === 'history' && isAdmin && (
         <div className="space-y-4">
           <div className="flex gap-3 flex-wrap">
             {isAdmin && (
