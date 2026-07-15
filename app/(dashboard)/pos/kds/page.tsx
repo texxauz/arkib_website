@@ -15,6 +15,7 @@ export default async function KDSPage() {
     .select('id, order_id, item_name, category, quantity, modifiers, notes, status, kds_sent_at, created_at, pos_orders!inner(table_name, section, covers, status)')
     .in('status', ['pending', 'sent', 'making'])
     .is('voided_at', null)
+    .filter('pos_orders.status', 'eq', 'open')
     .order('created_at', { ascending: true })
 
   return <KDSClient initialItems={(items ?? []) as any[]} />
