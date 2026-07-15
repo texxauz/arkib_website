@@ -296,6 +296,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   const [menuModal, setMenuModal] = useState<{ open: boolean; item: Partial<MenuItem> | null; isNew: boolean }>({ open: false, item: null, isNew: false })
   const [menuLoading, setMenuLoading] = useState(false)
   const [menuCatFilter, setMenuCatFilter] = useState('all')
+  const [recatModal, setRecatModal] = useState(false)
+  const [recatTarget, setRecatTarget] = useState(MENU_CATEGORIES[0])
+  const [recatLoading, setRecatLoading] = useState(false)
 
   const filteredMenu = useMemo(() => {
     if (menuCatFilter === 'all') return menuItems
@@ -378,6 +381,23 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
         else toast(`${ids.length} item${ids.length > 1 ? 's' : ''} deleted`, 'info')
       },
     })
+  }
+
+  async function handleBulkRecategorise() {
+    const ids = filteredMenu.filter(m => selectedMenuItems.has(m.id)).map(m => m.id)
+    if (!ids.length) return
+    setRecatLoading(true)
+    let failed = 0
+    for (const id of ids) {
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id, category: recatTarget })
+      if (res.ok) setMenuItems(prev => prev.map(m => m.id === id ? { ...m, category: recatTarget } : m))
+      else failed++
+    }
+    setRecatLoading(false)
+    setRecatModal(false)
+    setSelectedMenuItems(new Set())
+    if (failed > 0) toast(`${failed} item(s) failed to update`, 'error')
+    else toast(`${ids.length} item${ids.length > 1 ? 's' : ''} moved to ${recatTarget}`, 'success')
   }
 
   async function handleToggleMenu(item: MenuItem) {
@@ -531,6 +551,14 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             <Trash2 size={13} />
             {bulkLoading ? 'Deleting…' : `Delete ${selectedCount}`}
           </button>
+          {activeTab === 'menu' && (
+            <button
+              onClick={() => setRecatModal(true)}
+              className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] text-sm font-medium hover:bg-[#8B5CF6]/30 transition-colors"
+            >
+              Move to Category
+            </button>
+          )}
           <button
             onClick={() => {
               if (activeTab === 'orders') setSelectedOrders(new Set())
@@ -875,6 +903,33 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
             </div>
           </div>
         )}
+      </Modal>
+
+      {/* ── BULK RE-CATEGORISE MODAL ─────────────────────────────────────────────── */}
+      <Modal isOpen={recatModal} onClose={() => setRecatModal(false)} title="Move to Category" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">
+            Move {[...selectedMenuItems].filter(id => filteredMenu.some(m => m.id === id)).length} selected item(s) to:
+          </p>
+          <div className="relative">
+            <select
+              value={recatTarget}
+              onChange={e => setRecatTarget(e.target.value)}
+              className="w-full bg-[#1A1A1E] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]/60 appearance-none pr-8"
+            >
+              {MENU_CATEGORIES.map(c => (
+                <option key={c} value={c}>{c}</option>
+              ))}
+            </select>
+            <ChevronDown size={14} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] pointer-events-none" />
+          </div>
+          <div className="flex justify-end gap-2 pt-1">
+            <button onClick={() => setRecatModal(false)} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
+            <button onClick={handleBulkRecategorise} disabled={recatLoading} className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] transition-all disabled:opacity-50">
+              {recatLoading ? 'Moving…' : 'Move Items'}
+            </button>
+          </div>
+        </div>
       </Modal>
 
       {/* ── MENU ITEM EDIT MODAL ─────────────────────────────────────────────────── */}
