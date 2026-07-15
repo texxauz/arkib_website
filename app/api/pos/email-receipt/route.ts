@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { Resend } from 'resend'
 import { getBusinessDate } from '@/lib/utils'
+import { rateLimit } from '@/lib/rate-limit'
 
 function fmt(n: number) { return n.toFixed(2) }
 
@@ -178,6 +179,11 @@ function buildReceiptHtml(data: {
 }
 
 export async function POST(req: NextRequest) {
+  const ip = req.headers.get('x-forwarded-for') ?? 'unknown'
+  if (!rateLimit(`email-receipt:${ip}`, 20, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -211,8 +217,9 @@ export async function POST(req: NextRequest) {
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.status === 'voided') return NextResponse.json({ error: 'Cannot email a voided order' }, { status: 400 })
 
-  const activeItems = (items ?? []).filter((i: any) => !i.voided_at)
-  const subtotal = activeItems.reduce((s: number, i: any) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
+  type OrderItem = { item_name: string; category: string | null; quantity: number; unit_price: number; discount: number | null; voided_at: string | null }
+  const activeItems = (items ?? [] as OrderItem[]).filter((i: OrderItem) => !i.voided_at)
+  const subtotal = activeItems.reduce((s: number, i: OrderItem) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
   const discountAmount = order.discount_amount ?? 0
   const serviceCharge = order.service_charge ?? 0
   const taxAmount = order.tax_amount ?? 0
@@ -227,7 +234,7 @@ export async function POST(req: NextRequest) {
     covers: order.covers,
     openedAt: order.opened_at,
     closedAt: order.closed_at ?? null,
-    items: activeItems.map((i: any) => ({
+    items: activeItems.map((i: OrderItem) => ({
       item_name: i.item_name,
       category: i.category,
       quantity: i.quantity,

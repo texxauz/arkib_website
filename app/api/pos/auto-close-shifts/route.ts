@@ -24,10 +24,10 @@ function getExpectedCloseTime(openedAt: string): Date {
   const rule = CLOSING_HOUR[dow]
 
   if (!rule) {
-    // Fallback: 1am next day
+    // Fallback: 1am MYT next day = 17:00 UTC same MYT-day
     const fallback = new Date(openedMyt)
     fallback.setUTCDate(fallback.getUTCDate() + 1)
-    fallback.setUTCHours(1 - 8, 0, 0, 0) // 1am MYT = 17:00 UTC prev day; easier: use UTC
+    fallback.setUTCHours(1, 0, 0, 0) // 1am in shifted MYT frame
     return new Date(fallback.getTime() - mytOffset)
   }
 

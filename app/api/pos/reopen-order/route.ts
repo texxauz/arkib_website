@@ -34,7 +34,7 @@ export async function POST(req: NextRequest) {
   // Reverse daily_sales — same proration logic as close-order
   if (items?.length) {
     const { data: config } = await supabase.from('pos_config').select('key, value').eq('key', 'business_day_cutoff_hour')
-    const cutoffHour = parseInt(config?.find((c: any) => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
+    const cutoffHour = parseInt(config?.find((c: { key: string; value: string }) => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
     const orderDate = getBusinessDate(order.opened_at, cutoffHour)
 
     let cocktailsGross = 0, beerGross = 0, wineGross = 0, foodGross = 0, othersGross = 0
@@ -76,7 +76,7 @@ export async function POST(req: NextRequest) {
     const premixDelta = new Map<string, number>()
     for (const item of items) {
       if (item.category !== 'house_cocktail') continue
-      const match = premixes?.find((p: any) => normName(p.cocktail_name ?? '') === normName(item.item_name))
+      const match = premixes?.find((p: { id: string; cocktail_name: string | null }) => normName(p.cocktail_name ?? '') === normName(item.item_name))
       if (match) premixDelta.set(match.id, (premixDelta.get(match.id) ?? 0) + item.quantity)
     }
     for (const [id, delta] of premixDelta) {
@@ -86,7 +86,7 @@ export async function POST(req: NextRequest) {
     const spiritBottleDelta = new Map<string, number>()
     for (const item of items) {
       if (item.category !== 'wine' && item.category !== 'whisky') continue
-      const match = spirits?.find((s: any) => normName(s.name) === normName(item.item_name))
+      const match = spirits?.find((s: { id: string; name: string }) => normName(s.name) === normName(item.item_name))
       if (match) spiritBottleDelta.set(match.id, (spiritBottleDelta.get(match.id) ?? 0) + item.quantity)
     }
     for (const [id, delta] of spiritBottleDelta) {
@@ -110,6 +110,9 @@ export async function POST(req: NextRequest) {
       await supabase.rpc('decrement_spirit_ml', { p_id: id, p_ml: ml })
     }
   }
+
+  // Reverse cocktail_sales rows so re-closing doesn't double-count
+  await supabase.from('cocktail_sales').delete().eq('order_id', orderId)
 
   // Delete payments (they'll be re-entered when the order is closed again)
   await supabase.from('pos_payments').delete().eq('order_id', orderId)
