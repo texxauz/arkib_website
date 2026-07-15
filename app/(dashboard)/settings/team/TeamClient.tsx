@@ -58,6 +58,10 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   pnl: 'none',
 }
 
+const DEFAULT_ACCOUNTANT: Record<string, string> = Object.fromEntries(
+  ALL_TABS.map(t => [t.key, ['sales', 'expenses', 'reports', 'pnl'].includes(t.key) ? 'view' : 'none'])
+)
+
 const DEFAULT_INVESTOR: Record<string, string> = Object.fromEntries(
   ALL_TABS.map(t => [t.key, t.key === 'pnl' ? 'view' : 'none'])
 )
@@ -89,7 +93,10 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   }
 
   const defaultPermsForRole = (role: string) =>
-    ['owner', 'manager'].includes(role) ? OWNER_FULL : role === 'investor' ? DEFAULT_INVESTOR : DEFAULT_BARTENDER
+    ['owner', 'manager'].includes(role) ? OWNER_FULL :
+    role === 'investor' ? DEFAULT_INVESTOR :
+    role === 'accountant' ? DEFAULT_ACCOUNTANT :
+    DEFAULT_BARTENDER
 
   const openEdit = (m: UserProfile) => {
     setEditTarget(m)
@@ -212,7 +219,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                   {isMe && <span className="text-[9px] bg-[#8B5CF6]/20 text-[#A78BFA] px-2 py-0.5 rounded-full border border-[#8B5CF6]/20">YOU</span>}
                   <span className={`text-[9px] px-2 py-0.5 rounded-full border capitalize
                     ${m.role === 'owner' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-[#1A1A1E] text-[#9896A4] border-[#2A2A30]'}`}>
-                    {m.role === 'staff' ? 'Bartender' : m.role}
+                    {m.role === 'staff' ? 'Bartender' : m.role === 'full_timer' ? 'Full Timer' : m.role === 'part_timer' ? 'Part Timer' : m.role === 'accountant' ? 'Accountant' : m.role}
                   </span>
                   {!m.is_active && <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full">Suspended</span>}
                 </div>
@@ -272,8 +279,11 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                 setEditPerms(defaultPermsForRole(e.target.value))
               }}>
                 <option value="staff">Bartender</option>
+                <option value="full_timer">Full Timer</option>
+                <option value="part_timer">Part Timer</option>
                 <option value="manager">Manager</option>
                 <option value="investor">Investor</option>
+                <option value="accountant">Accountant</option>
               </select>
             </div>
           </div>
@@ -307,9 +317,12 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                 setEditPerms(defaultPermsForRole(e.target.value))
               }}>
                 <option value="staff">Bartender</option>
+                <option value="full_timer">Full Timer</option>
+                <option value="part_timer">Part Timer</option>
                 <option value="manager">Manager</option>
                 <option value="owner">Owner</option>
                 <option value="investor">Investor</option>
+                <option value="accountant">Accountant</option>
               </select>
             </div>
           </div>
