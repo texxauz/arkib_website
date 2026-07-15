@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff } from 'lucide-react'
+import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert } from 'lucide-react'
 
 type PosShift = {
   id: string; opened_by: string; closed_by: string | null
@@ -183,6 +183,20 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
 
       {openShift ? (
         <>
+          {/* Stale shift warning */}
+          {(() => {
+            const hoursOpen = (Date.now() - new Date(openShift.opened_at).getTime()) / 3600000
+            if (hoursOpen < 10) return null
+            return (
+              <div className="flex items-center gap-3 bg-amber-500/10 border border-amber-500/30 rounded-xl px-4 py-3 mb-3">
+                <TriangleAlert size={16} className="text-amber-400 shrink-0" />
+                <p className="text-amber-300 text-sm flex-1">
+                  This shift has been open for <strong>{Math.floor(hoursOpen)}h</strong> — staff may have forgotten to clock out. The system will auto-close it at the scheduled closing time.
+                </p>
+              </div>
+            )
+          })()}
+
           {/* Status banner */}
           <div className="flex items-center gap-3 bg-emerald-500/10 border border-emerald-500/30 rounded-xl px-4 py-3 mb-5">
             <CheckCircle2 size={18} className="text-emerald-400 shrink-0" />
@@ -282,8 +296,14 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                       <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
                         {shift.users_opened?.full_name ?? '—'}
                       </td>
-                      <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
-                        {shift.users_closed?.full_name ?? '—'}
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        {shift.notes?.startsWith('Auto-closed') ? (
+                          <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
+                            <TriangleAlert size={11} /> Auto-closed
+                          </span>
+                        ) : (
+                          <span className="text-[#9896A4]">{shift.users_closed?.full_name ?? '—'}</span>
+                        )}
                       </td>
                       <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
                         {formatCurrency(shift.opening_float)}
