@@ -1,11 +1,16 @@
+import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
-import { ReportsClient } from './ReportsClient'
 
-export default async function ReportsPage() {
+export async function GET(req: NextRequest) {
   const supabase = await createClient()
-  const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000)
-  const month = nowMYT.getUTCMonth() + 1
-  const year = nowMYT.getUTCFullYear()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+
+  const { searchParams } = new URL(req.url)
+  const month = parseInt(searchParams.get('month') ?? '0', 10)
+  const year = parseInt(searchParams.get('year') ?? '0', 10)
+  if (!month || !year) return NextResponse.json({ error: 'month and year required' }, { status: 400 })
+
   const firstOfMonth = `${year}-${String(month).padStart(2, '0')}-01`
   const lastDay = new Date(Date.UTC(year, month, 0)).toISOString().slice(0, 10)
 
@@ -15,13 +20,5 @@ export default async function ReportsPage() {
     supabase.from('cocktails').select('*').eq('is_active', true).order('profit_margin', { ascending: false }),
   ])
 
-  return (
-    <ReportsClient
-      initialSales={sales ?? []}
-      initialExpenses={expenses ?? []}
-      initialCocktails={cocktails ?? []}
-      initialMonth={month}
-      initialYear={year}
-    />
-  )
+  return NextResponse.json({ sales: sales ?? [], expenses: expenses ?? [], cocktails: cocktails ?? [] })
 }
