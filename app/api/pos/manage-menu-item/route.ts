@@ -14,6 +14,9 @@ export async function POST(req: NextRequest) {
   const { action, id, name, category, price, is_active, sort_order } = await req.json()
 
   if (action === 'create') {
+    if (price !== undefined && (typeof price !== 'number' || price < 0)) {
+      return NextResponse.json({ error: 'Price must be a non-negative number' }, { status: 400 })
+    }
     const { data, error } = await supabase.from('menu_items').insert({ name, category, price, is_active: true, sort_order: sort_order ?? 99 }).select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true, item: data })
@@ -21,6 +24,9 @@ export async function POST(req: NextRequest) {
 
   if (action === 'update') {
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
+    if (price !== undefined && (typeof price !== 'number' || price < 0)) {
+      return NextResponse.json({ error: 'Price must be a non-negative number' }, { status: 400 })
+    }
     const updates: Record<string, unknown> = {}
     if (name !== undefined) updates.name = name
     if (category !== undefined) updates.category = category

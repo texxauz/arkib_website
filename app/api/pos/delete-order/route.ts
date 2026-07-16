@@ -19,7 +19,7 @@ export async function POST(req: NextRequest) {
 
   const { data: order } = await supabase
     .from('pos_orders')
-    .select('id, table_id, opened_at, table_name, total, status, discount_amount, service_charge')
+    .select('id, table_id, opened_at, table_name, total, status, discount_amount, service_charge, tax_amount')
     .eq('id', orderId).single()
   if (!order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
 
@@ -94,11 +94,12 @@ export async function POST(req: NextRequest) {
       const discountRatio = grossSubtotal > 0 ? (order.discount_amount ?? 0) / grossSubtotal : 0
 
       const { data: payments } = await supabase.from('pos_payments').select('method, amount').eq('order_id', orderId)
-      let cashCol = 0, cardCol = 0, qrCol = 0
+      let cashCol = 0, cardCol = 0, qrCol = 0, onlineCol = 0
       for (const p of payments ?? []) {
         if (p.method === 'cash') cashCol += p.amount
         else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount
         else if (p.method === 'qr_payment') qrCol += p.amount
+        else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
       }
 
       await supabase.rpc('decrement_daily_sales', {
@@ -107,10 +108,12 @@ export async function POST(req: NextRequest) {
         p_beer_revenue: beerGross * (1 - discountRatio),
         p_wine_revenue: wineGross * (1 - discountRatio),
         p_food_revenue: foodGross * (1 - discountRatio),
-        p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0),
+        p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
         p_cash_collected: cashCol,
         p_credit_card_collected: cardCol,
         p_qr_collected: qrCol,
+        p_online_collected: onlineCol,
+        p_transaction_count: 1,
       })
     }
   }
