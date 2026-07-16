@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { retrySupabase } from '@/lib/retry'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
@@ -538,18 +539,17 @@ export function BarInventoryClient({
       const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine' && m.category !== 'classic' && m.category !== 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const cocktailsRevenue = eonCocktailRevenue + classicRevenue
 
-      // Upsert daily_sales — throw on failure so cocktail_sales is not orphaned silently
+      // Upsert daily_sales — retry up to 3 times, throw on persistent failure
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
       if (existing) {
-        const { error: dsErr } = await supabase.from('daily_sales').update({
+        await retrySupabase(() => supabase.from('daily_sales').update({
           cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
           wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
           others_revenue: (existing.others_revenue ?? 0) + othersRevenue + whiskeyRevenue,
           transaction_count: existing.transaction_count + eonTotalQty,
-        }).eq('date', eonDate)
-        if (dsErr) throw new Error(`Daily sales update failed: ${dsErr.message}`)
+        }).eq('date', eonDate))
       } else {
-        const { error: dsErr } = await supabase.from('daily_sales').insert({
+        await retrySupabase(() => supabase.from('daily_sales').insert({
           date: eonDate,
           cocktails_revenue: cocktailsRevenue,
           wine_revenue: wineRevenue,
@@ -557,8 +557,7 @@ export function BarInventoryClient({
           beer_revenue: 0,
           food_revenue: 0,
           transaction_count: eonTotalQty,
-        })
-        if (dsErr) throw new Error(`Daily sales insert failed: ${dsErr.message}`)
+        }))
       }
 
       toast(`End of night logged · ${formatCurrency(eonTotalRevenue)}`, 'success')

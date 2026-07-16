@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getBusinessDate } from '@/lib/utils'
+import { retrySupabase } from '@/lib/retry'
 
 const normName = (n: string) =>
   n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -93,15 +94,18 @@ export async function POST(req: NextRequest) {
   const { data: existingPayments } = await supabase
     .from('pos_payments').select('id').eq('order_id', orderId).limit(1)
   if (!existingPayments?.length) {
-    const { error: payErr } = await supabase.from('pos_payments').insert(
-      payments.map((p: { method: string; amount: number }) => ({
-        order_id: orderId,
-        method: p.method,
-        amount: p.amount,
-        captured_by: user.id,
-      }))
-    )
-    if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
+    try {
+      await retrySupabase(() => supabase.from('pos_payments').insert(
+        payments.map((p: { method: string; amount: number }) => ({
+          order_id: orderId,
+          method: p.method,
+          amount: p.amount,
+          captured_by: user.id,
+        }))
+      ))
+    } catch (err: any) {
+      return NextResponse.json({ error: `Payment insert failed after retries: ${err.message}` }, { status: 500 })
+    }
   }
 
   // 8. Insert cocktail_sales rows (analytics — non-fatal on failure).
@@ -236,33 +240,31 @@ export async function POST(req: NextRequest) {
   }
 
   // 14. Atomically increment daily_sales (RPC handles upsert + concurrency).
-  const { error: dsErr } = await supabase.rpc('increment_daily_sales', {
-    p_date: orderDate,
-    p_entered_by: user.id,
-    p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
-    p_beer_revenue: beerGross * (1 - discountRatio),
-    p_wine_revenue: wineGross * (1 - discountRatio),
-    p_food_revenue: foodGross * (1 - discountRatio),
-    p_others_revenue: othersRev,
-    p_cash_collected: cashCol,
-    p_credit_card_collected: cardCol,
-    p_qr_collected: qrCol,
-    p_online_collected: onlineCol,
-    p_transaction_count: 1,
-  })
-  if (dsErr) {
+  try {
+    await retrySupabase(() => supabase.rpc('increment_daily_sales', {
+      p_date: orderDate,
+      p_entered_by: user.id,
+      p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
+      p_beer_revenue: beerGross * (1 - discountRatio),
+      p_wine_revenue: wineGross * (1 - discountRatio),
+      p_food_revenue: foodGross * (1 - discountRatio),
+      p_others_revenue: othersRev,
+      p_cash_collected: cashCol,
+      p_credit_card_collected: cardCol,
+      p_qr_collected: qrCol,
+      p_online_collected: onlineCol,
+      p_transaction_count: 1,
+    }))
+  } catch (err: any) {
     await supabase.from('pos_audit_log').insert({
       actor_id: user.id,
       event: 'inventory.daily_sales_failed',
       entity_type: 'pos_orders',
       entity_id: orderId,
-      payload: { error: dsErr.message, date: orderDate },
+      payload: { error: err.message, date: orderDate },
     })
-    // Return 500 so the client knows daily_sales was not updated.
-    // The order is already closed — manager can check pos_audit_log and
-    // manually correct daily_sales via the Sales page if needed.
     return NextResponse.json({
-      error: `Order closed but daily sales update failed: ${dsErr.message}. Check audit log.`,
+      error: `Order closed but daily sales update failed after retries: ${err.message}. Logged to audit — contact your manager.`,
     }, { status: 500 })
   }
 

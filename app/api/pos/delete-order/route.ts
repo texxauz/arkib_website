@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getBusinessDate } from '@/lib/utils'
+import { retrySupabase } from '@/lib/retry'
 
 const normName = (n: string) =>
   n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -102,29 +103,30 @@ export async function POST(req: NextRequest) {
         else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
       }
 
-      const { error: dsErr } = await supabase.rpc('decrement_daily_sales', {
-        p_date: orderDate,
-        p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
-        p_beer_revenue: beerGross * (1 - discountRatio),
-        p_wine_revenue: wineGross * (1 - discountRatio),
-        p_food_revenue: foodGross * (1 - discountRatio),
-        p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
-        p_cash_collected: cashCol,
-        p_credit_card_collected: cardCol,
-        p_qr_collected: qrCol,
-        p_online_collected: onlineCol,
-        p_transaction_count: 1,
-      })
-      if (dsErr) {
+      try {
+        await retrySupabase(() => supabase.rpc('decrement_daily_sales', {
+          p_date: orderDate,
+          p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
+          p_beer_revenue: beerGross * (1 - discountRatio),
+          p_wine_revenue: wineGross * (1 - discountRatio),
+          p_food_revenue: foodGross * (1 - discountRatio),
+          p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
+          p_cash_collected: cashCol,
+          p_credit_card_collected: cardCol,
+          p_qr_collected: qrCol,
+          p_online_collected: onlineCol,
+          p_transaction_count: 1,
+        }))
+      } catch (err: any) {
         await supabase.from('pos_audit_log').insert({
           actor_id: user.id,
           actor_name: profile?.full_name ?? null,
           event: 'inventory.daily_sales_failed',
           entity_type: 'pos_orders',
           entity_id: orderId,
-          payload: { error: dsErr.message, date: orderDate, action: 'decrement_on_delete' },
+          payload: { error: err.message, date: orderDate, action: 'decrement_on_delete' },
         })
-        return NextResponse.json({ error: `daily_sales reversal failed: ${dsErr.message}. Order not deleted — check audit log.` }, { status: 500 })
+        return NextResponse.json({ error: `daily_sales reversal failed after retries: ${err.message}. Order not deleted.` }, { status: 500 })
       }
     }
   }

@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 import { getBusinessDate } from '@/lib/utils'
+import { retrySupabase } from '@/lib/retry'
 
 const normName = (n: string) =>
   n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
@@ -57,20 +58,22 @@ export async function POST(req: NextRequest) {
       else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
     }
 
-    const { error: dsErr } = await supabase.rpc('decrement_daily_sales', {
-      p_date: orderDate,
-      p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
-      p_beer_revenue: beerGross * (1 - discountRatio),
-      p_wine_revenue: wineGross * (1 - discountRatio),
-      p_food_revenue: foodGross * (1 - discountRatio),
-      // Mirror close-order: service_charge + tax_amount both live in others_revenue
-      p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
-      p_cash_collected: cashCol,
-      p_credit_card_collected: cardCol,
-      p_qr_collected: qrCol,
-      p_online_collected: onlineCol,
-    })
-    if (dsErr) return NextResponse.json({ error: `Failed to reverse daily sales: ${dsErr.message}` }, { status: 500 })
+    try {
+      await retrySupabase(() => supabase.rpc('decrement_daily_sales', {
+        p_date: orderDate,
+        p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
+        p_beer_revenue: beerGross * (1 - discountRatio),
+        p_wine_revenue: wineGross * (1 - discountRatio),
+        p_food_revenue: foodGross * (1 - discountRatio),
+        p_others_revenue: othersGross * (1 - discountRatio) + (order.service_charge ?? 0) + (order.tax_amount ?? 0),
+        p_cash_collected: cashCol,
+        p_credit_card_collected: cardCol,
+        p_qr_collected: qrCol,
+        p_online_collected: onlineCol,
+      }))
+    } catch (err: any) {
+      return NextResponse.json({ error: `Failed to reverse daily sales after retries: ${err.message}` }, { status: 500 })
+    }
 
     // Revert inventory — atomic RPCs
     const { data: premixes } = await supabase.from('bar_premixes').select('id, cocktail_name')
@@ -127,12 +130,18 @@ export async function POST(req: NextRequest) {
   }
 
   // Reverse cocktail_sales rows so re-closing doesn't double-count
-  const { error: csDelErr } = await supabase.from('cocktail_sales').delete().eq('order_id', orderId)
-  if (csDelErr) return NextResponse.json({ error: `Failed to reverse cocktail sales: ${csDelErr.message}` }, { status: 500 })
+  try {
+    await retrySupabase(() => supabase.from('cocktail_sales').delete().eq('order_id', orderId))
+  } catch (err: any) {
+    return NextResponse.json({ error: `Failed to reverse cocktail sales after retries: ${err.message}` }, { status: 500 })
+  }
 
   // Delete payments (they'll be re-entered when the order is closed again)
-  const { error: payDelErr } = await supabase.from('pos_payments').delete().eq('order_id', orderId)
-  if (payDelErr) return NextResponse.json({ error: `Failed to delete payments: ${payDelErr.message}` }, { status: 500 })
+  try {
+    await retrySupabase(() => supabase.from('pos_payments').delete().eq('order_id', orderId))
+  } catch (err: any) {
+    return NextResponse.json({ error: `Failed to delete payments after retries: ${err.message}` }, { status: 500 })
+  }
 
   // Reopen the order
   const { error } = await supabase.from('pos_orders').update({
