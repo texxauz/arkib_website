@@ -1,5 +1,6 @@
 'use client'
 import { useState } from 'react'
+import { retrySupabase } from '@/lib/retry'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
@@ -86,18 +87,18 @@ type DeliveryLine = {
   isNew: boolean
 }
 
-const ACTIVITY_TYPES = ['Sales', 'Infusion Made', 'Premix Made', 'Bottle Sale', 'Classic'] as const
+const ACTIVITY_TYPES = ['Infusion Made', 'Premix Made'] as const
 
 // ── Main Component ────────────────────────────────────────────────────────────
 
 export function BarInventoryClient({
-  initialSpirits, initialInfusions, initialPremixes, initialActivities, recipes, cocktails, initialMenuItems, isAdmin,
+  initialSpirits, initialInfusions, initialPremixes, initialActivities, initialRecipes, cocktails, initialMenuItems, isAdmin,
 }: {
   initialSpirits: Spirit[]
   initialInfusions: Infusion[]
   initialPremixes: Premix[]
   initialActivities: Activity[]
-  recipes: Recipe[]
+  initialRecipes: Recipe[]
   cocktails: Cocktail[]
   initialMenuItems: MenuItem[]
   isAdmin: boolean
@@ -123,9 +124,112 @@ export function BarInventoryClient({
   const [editMenuItem, setEditMenuItem] = useState<MenuItem | null>(null)
   const [menuItemForm, setMenuItemForm] = useState({ name: '', category: 'classic', price: '' })
 
+  // Add infusion modal
+  const [addInfusionOpen, setAddInfusionOpen] = useState(false)
+  const [addInfusionForm, setAddInfusionForm] = useState({ name: '', base_spirit: '', opening_ml: '', ml_per_serve: '', notes: '' })
+  const [addInfusionLoading, setAddInfusionLoading] = useState(false)
+
+  const handleAddInfusion = async () => {
+    if (!addInfusionForm.name.trim()) return
+    setAddInfusionLoading(true)
+    try {
+      const { data, error } = await supabase.from('bar_infusions').insert({
+        name: addInfusionForm.name.trim(),
+        base_spirit: addInfusionForm.base_spirit.trim() || null,
+        opening_ml: parseFloat(addInfusionForm.opening_ml) || 0,
+        produced_ml: 0,
+        used_premix_ml: 0,
+        wasted_ml: 0,
+        ml_per_serve: parseFloat(addInfusionForm.ml_per_serve) || null,
+        notes: addInfusionForm.notes.trim() || null,
+      }).select().single()
+      if (error) throw error
+      setInfusions(prev => [...prev, data as Infusion].sort((a, b) => a.name.localeCompare(b.name)))
+      toast(`${addInfusionForm.name} infusion added`, 'success')
+      setAddInfusionForm({ name: '', base_spirit: '', opening_ml: '', ml_per_serve: '', notes: '' })
+      setAddInfusionOpen(false)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add infusion', 'error')
+    }
+    setAddInfusionLoading(false)
+  }
+
+  // Add premix modal
+  const [addPremixOpen, setAddPremixOpen] = useState(false)
+  const [addPremixForm, setAddPremixForm] = useState({ cocktail_name: '', category: 'Citrusy', ml_per_serve: '60', storage: 'chiller' })
+  const [addPremixLoading, setAddPremixLoading] = useState(false)
+
+  const handleAddPremix = async () => {
+    if (!addPremixForm.cocktail_name.trim()) return
+    setAddPremixLoading(true)
+    try {
+      const name = addPremixForm.cocktail_name.trim() + ' Premix'
+      const { data, error } = await supabase.from('bar_premixes').insert({
+        name,
+        cocktail_name: addPremixForm.cocktail_name.trim(),
+        category: addPremixForm.category,
+        ml_per_serve: parseFloat(addPremixForm.ml_per_serve) || 60,
+        storage: addPremixForm.storage || null,
+        opening_serves: 0,
+        produced_serves: 0,
+        sold_serves: 0,
+      }).select().single()
+      if (error) throw error
+      setPremixes(prev => [...prev, data as Premix].sort((a, b) => (a.cocktail_name ?? a.name).localeCompare(b.cocktail_name ?? b.name)))
+      toast(`${addPremixForm.cocktail_name} premix added — set up its recipe in Edit Recipes`, 'success')
+      setAddPremixForm({ cocktail_name: '', category: 'Citrusy', ml_per_serve: '60', storage: 'chiller' })
+      setAddPremixOpen(false)
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add premix', 'error')
+    }
+    setAddPremixLoading(false)
+  }
+
+  // Recipe editor
+  const [recipes, setRecipes] = useState<Recipe[]>(initialRecipes)
+  const [recipeEditorOpen, setRecipeEditorOpen] = useState(false)
+  const [recipePremix, setRecipePremix] = useState('')
+  const [recipeForm, setRecipeForm] = useState({ ingredient_name: '', ingredient_type: 'infusion' as 'infusion' | 'spirit', ml_per_serve: '' })
+  const [recipeLoading, setRecipeLoading] = useState(false)
+
+  const recipeIngredients = recipes.filter(r => r.premix_name === recipePremix)
+
+  const handleAddRecipeIngredient = async () => {
+    if (!recipePremix || !recipeForm.ingredient_name || !recipeForm.ml_per_serve) return
+    setRecipeLoading(true)
+    try {
+      const { data, error } = await supabase.from('bar_premix_recipes').insert({
+        premix_name: recipePremix,
+        ingredient_name: recipeForm.ingredient_name,
+        ingredient_type: recipeForm.ingredient_type,
+        ml_per_serve: parseFloat(recipeForm.ml_per_serve),
+      }).select().single()
+      if (error) throw error
+      setRecipes(prev => [...prev, data as Recipe])
+      setRecipeForm({ ingredient_name: '', ingredient_type: 'infusion', ml_per_serve: '' })
+      toast('Ingredient added', 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to add ingredient', 'error')
+    }
+    setRecipeLoading(false)
+  }
+
+  const handleDeleteRecipeIngredient = async (id: string) => {
+    setRecipeLoading(true)
+    try {
+      const { error } = await supabase.from('bar_premix_recipes').delete().eq('id', id)
+      if (error) throw error
+      setRecipes(prev => prev.filter(r => r.id !== id))
+      toast('Ingredient removed', 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to remove ingredient', 'error')
+    }
+    setRecipeLoading(false)
+  }
+
   // Log activity form
   const [logForm, setLogForm] = useState({
-    activity_type: 'Sales' as typeof ACTIVITY_TYPES[number],
+    activity_type: 'Infusion Made' as typeof ACTIVITY_TYPES[number],
     product: '',
     qty: '1',
     vol_ml: '',
@@ -220,6 +324,45 @@ export function BarInventoryClient({
   const [eonDate, setEonDate] = useState(new Date().toISOString().split('T')[0])
   const [eonQty, setEonQty] = useState<Record<string, number>>({})
   const [eonLoading, setEonLoading] = useState(false)
+  const [eonClassicSpirits, setEonClassicSpirits] = useState<Record<string, { spirit_1: string; vol_1: string; spirit_2: string; vol_2: string; spirit_3: string; vol_3: string }>>({})
+  const [loadPastDate, setLoadPastDate] = useState('')
+  const [loadPastLoading, setLoadPastLoading] = useState(false)
+
+  const handleLoadPastEON = async () => {
+    if (!loadPastDate) return
+    setLoadPastLoading(true)
+    try {
+      const { data, error } = await supabase
+        .from('cocktail_sales')
+        .select('cocktail_id, cocktail_name, quantity, category')
+        .eq('date', loadPastDate)
+      if (error) throw error
+      if (!data || data.length === 0) {
+        toast(`No EON entry found for ${loadPastDate}`, 'error')
+        setLoadPastLoading(false)
+        return
+      }
+      const newQty: Record<string, number> = {}
+      const newMenuQty: Record<string, number> = {}
+      for (const row of data) {
+        if (row.category === 'house_cocktail' && row.cocktail_id) {
+          newQty[row.cocktail_id] = row.quantity
+        } else {
+          const menuItem = menuItems.find(m => m.name === row.cocktail_name)
+          if (menuItem) newMenuQty[menuItem.id] = row.quantity
+        }
+      }
+      setEonQty(newQty)
+      setEonMenuQty(newMenuQty)
+      setEonClassicSpirits({})
+      setLoadPastDate('')
+      toast(`Loaded ${data.length} items from ${loadPastDate} — review and adjust before submitting`, 'success')
+    } catch (err: any) {
+      toast(err.message ?? 'Failed to load past entry', 'error')
+    }
+    setLoadPastLoading(false)
+  }
+  const emptyClassicSpirits = { spirit_1: '', vol_1: '', spirit_2: '', vol_2: '', spirit_3: '', vol_3: '' }
 
   const eonEntries = cocktails.filter(c => (eonQty[c.id] ?? 0) > 0)
   const eonMenuEntries = menuItems.filter(m => m.is_active && (eonMenuQty[m.id] ?? 0) > 0)
@@ -233,8 +376,59 @@ export function BarInventoryClient({
 
   const handleEON = async () => {
     if (eonEntries.length === 0 && eonMenuEntries.length === 0) return
+    if (eonLoading) return
+
     setEonLoading(true)
     try {
+      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+
+      // Check if cocktail_sales rows already exist for this date.
+      const { data: existingRows } = await supabase
+        .from('cocktail_sales')
+        .select('id, category, quantity, unit_price')
+        .eq('date', eonDate)
+      const alreadySubmitted = (existingRows ?? []).length > 0
+
+      if (alreadySubmitted) {
+        // cocktail_sales already recorded — only sync daily_sales from the canonical DB rows.
+        // This repairs the case where the first submission wrote cocktail_sales but
+        // daily_sales was never updated (e.g. network failure, RLS rejection, early abort).
+        const rows = existingRows!
+        const dbCocktailRev = rows
+          .filter(r => r.category === 'house_cocktail' || r.category === 'classic')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbWineRev = rows
+          .filter(r => r.category === 'wine')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbWhiskyRev = rows
+          .filter(r => r.category === 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbOthersRev = rows
+          .filter(r => r.category !== 'house_cocktail' && r.category !== 'classic' && r.category !== 'wine' && r.category !== 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbTotalQty = rows.reduce((s, r) => s + r.quantity, 0)
+
+        const { data: dsRow } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
+        if (!dsRow) {
+          await supabase.from('daily_sales').insert({
+            date: eonDate,
+            cocktails_revenue: dbCocktailRev,
+            wine_revenue: dbWineRev,
+            others_revenue: dbOthersRev + dbWhiskyRev,
+            beer_revenue: 0,
+            food_revenue: 0,
+            transaction_count: dbTotalQty,
+          })
+          toast(`Daily sales synced from existing EON · ${formatCurrency(dbCocktailRev + dbWineRev + dbOthersRev + dbWhiskyRev)}`, 'success')
+        } else {
+          toast(`EON already submitted for ${eonDate}. Delete it in Sales → EON History first to resubmit.`, 'error')
+        }
+        setEonLoading(false)
+        return
+      }
+
+      // ── Fresh submission ──────────────────────────────────────────────────
+
       // Insert house cocktail sales
       if (eonEntries.length > 0) {
         const { error: salesErr } = await supabase.from('cocktail_sales').insert(
@@ -268,47 +462,108 @@ export function BarInventoryClient({
       }
 
       // Update bar_premixes sold_serves
+      const unmatchedPremixes: string[] = []
       for (const c of eonEntries) {
         const qty = eonQty[c.id]
-        const premix = premixes.find(p => p.cocktail_name?.toLowerCase() === c.name.toLowerCase())
+        const premix = premixes.find(p => normName(p.cocktail_name ?? '') === normName(c.name))
         if (premix) {
-          await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
+          const { error: pmErr } = await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
+          if (pmErr) throw new Error(`Premix inventory update failed (${c.name}): ${pmErr.message}`)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
+        } else {
+          unmatchedPremixes.push(c.name)
         }
       }
+      if (unmatchedPremixes.length > 0) {
+        toast(`⚠ No premix matched for: ${unmatchedPremixes.join(', ')} — sold_serves not deducted`, 'error')
+      }
 
-      // Revenue buckets
+      // Deduct spirit volumes for classic cocktails
+      const unmatchedClassicSpirits: string[] = []
+      const classicSpiritDelta = new Map<string, number>()
+      for (const m of eonMenuEntries) {
+        if (m.category !== 'classic') continue
+        const qty = eonMenuQty[m.id]
+        const recipe = eonClassicSpirits[m.id]
+        if (!recipe) continue
+        const picks: { name: string; volMl: string }[] = [
+          { name: recipe.spirit_1, volMl: recipe.vol_1 },
+          { name: recipe.spirit_2, volMl: recipe.vol_2 },
+          { name: recipe.spirit_3, volMl: recipe.vol_3 },
+        ]
+        for (const p of picks) {
+          if (!p.name || !p.volMl) continue
+          const totalMl = (parseInt(p.volMl) || 0) * qty
+          const spirit = spirits.find(s => normName(s.name) === normName(p.name))
+          if (spirit && totalMl > 0) {
+            classicSpiritDelta.set(spirit.id, (classicSpiritDelta.get(spirit.id) ?? 0) + totalMl)
+          } else if (!spirit) {
+            unmatchedClassicSpirits.push(`${m.name} → "${p.name}"`)
+          }
+        }
+      }
+      for (const [spiritId, totalMl] of classicSpiritDelta) {
+        const spirit = spirits.find(s => s.id === spiritId)
+        if (spirit) {
+          const { error: spErr } = await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spiritId)
+          if (spErr) throw new Error(`Spirit ml deduction failed (${spirit.name}): ${spErr.message}`)
+          setSpirits(prev => prev.map(s => s.id === spiritId ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
+        }
+      }
+      if (unmatchedClassicSpirits.length > 0) {
+        toast(`⚠ Spirit not found, inventory not deducted: ${unmatchedClassicSpirits.join(', ')}`, 'error')
+      }
+
+      // Deduct bottle stock for wine/whisky
+      const unmatchedBottles: string[] = []
+      for (const m of eonMenuEntries) {
+        if (m.category !== 'wine' && m.category !== 'whisky') continue
+        const qty = eonMenuQty[m.id]
+        const spirit = spirits.find(s => normName(s.name) === normName(m.name))
+        if (spirit) {
+          const { error: btlErr } = await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
+          if (btlErr) throw new Error(`Bottle stock deduction failed (${m.name}): ${btlErr.message}`)
+          setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles - qty } : s))
+        } else {
+          unmatchedBottles.push(m.name)
+        }
+      }
+      if (unmatchedBottles.length > 0) {
+        toast(`⚠ No spirit matched for: ${unmatchedBottles.join(', ')} — bottle stock not deducted`, 'error')
+      }
+
+      // Split revenue by category — classics count as cocktails, whisky goes into others
+      const classicRevenue = eonMenuEntries.filter(m => m.category === 'classic').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const wineRevenue = eonMenuEntries.filter(m => m.category === 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
-      const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
-      const cocktailsRevenue = eonCocktailRevenue
+      const whiskeyRevenue = eonMenuEntries.filter(m => m.category === 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine' && m.category !== 'classic' && m.category !== 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
+      const cocktailsRevenue = eonCocktailRevenue + classicRevenue
 
-      // Upsert daily_sales
+      // Upsert daily_sales — retry up to 3 times, throw on persistent failure
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
       if (existing) {
-        await supabase.from('daily_sales').update({
-          total_revenue: existing.total_revenue + eonTotalRevenue,
+        await retrySupabase(() => supabase.from('daily_sales').update({
           cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
           wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
-          others_revenue: (existing.others_revenue ?? 0) + othersRevenue,
+          others_revenue: (existing.others_revenue ?? 0) + othersRevenue + whiskeyRevenue,
           transaction_count: existing.transaction_count + eonTotalQty,
-        }).eq('date', eonDate)
+        }).eq('date', eonDate))
       } else {
-        await supabase.from('daily_sales').insert({
+        await retrySupabase(() => supabase.from('daily_sales').insert({
           date: eonDate,
-          total_revenue: eonTotalRevenue,
           cocktails_revenue: cocktailsRevenue,
           wine_revenue: wineRevenue,
-          others_revenue: othersRevenue,
+          others_revenue: othersRevenue + whiskeyRevenue,
           beer_revenue: 0,
           food_revenue: 0,
           transaction_count: eonTotalQty,
-          is_balanced: true,
-        })
+        }))
       }
 
       toast(`End of night logged · ${formatCurrency(eonTotalRevenue)}`, 'success')
       setEonQty({})
       setEonMenuQty({})
+      setEonClassicSpirits({})
     } catch (err: any) {
       toast(err.message ?? 'Failed to submit', 'error')
     }
@@ -339,6 +594,8 @@ export function BarInventoryClient({
       setMenuItems(prev => [...prev, data as MenuItem])
       toast('Item added', 'success')
     }
+    setEditMenuItem(null)
+    setMenuItemForm({ name: '', category: 'classic', price: '' })
     setMenuItemModal(false)
   }
   const handleDeleteMenuItem = async (id: string) => {
@@ -373,11 +630,8 @@ export function BarInventoryClient({
   // ── Product options per activity type ──────────────────────────────────────
   const productOptions = () => {
     switch (logForm.activity_type) {
-      case 'Sales': return premixes.map(p => p.cocktail_name ?? p.name)
       case 'Infusion Made': return infusions.map(i => i.name)
       case 'Premix Made': return premixes.map(p => p.name)
-      case 'Bottle Sale': return spirits.filter(s => s.category === 'Wine').map(s => s.name)
-      case 'Classic': return ['Negroni', 'Old Fashioned', 'Margarita', 'Gin & Tonic', 'Whisky Sour', 'Other']
       default: return []
     }
   }
@@ -415,23 +669,13 @@ export function BarInventoryClient({
       if (insertError) throw insertError
 
       // Update inventory based on activity type
-      if (logForm.activity_type === 'Sales') {
-        const premix = premixes.find(p =>
-          p.cocktail_name?.toLowerCase() === logForm.product.toLowerCase() ||
-          p.name.toLowerCase().includes(logForm.product.toLowerCase())
-        )
-        if (premix) {
-          await supabase.from('bar_premixes')
-            .update({ sold_serves: premix.sold_serves + qty })
-            .eq('id', premix.id)
-          setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
-        }
-      } else if (logForm.activity_type === 'Infusion Made' && volMl) {
+      if (logForm.activity_type === 'Infusion Made' && volMl) {
         const infusion = infusions.find(i => i.name.toLowerCase() === logForm.product.toLowerCase())
         if (infusion) {
-          await supabase.from('bar_infusions')
+          const { error: infErr } = await supabase.from('bar_infusions')
             .update({ produced_ml: infusion.produced_ml + volMl })
             .eq('id', infusion.id)
+          if (infErr) throw new Error(`Infusion update failed: ${infErr.message}`)
           setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: i.produced_ml + volMl } : i))
         }
         // Deduct spirits used to make this infusion
@@ -442,18 +686,20 @@ export function BarInventoryClient({
         for (const u of infusionSpiritUpdates) {
           const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
           if (spirit) {
-            await supabase.from('bar_spirits')
+            const { error: spErr } = await supabase.from('bar_spirits')
               .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
               .eq('id', spirit.id)
+            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
           }
         }
       } else if (logForm.activity_type === 'Premix Made') {
         const premix = premixes.find(p => p.name.toLowerCase() === logForm.product.toLowerCase())
         if (premix) {
-          await supabase.from('bar_premixes')
+          const { error: pmErr } = await supabase.from('bar_premixes')
             .update({ produced_serves: premix.produced_serves + qty })
             .eq('id', premix.id)
+          if (pmErr) throw new Error(`Premix update failed: ${pmErr.message}`)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: p.produced_serves + qty } : p))
         }
 
@@ -465,18 +711,20 @@ export function BarInventoryClient({
           if (r.ingredient_type === 'infusion') {
             const infusion = infusions.find(i => i.name.toLowerCase() === r.ingredient_name.toLowerCase())
             if (infusion) {
-              await supabase.from('bar_infusions')
+              const { error: infErr } = await supabase.from('bar_infusions')
                 .update({ used_premix_ml: infusion.used_premix_ml + totalMl })
                 .eq('id', infusion.id)
+              if (infErr) throw new Error(`Infusion deduction failed (${r.ingredient_name}): ${infErr.message}`)
               setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, used_premix_ml: i.used_premix_ml + totalMl } : i))
               deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
             }
           } else if (r.ingredient_type === 'spirit') {
             const spirit = spirits.find(s => s.name.toLowerCase() === r.ingredient_name.toLowerCase())
             if (spirit) {
-              await supabase.from('bar_spirits')
+              const { error: spErr } = await supabase.from('bar_spirits')
                 .update({ used_classics_ml: spirit.used_classics_ml + totalMl })
                 .eq('id', spirit.id)
+              if (spErr) throw new Error(`Spirit deduction failed (${r.ingredient_name}): ${spErr.message}`)
               setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
               deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
             }
@@ -490,31 +738,16 @@ export function BarInventoryClient({
         for (const u of rawSpiritUpdates) {
           const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
           if (spirit) {
-            await supabase.from('bar_spirits')
+            const { error: spErr } = await supabase.from('bar_spirits')
               .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
               .eq('id', spirit.id)
+            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
             deductionSummary.push(`${u.name} −${u.vol}ml`)
           }
         }
         if (deductionSummary.length > 0) {
           toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
-        }
-      } else if (logForm.activity_type === 'Classic') {
-        // Update used_classics_ml for each spirit
-        const updates: { name: string; vol: number }[] = []
-        if (logForm.spirit_1 && logForm.vol_1) updates.push({ name: logForm.spirit_1, vol: parseInt(logForm.vol_1) * qty })
-        if (logForm.spirit_2 && logForm.vol_2) updates.push({ name: logForm.spirit_2, vol: parseInt(logForm.vol_2) * qty })
-        if (logForm.spirit_3 && logForm.vol_3) updates.push({ name: logForm.spirit_3, vol: parseInt(logForm.vol_3) * qty })
-
-        for (const u of updates) {
-          const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
-          if (spirit) {
-            await supabase.from('bar_spirits')
-              .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
-              .eq('id', spirit.id)
-            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
-          }
         }
       }
 
@@ -562,8 +795,8 @@ export function BarInventoryClient({
       }).eq('id', editActivityId).select().single()
       if (error) throw error
 
-      // Recalculate spirit inventory delta for Classic, Infusion Made, and Premix Made activities
-      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Classic' || logForm.activity_type === 'Premix Made') {
+      // Recalculate spirit inventory delta for Infusion Made and Premix Made activities
+      if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') {
         const old = activities.find(a => a.id === editActivityId)!
         const oldQty = old.qty
         const isInfusion = logForm.activity_type === 'Infusion Made'
@@ -594,7 +827,8 @@ export function BarInventoryClient({
             const spirit = spirits.find(s => s.name === name)
             if (spirit) {
               const updated = spirit.used_classics_ml + delta
-              await supabase.from('bar_spirits').update({ used_classics_ml: updated }).eq('id', spirit.id)
+              const { error: spErr } = await supabase.from('bar_spirits').update({ used_classics_ml: updated }).eq('id', spirit.id)
+              if (spErr) throw new Error(`Spirit inventory correction failed (${name}): ${spErr.message}`)
               setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: updated } : s))
             }
           }
@@ -632,8 +866,10 @@ export function BarInventoryClient({
   const saveInfusion = async (i: Infusion) => {
     setLoading(true)
     const { error } = await supabase.from('bar_infusions').update({
+      name: i.name, base_spirit: i.base_spirit, notes: i.notes,
       opening_ml: i.opening_ml, produced_ml: i.produced_ml,
       used_premix_ml: i.used_premix_ml, wasted_ml: i.wasted_ml,
+      ml_per_serve: i.ml_per_serve,
     }).eq('id', i.id)
     if (error) toast(error.message, 'error')
     else {
@@ -644,10 +880,24 @@ export function BarInventoryClient({
     setLoading(false)
   }
 
+  const deleteInfusion = async (id: string) => {
+    setLoading(true)
+    const { error } = await supabase.from('bar_infusions').delete().eq('id', id)
+    if (error) toast(error.message, 'error')
+    else {
+      setInfusions(prev => prev.filter(x => x.id !== id))
+      toast('Infusion deleted', 'success')
+      setEditInfusion(null)
+    }
+    setLoading(false)
+  }
+
   // ── Edit Premix ─────────────────────────────────────────────────────────────
   const savePremix = async (p: Premix) => {
     setLoading(true)
     const { error } = await supabase.from('bar_premixes').update({
+      cocktail_name: p.cocktail_name, category: p.category,
+      ml_per_serve: p.ml_per_serve, storage: p.storage,
       opening_serves: p.opening_serves, produced_serves: p.produced_serves, sold_serves: p.sold_serves,
     }).eq('id', p.id)
     if (error) toast(error.message, 'error')
@@ -656,6 +906,19 @@ export function BarInventoryClient({
       toast('Premix updated', 'success')
       setEditPremix(null)
     }
+    setLoading(false)
+  }
+
+  const deletePremix = async (id: string) => {
+    setLoading(true)
+    const premixName = premixes.find(p => p.id === id)?.name ?? ''
+    const { error } = await supabase.from('bar_premixes').delete().eq('id', id)
+    if (error) { toast(error.message, 'error'); setLoading(false); return }
+    setPremixes(prev => prev.filter(x => x.id !== id))
+    const { error: recipeError } = await supabase.from('bar_premix_recipes').delete().eq('premix_name', premixName)
+    if (recipeError) toast(`Premix deleted but recipes could not be removed: ${recipeError.message}`, 'error')
+    else toast('Premix deleted', 'success')
+    setEditPremix(null)
     setLoading(false)
   }
 
@@ -841,6 +1104,14 @@ export function BarInventoryClient({
 
       {/* ── INFUSIONS ── */}
       {tab === 'infusions' && (
+        <>
+        {isAdmin && (
+          <div className="flex justify-end">
+            <button onClick={() => setAddInfusionOpen(true)} className="btn-primary flex items-center gap-2 text-xs">
+              <Plus size={13} /> Add Infusion
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-[#2A2A30]">
           <table className="w-full text-sm">
             <thead>
@@ -875,10 +1146,22 @@ export function BarInventoryClient({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ── PREMIXES ── */}
       {tab === 'premixes' && (
+        <>
+        {isAdmin && (
+          <div className="flex justify-end gap-2">
+            <button onClick={() => setAddPremixOpen(true)} className="btn-primary flex items-center gap-2 text-xs">
+              <Plus size={13} /> Add Premix
+            </button>
+            <button onClick={() => setRecipeEditorOpen(true)} className="btn-secondary flex items-center gap-2 text-xs">
+              Edit Recipes
+            </button>
+          </div>
+        )}
         <div className="overflow-x-auto rounded-xl border border-[#2A2A30]">
           <table className="w-full text-sm">
             <thead>
@@ -912,6 +1195,7 @@ export function BarInventoryClient({
             </tbody>
           </table>
         </div>
+        </>
       )}
 
       {/* ── ACTIVITY LOG ── */}
@@ -941,6 +1225,7 @@ export function BarInventoryClient({
                         a.activity_type === 'Infusion Made' ? 'bg-blue-500/10 text-blue-400' :
                         a.activity_type === 'Premix Made' ? 'bg-purple-500/10 text-purple-400' :
                         a.activity_type === 'Classic' ? 'bg-orange-500/10 text-orange-400' :
+                        a.activity_type === 'Stock Received' ? 'bg-teal-500/10 text-teal-400' :
                         'bg-[#2A2A30] text-[#9896A4]'
                       }`}>{a.activity_type}</span>
                     </td>
@@ -975,7 +1260,7 @@ export function BarInventoryClient({
                               }
                             }
                             // Restore premix/infusion stock
-                            if (a.activity_type === 'Premix Made' && a.vol_ml) {
+                            if (a.activity_type === 'Premix Made') {
                               const premix = premixes.find(p => p.name.toLowerCase() === a.product.toLowerCase() || p.cocktail_name?.toLowerCase() === a.product.toLowerCase())
                               if (premix) {
                                 await supabase.from('bar_premixes').update({ produced_serves: Math.max(0, premix.produced_serves - qty) }).eq('id', premix.id)
@@ -987,6 +1272,13 @@ export function BarInventoryClient({
                               if (infusion) {
                                 await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - (a.vol_ml ?? 0)) }).eq('id', infusion.id)
                                 setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - (a.vol_ml ?? 0)) } : i))
+                              }
+                            }
+                            if (a.activity_type === 'Stock Received') {
+                              const spirit = spirits.find(s => s.name.toLowerCase() === a.product.toLowerCase())
+                              if (spirit) {
+                                await supabase.from('bar_spirits').update({ full_bottles: Math.max(0, spirit.full_bottles - qty) }).eq('id', spirit.id)
+                                setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: Math.max(0, s.full_bottles - qty) } : s))
                               }
                             }
                             setActivities(prev => prev.filter(x => x.id !== a.id))
@@ -1006,16 +1298,34 @@ export function BarInventoryClient({
       {/* ── END OF NIGHT ── */}
       {tab === 'eod' && (
         <div className="space-y-6">
-          <div className="flex items-center justify-between">
+          <div className="flex flex-wrap items-end justify-between gap-3">
             <div>
               <label className="label">Date</label>
               <input type="date" className="input" value={eonDate} onChange={e => setEonDate(e.target.value)} />
             </div>
-            {isAdmin && (
-              <button onClick={openAddMenuItem} className="btn-secondary flex items-center gap-2 text-xs">
-                <Plus size={13} /> Manage Items
+            <div className="flex items-end gap-2 flex-wrap">
+              <div>
+                <label className="label text-[#9896A4]">Load past entry</label>
+                <input
+                  type="date"
+                  className="input text-sm"
+                  value={loadPastDate}
+                  onChange={e => setLoadPastDate(e.target.value)}
+                />
+              </div>
+              <button
+                onClick={handleLoadPastEON}
+                disabled={!loadPastDate || loadPastLoading}
+                className="btn-secondary text-xs h-10 disabled:opacity-50"
+              >
+                {loadPastLoading ? 'Loading...' : 'Load'}
               </button>
-            )}
+              {isAdmin && (
+                <button onClick={openAddMenuItem} className="btn-secondary flex items-center gap-2 text-xs h-10">
+                  <Plus size={13} /> Manage Items
+                </button>
+              )}
+            </div>
           </div>
 
           {/* House Cocktails */}
@@ -1053,22 +1363,47 @@ export function BarInventoryClient({
               <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Classic Cocktails</p>
               {menuItems.filter(m => m.is_active && m.category === 'classic').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
                 const qty = eonMenuQty[m.id] ?? 0
+                const recipe = eonClassicSpirits[m.id] ?? emptyClassicSpirits
+                const setRecipe = (field: keyof typeof emptyClassicSpirits, value: string) =>
+                  setEonClassicSpirits(p => ({ ...p, [m.id]: { ...(p[m.id] ?? emptyClassicSpirits), [field]: value } }))
                 return (
-                  <div key={m.id} className="card flex items-center gap-3">
-                    <div className="flex-1 min-w-0">
-                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
-                      <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
-                    </div>
-                    <div className="flex items-center gap-2 flex-shrink-0">
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
-                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
-                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
-                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
-                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                  <div key={m.id} className="card flex flex-col gap-3">
+                    <div className="flex items-center gap-3">
+                      <div className="flex-1 min-w-0">
+                        <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                        <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
+                      </div>
+                      <div className="flex items-center gap-2 flex-shrink-0">
+                        <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                          className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                        <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                        <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                          className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                      </div>
+                      {qty > 0 && (
+                        <div className="text-right w-24 flex-shrink-0">
+                          <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                        </div>
+                      )}
                     </div>
                     {qty > 0 && (
-                      <div className="text-right w-24 flex-shrink-0">
-                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      <div className="space-y-1.5 border-t border-[#2A2A30] pt-2">
+                        <p className="text-[#5A5865] text-[10px] uppercase tracking-wider">Spirits used (ml per serve, optional)</p>
+                        {([1, 2, 3] as const).map(n => (
+                          <div key={n} className="grid grid-cols-2 gap-1.5">
+                            <select
+                              value={recipe[`spirit_${n}` as 'spirit_1']}
+                              onChange={e => setRecipe(`spirit_${n}` as 'spirit_1', e.target.value)}
+                              className="input text-xs py-1.5">
+                              <option value="">Spirit {n}</option>
+                              {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                            </select>
+                            <input type="number" min="0" placeholder="ml per serve"
+                              value={recipe[`vol_${n}` as 'vol_1']}
+                              onChange={e => setRecipe(`vol_${n}` as 'vol_1', e.target.value)}
+                              className="input text-xs py-1.5" />
+                          </div>
+                        ))}
                       </div>
                     )}
                   </div>
@@ -1137,6 +1472,66 @@ export function BarInventoryClient({
             </div>
           )}
 
+          {/* Beer */}
+          {menuItems.filter(m => m.is_active && m.category === 'beer').length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Beer</p>
+              {menuItems.filter(m => m.is_active && m.category === 'beer').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
+                const qty = eonMenuQty[m.id] ?? 0
+                return (
+                  <div key={m.id} className="flex items-center justify-between gap-3 py-1">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-[#9896A4] text-xs">{formatCurrency(m.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                    </div>
+                    {qty > 0 && (
+                      <div className="text-right w-24 flex-shrink-0">
+                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* Other */}
+          {menuItems.filter(m => m.is_active && m.category === 'other').length > 0 && (
+            <div className="space-y-2">
+              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">Other</p>
+              {menuItems.filter(m => m.is_active && m.category === 'other').sort((a, b) => a.sort_order - b.sort_order || a.name.localeCompare(b.name)).map(m => {
+                const qty = eonMenuQty[m.id] ?? 0
+                return (
+                  <div key={m.id} className="flex items-center justify-between gap-3 py-1">
+                    <div className="flex-1 min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{m.name}</p>
+                      <p className="text-[#9896A4] text-xs">{formatCurrency(m.price)}</p>
+                    </div>
+                    <div className="flex items-center gap-2">
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: Math.max(0, (p[m.id] ?? 0) - 1) }))}
+                        className="w-8 h-8 rounded-lg bg-[#1A1A1E] text-[#F0EEF6] flex items-center justify-center text-lg font-bold hover:bg-[#2A2A30]">−</button>
+                      <span className="w-8 text-center text-[#F0EEF6] font-bold text-lg">{qty}</span>
+                      <button type="button" onClick={() => setEonMenuQty(p => ({ ...p, [m.id]: (p[m.id] ?? 0) + 1 }))}
+                        className="w-8 h-8 rounded-lg bg-[#8B5CF6]/20 text-[#A78BFA] flex items-center justify-center text-lg font-bold hover:bg-[#8B5CF6]/30">+</button>
+                    </div>
+                    {qty > 0 && (
+                      <div className="text-right w-24 flex-shrink-0">
+                        <p className="text-emerald-400 text-xs font-semibold">{formatCurrency(m.price * qty)}</p>
+                      </div>
+                    )}
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
           {eonTotalRevenue > 0 && (
             <div className="card border-[#8B5CF6]/20 space-y-3">
               <p className="text-[#9896A4] text-xs uppercase tracking-wider">Tonight's Summary</p>
@@ -1179,12 +1574,13 @@ export function BarInventoryClient({
           {/* Existing items list */}
           {!editMenuItem && (
             <div className="space-y-2 max-h-64 overflow-y-auto">
-              {['classic', 'wine', 'whisky'].map(cat => {
+              {['classic', 'wine', 'whisky', 'beer', 'other'].map(cat => {
                 const catItems = menuItems.filter(m => m.category === cat)
                 if (catItems.length === 0) return null
+                const catLabel: Record<string, string> = { classic: 'Classics', wine: 'Wine', whisky: 'Whisky', beer: 'Beer', other: 'Other' }
                 return (
                   <div key={cat}>
-                    <p className="text-[#5A5865] text-[10px] uppercase tracking-wider mb-1 font-medium">{cat === 'classic' ? 'Classics' : cat === 'wine' ? 'Wine' : 'Whisky'}</p>
+                    <p className="text-[#5A5865] text-[10px] uppercase tracking-wider mb-1 font-medium">{catLabel[cat] ?? cat}</p>
                     {catItems.map(m => (
                       <div key={m.id} className="flex items-center justify-between py-1.5 px-2 rounded-lg hover:bg-[#1A1A1E]">
                         <div className="flex-1 min-w-0">
@@ -1229,7 +1625,7 @@ export function BarInventoryClient({
                 <button onClick={() => { setEditMenuItem(null); setMenuItemForm({ name: '', category: 'classic', price: '' }) }} className="btn-secondary flex-1">
                   {editMenuItem ? 'Cancel Edit' : 'Clear'}
                 </button>
-                <button onClick={handleSaveMenuItem} disabled={!menuItemForm.name || !menuItemForm.price} className="btn-primary flex-1 disabled:opacity-50">
+                <button onClick={handleSaveMenuItem} disabled={!menuItemForm.name || !menuItemForm.price || loading} className="btn-primary flex-1 disabled:opacity-50">
                   {editMenuItem ? 'Update' : 'Add Item'}
                 </button>
               </div>
@@ -1407,8 +1803,25 @@ export function BarInventoryClient({
                 ))}
               </select>
             </div>
+            {logForm.activity_type === 'Premix Made' && logForm.product && (() => {
+              const recipeItems = recipes.filter(r => r.premix_name.toLowerCase() === logForm.product.toLowerCase())
+              if (recipeItems.length === 0) return null
+              return (
+                <div className="col-span-2 bg-[#1A1A1E] border border-[#2A2A30] rounded-lg p-3">
+                  <p className="text-[#9896A4] text-xs font-medium mb-2">Auto-deducted from recipe</p>
+                  <div className="space-y-1">
+                    {recipeItems.map(r => (
+                      <div key={r.id} className="flex justify-between text-xs">
+                        <span className="text-[#F0EEF6]">{r.ingredient_name}</span>
+                        <span className="text-[#9896A4]">{r.ml_per_serve}ml/serve · {r.ingredient_type}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
             <div>
-              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : logForm.activity_type === 'Infusion Made' ? '(batches)' : '(serves)'}</label>
+              <label className="label">Qty {logForm.activity_type === 'Premix Made' ? '(serves)' : '(batches)'}</label>
               <input type="number" min="1" value={logForm.qty}
                 onChange={e => setLogForm(f => ({ ...f, qty: e.target.value }))} className="input" required />
             </div>
@@ -1427,10 +1840,10 @@ export function BarInventoryClient({
             )}
           </div>
 
-          {(logForm.activity_type === 'Classic' || logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
+          {(logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') && (
             <div className="space-y-2 border border-[#2A2A30] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs font-medium">
-                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : logForm.activity_type === 'Premix Made' ? 'Raw Spirits Used (ml per serve)' : 'Spirits Used'}
+                {logForm.activity_type === 'Infusion Made' ? 'Spirits Used (total ml for this batch)' : 'Raw Spirits Used (ml per serve)'}
               </p>
               {([1, 2, 3] as const).map(n => {
                 const volVal = logForm[`vol_${n}` as 'vol_1']
@@ -1593,24 +2006,63 @@ export function BarInventoryClient({
       {editInfusion && (
         <Modal isOpen onClose={() => setEditInfusion(null)} title={`Edit: ${editInfusion.name}`} size="sm">
           <div className="space-y-3">
-            {[
-              { label: 'Opening ml', key: 'opening_ml' },
-              { label: 'Produced ml', key: 'produced_ml' },
-              { label: 'Used in Premix ml', key: 'used_premix_ml' },
-              { label: 'Wasted ml', key: 'wasted_ml' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="label">{label}</label>
-                <input type="number" min="0" value={editInfusion[key as keyof Infusion] as number}
-                  onChange={e => setEditInfusion(i => i ? { ...i, [key]: parseInt(e.target.value) || 0 } : i)}
-                  className="input" />
+            <div>
+              <label className="label">Infusion Name</label>
+              <input type="text" className="input" value={editInfusion.name ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, name: e.target.value } : i)} />
+            </div>
+            <div>
+              <label className="label">Base Spirit</label>
+              <input type="text" className="input" value={editInfusion.base_spirit ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, base_spirit: e.target.value } : i)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">ml per serve</label>
+                <input type="number" min="0" className="input" value={editInfusion.ml_per_serve ?? ''}
+                  onChange={e => setEditInfusion(i => i ? { ...i, ml_per_serve: parseInt(e.target.value) || 0 } : i)} />
               </div>
-            ))}
+              <div>
+                <label className="label">Opening ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.opening_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, opening_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Produced ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.produced_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, produced_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+              <div>
+                <label className="label">Used in Premix ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.used_premix_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, used_premix_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Wasted ml</label>
+                <input type="number" min="0" className="input" value={editInfusion.wasted_ml ?? 0}
+                  onChange={e => setEditInfusion(i => i ? { ...i, wasted_ml: parseInt(e.target.value) || 0 } : i)} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Notes</label>
+              <input type="text" className="input" value={editInfusion.notes ?? ''}
+                onChange={e => setEditInfusion(i => i ? { ...i, notes: e.target.value } : i)} />
+            </div>
             <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
               Balance: {infusionBalance(editInfusion)}ml
               {editInfusion.ml_per_serve ? ` · ${infusionServes(editInfusion)} serves` : ''}
             </div>
             <div className="flex gap-3 pt-1">
+              {isAdmin && (
+                <button onClick={() => deleteInfusion(editInfusion.id)} disabled={loading}
+                  className="btn-secondary flex-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+                  {loading ? '...' : 'Delete'}
+                </button>
+              )}
               <button onClick={() => setEditInfusion(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={() => saveInfusion(editInfusion)} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
                 {loading ? 'Saving...' : 'Save'}
@@ -1624,22 +2076,60 @@ export function BarInventoryClient({
       {editPremix && (
         <Modal isOpen onClose={() => setEditPremix(null)} title={`Edit: ${editPremix.cocktail_name ?? editPremix.name}`} size="sm">
           <div className="space-y-3">
-            {[
-              { label: 'Opening Serves', key: 'opening_serves' },
-              { label: 'Produced Serves', key: 'produced_serves' },
-              { label: 'Sold Serves', key: 'sold_serves' },
-            ].map(({ label, key }) => (
-              <div key={key}>
-                <label className="label">{label}</label>
-                <input type="number" min="0" value={editPremix[key as keyof Premix] as number}
-                  onChange={e => setEditPremix(p => p ? { ...p, [key]: parseInt(e.target.value) || 0 } : p)}
-                  className="input" />
+            <div>
+              <label className="label">Premix Name</label>
+              <input type="text" className="input" value={editPremix.name ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, name: e.target.value } : p)} />
+            </div>
+            <div>
+              <label className="label">Cocktail Name</label>
+              <input type="text" className="input" value={editPremix.cocktail_name ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, cocktail_name: e.target.value } : p)} />
+            </div>
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="label">Category</label>
+                <input type="text" className="input" value={editPremix.category ?? ''}
+                  onChange={e => setEditPremix(p => p ? { ...p, category: e.target.value } : p)} />
               </div>
-            ))}
+              <div>
+                <label className="label">ml per serve</label>
+                <input type="number" min="0" className="input" value={editPremix.ml_per_serve ?? ''}
+                  onChange={e => setEditPremix(p => p ? { ...p, ml_per_serve: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+            </div>
+            <div>
+              <label className="label">Storage</label>
+              <input type="text" className="input" value={editPremix.storage ?? ''}
+                onChange={e => setEditPremix(p => p ? { ...p, storage: e.target.value } : p)} />
+            </div>
+            <div className="grid grid-cols-3 gap-3">
+              <div>
+                <label className="label">Opening</label>
+                <input type="number" min="0" className="input" value={editPremix.opening_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, opening_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+              <div>
+                <label className="label">Produced</label>
+                <input type="number" min="0" className="input" value={editPremix.produced_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, produced_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+              <div>
+                <label className="label">Sold</label>
+                <input type="number" min="0" className="input" value={editPremix.sold_serves ?? 0}
+                  onChange={e => setEditPremix(p => p ? { ...p, sold_serves: parseInt(e.target.value) || 0 } : p)} />
+              </div>
+            </div>
             <div className="bg-[#0D0D0F] rounded-lg p-3 text-xs text-[#9896A4]">
               Serves Left: {premixLeft(editPremix)}
             </div>
             <div className="flex gap-3 pt-1">
+              {isAdmin && (
+                <button onClick={() => deletePremix(editPremix.id)} disabled={loading}
+                  className="btn-secondary flex-1 text-red-400 hover:text-red-300 disabled:opacity-50">
+                  {loading ? '...' : 'Delete'}
+                </button>
+              )}
               <button onClick={() => setEditPremix(null)} className="btn-secondary flex-1">Cancel</button>
               <button onClick={() => savePremix(editPremix)} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
                 {loading ? 'Saving...' : 'Save'}
@@ -1648,6 +2138,202 @@ export function BarInventoryClient({
           </div>
         </Modal>
       )}
+
+      {/* ── ADD INFUSION MODAL ── */}
+      <Modal isOpen={addInfusionOpen} onClose={() => setAddInfusionOpen(false)} title="Add New Infusion" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Infusion Name</label>
+            <input type="text" className="input" placeholder="e.g. Pandan Gin"
+              value={addInfusionForm.name}
+              onChange={e => setAddInfusionForm(f => ({ ...f, name: e.target.value }))} />
+          </div>
+          <div>
+            <label className="label">Base Spirit</label>
+            <input type="text" className="input" placeholder="e.g. Gin, Whisky, Rum"
+              value={addInfusionForm.base_spirit}
+              onChange={e => setAddInfusionForm(f => ({ ...f, base_spirit: e.target.value }))} />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">Opening Stock (ml)</label>
+              <input type="number" className="input" placeholder="0"
+                value={addInfusionForm.opening_ml}
+                onChange={e => setAddInfusionForm(f => ({ ...f, opening_ml: e.target.value }))} />
+            </div>
+            <div>
+              <label className="label">ml per serve</label>
+              <input type="number" className="input" placeholder="e.g. 40"
+                value={addInfusionForm.ml_per_serve}
+                onChange={e => setAddInfusionForm(f => ({ ...f, ml_per_serve: e.target.value }))} />
+              <p className="text-[#5A5865] text-xs mt-1">Used to calculate serves left</p>
+            </div>
+          </div>
+          <div>
+            <label className="label">Notes (optional)</label>
+            <input type="text" className="input" placeholder="Any notes about this infusion"
+              value={addInfusionForm.notes}
+              onChange={e => setAddInfusionForm(f => ({ ...f, notes: e.target.value }))} />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={() => setAddInfusionOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleAddInfusion} disabled={addInfusionLoading || !addInfusionForm.name.trim()}
+              className="btn-primary flex-1 disabled:opacity-50">
+              {addInfusionLoading ? 'Adding...' : 'Add Infusion'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── ADD PREMIX MODAL ── */}
+      <Modal isOpen={addPremixOpen} onClose={() => setAddPremixOpen(false)} title="Add New Premix" size="sm">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Cocktail Name</label>
+            <input
+              type="text"
+              className="input"
+              placeholder="e.g. Pandan Sour"
+              value={addPremixForm.cocktail_name}
+              onChange={e => setAddPremixForm(f => ({ ...f, cocktail_name: e.target.value }))}
+            />
+            <p className="text-[#5A5865] text-xs mt-1">Will be saved as "{addPremixForm.cocktail_name.trim() || 'Name'} Premix"</p>
+          </div>
+          <div>
+            <label className="label">Category</label>
+            <select className="input" value={addPremixForm.category} onChange={e => setAddPremixForm(f => ({ ...f, category: e.target.value }))}>
+              {['Citrusy', 'Fizzy', 'Rich', 'Spirit Forward'].map(c => <option key={c} value={c}>{c}</option>)}
+            </select>
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="label">ml per serve</label>
+              <input
+                type="number"
+                className="input"
+                value={addPremixForm.ml_per_serve}
+                onChange={e => setAddPremixForm(f => ({ ...f, ml_per_serve: e.target.value }))}
+                placeholder="60"
+              />
+            </div>
+            <div>
+              <label className="label">Storage</label>
+              <select className="input" value={addPremixForm.storage} onChange={e => setAddPremixForm(f => ({ ...f, storage: e.target.value }))}>
+                <option value="chiller">Chiller</option>
+                <option value="freezer">Freezer</option>
+                <option value="">None</option>
+              </select>
+            </div>
+          </div>
+          <p className="text-[#9896A4] text-xs bg-[#1A1A1E] rounded-lg p-3">
+            After adding, go to <span className="text-[#A78BFA]">Edit Recipes</span> to set up which ingredients auto-deduct when this premix is made.
+          </p>
+          <div className="flex gap-3">
+            <button onClick={() => setAddPremixOpen(false)} className="btn-secondary flex-1">Cancel</button>
+            <button
+              onClick={handleAddPremix}
+              disabled={addPremixLoading || !addPremixForm.cocktail_name.trim()}
+              className="btn-primary flex-1 disabled:opacity-50"
+            >
+              {addPremixLoading ? 'Adding...' : 'Add Premix'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── RECIPE EDITOR MODAL ── */}
+      <Modal isOpen={recipeEditorOpen} onClose={() => setRecipeEditorOpen(false)} title="Edit Premix Recipes" size="md">
+        <div className="space-y-4">
+          <div>
+            <label className="label">Select Premix</label>
+            <select
+              value={recipePremix}
+              onChange={e => setRecipePremix(e.target.value)}
+              className="input"
+            >
+              <option value="">Choose a premix...</option>
+              {premixes.map(p => (
+                <option key={p.id} value={p.name}>{p.name}</option>
+              ))}
+            </select>
+          </div>
+
+          {recipePremix && (
+            <>
+              <div>
+                <p className="text-[#9896A4] text-xs font-medium mb-2">Current Ingredients — auto-deducted on Premix Made</p>
+                {recipeIngredients.length === 0 ? (
+                  <p className="text-[#5A5865] text-xs">No ingredients saved yet</p>
+                ) : (
+                  <div className="space-y-1">
+                    {recipeIngredients.map(r => (
+                      <div key={r.id} className="flex items-center justify-between bg-[#1A1A1E] rounded-lg px-3 py-2">
+                        <div>
+                          <span className="text-[#F0EEF6] text-sm">{r.ingredient_name}</span>
+                          <span className="text-[#5A5865] text-xs ml-2">{r.ml_per_serve}ml/serve · {r.ingredient_type}</span>
+                        </div>
+                        <button
+                          onClick={() => handleDeleteRecipeIngredient(r.id)}
+                          disabled={recipeLoading}
+                          className="text-rose-400 hover:text-rose-300 text-xs disabled:opacity-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    ))}
+                  </div>
+                )}
+              </div>
+
+              <div className="border-t border-[#2A2A30] pt-4">
+                <p className="text-[#9896A4] text-xs font-medium mb-3">Add Ingredient</p>
+                <div className="space-y-3">
+                  <div>
+                    <label className="label">Ingredient</label>
+                    <select
+                      value={recipeForm.ingredient_type === 'infusion'
+                        ? (infusions.find(i => i.name === recipeForm.ingredient_name) ? recipeForm.ingredient_name : '')
+                        : (spirits.find(s => s.name === recipeForm.ingredient_name) ? recipeForm.ingredient_name : '')}
+                      onChange={e => {
+                        const val = e.target.value
+                        const isInfusion = infusions.some(i => i.name === val)
+                        setRecipeForm(f => ({ ...f, ingredient_name: val, ingredient_type: isInfusion ? 'infusion' : 'spirit' }))
+                      }}
+                      className="input"
+                    >
+                      <option value="">Select ingredient...</option>
+                      <optgroup label="Infusions">
+                        {infusions.map(i => <option key={i.id} value={i.name}>{i.name}</option>)}
+                      </optgroup>
+                      <optgroup label="Spirits">
+                        {spirits.map(s => <option key={s.id} value={s.name}>{s.name}</option>)}
+                      </optgroup>
+                    </select>
+                  </div>
+                  <div>
+                    <label className="label">ml per serve</label>
+                    <input
+                      type="number"
+                      min="1"
+                      value={recipeForm.ml_per_serve}
+                      onChange={e => setRecipeForm(f => ({ ...f, ml_per_serve: e.target.value }))}
+                      className="input"
+                      placeholder="e.g. 40"
+                    />
+                  </div>
+                  <button
+                    onClick={handleAddRecipeIngredient}
+                    disabled={recipeLoading || !recipeForm.ingredient_name || !recipeForm.ml_per_serve}
+                    className="btn-primary w-full disabled:opacity-50"
+                  >
+                    {recipeLoading ? 'Saving...' : 'Add Ingredient'}
+                  </button>
+                </div>
+              </div>
+            </>
+          )}
+        </div>
+      </Modal>
     </div>
   )
 }

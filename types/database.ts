@@ -1,6 +1,6 @@
 export type Json = string | number | boolean | null | { [key: string]: Json | undefined } | Json[]
 
-export type UserRole = 'owner' | 'manager' | 'staff'
+export type UserRole = 'owner' | 'manager' | 'staff' | 'investor' | 'full_timer' | 'part_timer' | 'accountant'
 export type SalaryType = 'hourly' | 'fixed'
 export type PaymentMethod = 'cash' | 'credit_card' | 'qr_payment' | 'online' | 'bank_transfer' | 'other'
 export type ExpenseCategory = 'alcohol' | 'fresh_ingredients' | 'garnish' | 'food' | 'equipment' | 'repair' | 'cleaning' | 'marketing' | 'salary' | 'claims' | 'rental' | 'utilities' | 'others'
@@ -122,6 +122,7 @@ export interface Database {
         Row: {
           id: string
           date: string
+          expense_period: string | null
           supplier_id: string | null
           supplier_name: string | null
           category: ExpenseCategory
@@ -131,6 +132,8 @@ export interface Database {
           receipt_url: string | null
           notes: string | null
           entered_by: string | null
+          is_paid: boolean
+          paid_at: string | null
           created_at: string
           updated_at: string
           deleted_at: string | null
@@ -152,6 +155,8 @@ export interface Database {
           ocr_amount: number | null
           ocr_raw_text: string | null
           uploaded_by: string | null
+          is_paid: boolean
+          paid_at: string | null
           created_at: string
           updated_at: string
         }

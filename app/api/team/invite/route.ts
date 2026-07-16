@@ -1,8 +1,14 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { rateLimit } from '@/lib/rate-limit'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  if (!rateLimit(`invite:${ip}`, 10, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
+
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -15,6 +21,16 @@ export async function POST(request: Request) {
   const { email, full_name, password, role, tab_permissions } = await request.json()
   if (!email || !full_name || !password || !role) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
+  }
+
+  // Enforce minimum password security
+  if (String(password).length < 8) {
+    return NextResponse.json({ error: 'Password must be at least 8 characters' }, { status: 400 })
+  }
+
+  // Prevent managers from assigning owner role
+  if (profile.role === 'manager' && role === 'owner') {
+    return NextResponse.json({ error: 'Managers cannot assign the owner role' }, { status: 403 })
   }
 
   if (!process.env.SUPABASE_SERVICE_ROLE_KEY) {

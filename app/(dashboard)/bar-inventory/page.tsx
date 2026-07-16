@@ -1,3 +1,5 @@
+export const revalidate = 30
+
 import { createClient } from '@/lib/supabase/server'
 import { BarInventoryClient } from './BarInventoryClient'
 import { redirect } from 'next/navigation'
@@ -26,7 +28,7 @@ export default async function BarInventoryPage() {
       initialInfusions={infusions ?? []}
       initialPremixes={premixes ?? []}
       initialActivities={activities ?? []}
-      recipes={recipes ?? []}
+      initialRecipes={recipes ?? []}
       cocktails={(cocktails ?? []) as any}
       initialMenuItems={(menuItems ?? []) as any}
       isAdmin={isAdmin ?? false}

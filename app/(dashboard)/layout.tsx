@@ -9,7 +9,6 @@ export default async function DashboardLayout({ children }: { children: React.Re
 
   if (!user) redirect('/login')
 
-  // Fire profile fetch without awaiting auth separately — auth is already resolved above
   const { data: profile } = await supabase
     .from('users')
     .select('role, tab_permissions, is_active')

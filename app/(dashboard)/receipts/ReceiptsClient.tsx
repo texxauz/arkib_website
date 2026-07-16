@@ -91,6 +91,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
   const [filterDateFrom, setFilterDateFrom] = useState('')
   const [filterDateTo, setFilterDateTo] = useState('')
   const [filterCategory, setFilterCategory] = useState('')
+  const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
   const [expenseSearch, setExpenseSearch] = useState('')
 
   // Create expense form state
@@ -288,6 +289,15 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
     setDeleting(false)
   }
 
+  const handleTogglePaid = async (receipt: Receipt) => {
+    const newPaid = !receipt.is_paid
+    const { error } = await supabase.from('receipts').update({ is_paid: newPaid, paid_at: newPaid ? new Date().toISOString() : null } as any).eq('id', receipt.id)
+    if (error) { toast(error.message, 'error'); return }
+    setReceipts(prev => prev.map(r => r.id === receipt.id ? { ...r, is_paid: newPaid, paid_at: newPaid ? new Date().toISOString() : null } : r))
+    if (selected?.id === receipt.id) setSelected(s => s ? { ...s, is_paid: newPaid } : s)
+    toast(newPaid ? 'Marked as paid' : 'Marked as unpaid', 'success')
+  }
+
   const isImage = (type: string) => type.startsWith('image/')
 
   // ─── Filters ──────────────────────────────────────────────────────────────
@@ -308,11 +318,13 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
       if (filterCategory) {
         if (r.expenses?.category !== filterCategory) return false
       }
+      if (filterPaid === 'paid' && !r.is_paid) return false
+      if (filterPaid === 'unpaid' && r.is_paid) return false
       return true
     })
-  }, [receipts, searchName, filterDateFrom, filterDateTo, filterCategory])
+  }, [receipts, searchName, filterDateFrom, filterDateTo, filterCategory, filterPaid])
 
-  const hasFilters = searchName || filterDateFrom || filterDateTo || filterCategory
+  const hasFilters = searchName || filterDateFrom || filterDateTo || filterCategory || filterPaid !== 'all'
   const totalExtracted = filtered.reduce((sum, r) => sum + (r.ocr_amount ? Number(r.ocr_amount) : 0), 0)
 
   // ─── Accounting data ──────────────────────────────────────────────────────
@@ -403,11 +415,11 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
 
       {/* Tab switcher */}
       <div className="flex gap-1 bg-[#141417] border border-[#2A2A30] rounded-xl p-1 w-fit">
-        <button onClick={() => setActiveTab('receipts')}
+        <button onClick={() => { setActiveTab('receipts'); setSelected(null) }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'receipts' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
           <FileText size={14} /> Receipts
         </button>
-        <button onClick={() => setActiveTab('accounting')}
+        <button onClick={() => { setActiveTab('accounting'); setSelected(null) }}
           className={`flex items-center gap-2 px-4 py-2 rounded-lg text-sm font-medium transition-all ${activeTab === 'accounting' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
           <BookOpen size={14} /> Accounting
         </button>
@@ -441,7 +453,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
             <div className="flex items-center gap-2 text-[#9896A4] text-xs font-medium">
               <Filter size={12} /> Filters
               {hasFilters && (
-                <button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('') }}
+                <button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory(''); setFilterPaid('all') }}
                   className="ml-auto flex items-center gap-1 text-[#8B5CF6] hover:text-[#A78BFA] text-xs">
                   <X size={11} /> Clear
                 </button>
@@ -452,7 +464,21 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
                 </span>
               )}
             </div>
-            <div className="grid grid-cols-1 sm:grid-cols-4 gap-3">
+            <div className="flex gap-1.5">
+              {(['all', 'unpaid', 'paid'] as const).map(v => (
+                <button key={v} onClick={() => setFilterPaid(v)}
+                  className={`px-3 py-1.5 rounded-lg text-xs font-medium border transition-all ${
+                    filterPaid === v
+                      ? v === 'paid' ? 'bg-emerald-500/20 text-emerald-400 border-emerald-500/30'
+                        : v === 'unpaid' ? 'bg-rose-500/20 text-rose-400 border-rose-500/30'
+                        : 'bg-[#8B5CF6]/20 text-[#A78BFA] border-[#8B5CF6]/30'
+                      : 'bg-transparent text-[#5A5865] border-[#2A2A30] hover:text-[#9896A4]'
+                  }`}>
+                  {v === 'all' ? `All (${receipts.length})` : v === 'paid' ? `Paid (${receipts.filter(r => r.is_paid).length})` : `Unpaid (${receipts.filter(r => !r.is_paid).length})`}
+                </button>
+              ))}
+            </div>
+            <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-4 gap-3">
               <div className="relative">
                 <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
                 <input type="text" value={searchName} onChange={e => setSearchName(e.target.value)}
@@ -486,11 +512,12 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
             <EmptyState icon={<FileText size={40} />} title="No receipts uploaded" description="Upload your first receipt above" />
           ) : filtered.length === 0 ? (
             <EmptyState icon={<Search size={40} />} title="No receipts match your filters"
-              action={<button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory('') }} className="btn-secondary">Clear Filters</button>} />
+              action={<button onClick={() => { setSearchName(''); setFilterDateFrom(''); setFilterDateTo(''); setFilterCategory(''); setFilterPaid('all') }} className="btn-secondary">Clear Filters</button>} />
           ) : viewMode === 'grid' ? (
             <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-4 gap-3">
               {filtered.map(r => (
                 <GridCard key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
+                  onTogglePaid={handleTogglePaid}
                   onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
               ))}
             </div>
@@ -498,6 +525,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
             <div className="space-y-2">
               {filtered.map(r => (
                 <ListRow key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
+                  onTogglePaid={handleTogglePaid}
                   onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
               ))}
             </div>
@@ -1129,7 +1157,7 @@ function computeAccountingData(expenses: Expense[], year: number) {
 
 // ─── Grid / List cards ────────────────────────────────────────────────────────
 
-function GridCard({ receipt, isImage, onClick, extracting }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean }) {
+function GridCard({ receipt, isImage, onClick, extracting, onTogglePaid }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean; onTogglePaid: (r: Receipt) => void }) {
   return (
     <div className="card-hover cursor-pointer" onClick={onClick}>
       <div className="aspect-square rounded-lg overflow-hidden bg-[#1A1A1E] mb-3 flex items-center justify-center relative">
@@ -1173,11 +1201,20 @@ function GridCard({ receipt, isImage, onClick, extracting }: { receipt: Receipt;
       {(receipt as any).ocr_amount != null && (
         <p className="text-emerald-400 text-xs font-bold mt-1">RM {Number((receipt as any).ocr_amount).toFixed(2)}</p>
       )}
+      <button
+        onClick={e => { e.stopPropagation(); onTogglePaid(receipt) }}
+        className={`mt-2 w-full flex items-center justify-center gap-1.5 py-1 rounded-lg text-[10px] font-medium border transition-all ${
+          receipt.is_paid
+            ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+            : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+        }`}>
+        <CheckCircle2 size={10} />{receipt.is_paid ? 'Paid' : 'Unpaid'}
+      </button>
     </div>
   )
 }
 
-function ListRow({ receipt, isImage, onClick, extracting }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean }) {
+function ListRow({ receipt, isImage, onClick, extracting, onTogglePaid }: { receipt: Receipt; isImage: (t: string) => boolean; onClick: () => void; extracting: boolean; onTogglePaid: (r: Receipt) => void }) {
   return (
     <div className="card-hover cursor-pointer flex items-center gap-4" onClick={onClick}>
       <div className="w-14 h-14 rounded-lg overflow-hidden bg-[#1A1A1E] flex-shrink-0 flex items-center justify-center relative">
@@ -1214,10 +1251,19 @@ function ListRow({ receipt, isImage, onClick, extracting }: { receipt: Receipt; 
           )}
         </div>
       </div>
-      <div className="flex-shrink-0 text-right">
+      <div className="flex items-center gap-3 flex-shrink-0">
         {(receipt as any).ocr_amount != null
           ? <p className="text-emerald-400 font-bold text-sm">RM {Number((receipt as any).ocr_amount).toFixed(2)}</p>
           : <p className="text-[#5A5865] text-xs">No amount</p>}
+        <button
+          onClick={e => { e.stopPropagation(); onTogglePaid(receipt) }}
+          className={`flex items-center gap-1 px-2.5 py-1 rounded-lg text-xs font-medium border transition-all ${
+            receipt.is_paid
+              ? 'bg-emerald-500/10 text-emerald-400 border-emerald-500/20 hover:bg-emerald-500/20'
+              : 'bg-rose-500/10 text-rose-400 border-rose-500/20 hover:bg-rose-500/20'
+          }`}>
+          <CheckCircle2 size={11} />{receipt.is_paid ? 'Paid' : 'Unpaid'}
+        </button>
       </div>
     </div>
   )

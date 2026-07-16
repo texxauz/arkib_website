@@ -8,17 +8,32 @@ import type { Database } from '@/types/database'
 
 type UserProfile = Database['public']['Tables']['users']['Row'] & { tab_permissions?: Record<string, string> | null }
 
-const ALL_TABS = [
+const MGMT_TABS = [
   { key: 'dashboard', label: 'Dashboard' },
   { key: 'sales', label: 'Sales' },
   { key: 'expenses', label: 'Expenses' },
   { key: 'receipts', label: 'Receipts' },
   { key: 'bar-inventory', label: 'Bar Stock' },
+  { key: 'checklist', label: 'Checklist' },
   { key: 'cocktails', label: 'Cocktails' },
   { key: 'shifts', label: 'Shifts' },
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
+  { key: 'pnl', label: 'P&L' },
 ]
+
+const POS_TABS = [
+  { key: 'pos', label: 'Floor Plan' },
+  { key: 'pos-kds', label: 'Bar Display' },
+  { key: 'pos-shifts', label: 'Shifts' },
+  { key: 'pos-reservations', label: 'Reservations' },
+  { key: 'pos-production', label: 'Production Queue' },
+  { key: 'pos-reports', label: 'POS Reports' },
+  { key: 'pos-audit', label: 'Audit Log' },
+  { key: 'pos-settings', label: 'POS Settings' },
+]
+
+const ALL_TABS = [...MGMT_TABS, ...POS_TABS]
 
 const OWNER_FULL: Record<string, string> = Object.fromEntries(ALL_TABS.map(t => [t.key, 'edit']))
 
@@ -29,11 +44,27 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   receipts: 'none',
   inventory: 'none',
   'bar-inventory': 'edit',
+  checklist: 'edit',
+  pos: 'edit',
+  'pos-kds': 'edit',
+  'pos-shifts': 'none',
+  'pos-reservations': 'view',
+  'pos-reports': 'none',
+  'pos-production': 'edit',
   cocktails: 'view',
   suppliers: 'none',
   rent: 'none',
   reports: 'none',
+  pnl: 'none',
 }
+
+const DEFAULT_ACCOUNTANT: Record<string, string> = Object.fromEntries(
+  ALL_TABS.map(t => [t.key, ['sales', 'expenses', 'reports', 'pnl'].includes(t.key) ? 'view' : 'none'])
+)
+
+const DEFAULT_INVESTOR: Record<string, string> = Object.fromEntries(
+  ALL_TABS.map(t => [t.key, t.key === 'pnl' ? 'view' : 'none'])
+)
 
 const PERM_CYCLE: Record<string, string> = { none: 'view', view: 'edit', edit: 'none' }
 const PERM_COLOR: Record<string, string> = {
@@ -61,11 +92,17 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setInviteOpen(true)
   }
 
+  const defaultPermsForRole = (role: string) =>
+    ['owner', 'manager'].includes(role) ? OWNER_FULL :
+    role === 'investor' ? DEFAULT_INVESTOR :
+    role === 'accountant' ? DEFAULT_ACCOUNTANT :
+    DEFAULT_BARTENDER
+
   const openEdit = (m: UserProfile) => {
     setEditTarget(m)
     setEditRole(m.role)
     setEditName(m.full_name)
-    setEditPerms(m.tab_permissions ?? (['owner', 'manager'].includes(m.role) ? OWNER_FULL : DEFAULT_BARTENDER))
+    setEditPerms(m.tab_permissions ?? defaultPermsForRole(m.role))
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -115,17 +152,37 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   }
 
   const PermGrid = ({ perms, onCycle }: { perms: Record<string, string>, onCycle: (k: string) => void }) => (
-    <div className="grid grid-cols-2 gap-1.5">
-      {ALL_TABS.map(tab => {
-        const p = perms[tab.key] ?? 'none'
-        return (
-          <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
-            className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
-            <span>{tab.label}</span>
-            <span className="capitalize">{p}</span>
-          </button>
-        )
-      })}
+    <div className="space-y-3">
+      <div>
+        <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">Management</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {MGMT_TABS.map(tab => {
+            const p = perms[tab.key] ?? 'none'
+            return (
+              <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
+                <span>{tab.label}</span>
+                <span className="capitalize">{p}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
+      <div>
+        <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">POS System</p>
+        <div className="grid grid-cols-2 gap-1.5">
+          {POS_TABS.map(tab => {
+            const p = perms[tab.key] ?? 'none'
+            return (
+              <button key={tab.key} type="button" onClick={() => onCycle(tab.key)}
+                className={`flex items-center justify-between px-3 py-2 rounded-lg border text-xs font-medium transition-all ${PERM_COLOR[p]}`}>
+                <span>{tab.label}</span>
+                <span className="capitalize">{p}</span>
+              </button>
+            )
+          })}
+        </div>
+      </div>
     </div>
   )
 
@@ -144,7 +201,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       <div className="grid grid-cols-1 gap-3">
         {list.map(m => {
           const isMe = m.id === currentUserId
-          const perms = m.tab_permissions ?? (m.role === 'owner' ? OWNER_FULL : DEFAULT_BARTENDER)
+          const perms = m.tab_permissions ?? defaultPermsForRole(m.role)
           const editCount = Object.values(perms).filter(v => v === 'edit').length
           const viewCount = Object.values(perms).filter(v => v === 'view').length
 
@@ -162,7 +219,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                   {isMe && <span className="text-[9px] bg-[#8B5CF6]/20 text-[#A78BFA] px-2 py-0.5 rounded-full border border-[#8B5CF6]/20">YOU</span>}
                   <span className={`text-[9px] px-2 py-0.5 rounded-full border capitalize
                     ${m.role === 'owner' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-[#1A1A1E] text-[#9896A4] border-[#2A2A30]'}`}>
-                    {m.role === 'staff' ? 'Bartender' : m.role}
+                    {m.role === 'staff' ? 'Bartender' : m.role === 'full_timer' ? 'Full Timer' : m.role === 'part_timer' ? 'Part Timer' : m.role === 'accountant' ? 'Accountant' : m.role}
                   </span>
                   {!m.is_active && <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full">Suspended</span>}
                 </div>
@@ -217,9 +274,16 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             </div>
             <div>
               <label className="label">Role</label>
-              <select className="input" value={inviteForm.role} onChange={e => setInviteForm(p => ({ ...p, role: e.target.value }))}>
+              <select className="input" value={inviteForm.role} onChange={e => {
+                setInviteForm(p => ({ ...p, role: e.target.value }))
+                setEditPerms(defaultPermsForRole(e.target.value))
+              }}>
                 <option value="staff">Bartender</option>
+                <option value="full_timer">Full Timer</option>
+                <option value="part_timer">Part Timer</option>
                 <option value="manager">Manager</option>
+                <option value="investor">Investor</option>
+                <option value="accountant">Accountant</option>
               </select>
             </div>
           </div>
@@ -248,10 +312,17 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             </div>
             <div>
               <label className="label">Role</label>
-              <select className="input" value={editRole} onChange={e => setEditRole(e.target.value)}>
+              <select className="input" value={editRole} onChange={e => {
+                setEditRole(e.target.value)
+                setEditPerms(defaultPermsForRole(e.target.value))
+              }}>
                 <option value="staff">Bartender</option>
+                <option value="full_timer">Full Timer</option>
+                <option value="part_timer">Part Timer</option>
                 <option value="manager">Manager</option>
                 <option value="owner">Owner</option>
+                <option value="investor">Investor</option>
+                <option value="accountant">Accountant</option>
               </select>
             </div>
           </div>

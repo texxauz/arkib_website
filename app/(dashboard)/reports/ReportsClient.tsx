@@ -1,21 +1,42 @@
 'use client'
+import { useState, useEffect, useCallback } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { formatCurrency, formatMonth, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
-import { BarChart2, TrendingUp, TrendingDown, Lightbulb, Download } from 'lucide-react'
+import {
+  TrendingUp, TrendingDown, Lightbulb, Download,
+  ChevronLeft, ChevronRight, CreditCard, Banknote, QrCode, Globe,
+} from 'lucide-react'
+import {
+  BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
+  Cell, PieChart, Pie, Legend,
+} from 'recharts'
 import type { Database } from '@/types/database'
 
 type DailySale = Database['public']['Tables']['daily_sales']['Row']
 type Expense = Database['public']['Tables']['expenses']['Row']
 type Cocktail = Database['public']['Tables']['cocktails']['Row']
-type Employee = Database['public']['Tables']['employees']['Row']
 
 interface Props {
-  monthlySales: DailySale[]
-  monthlyExpenses: Expense[]
-  cocktails: Cocktail[]
-  employees: Employee[]
-  month: number
-  year: number
+  initialSales: DailySale[]
+  initialExpenses: Expense[]
+  initialCocktails: Cocktail[]
+  initialMonth: number
+  initialYear: number
+}
+
+const REVENUE_COLORS: Record<string, string> = {
+  Cocktails: '#8B5CF6',
+  Beer: '#F59E0B',
+  Wine: '#EC4899',
+  Food: '#10B981',
+  Others: '#6B7280',
+}
+
+const PAYMENT_COLORS: Record<string, string> = {
+  Cash: '#10B981',
+  Card: '#8B5CF6',
+  QR: '#F59E0B',
+  Online: '#3B82F6',
 }
 
 function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Cocktail[]) {
@@ -28,16 +49,20 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
       if (!byDay[day]) byDay[day] = []
       byDay[day].push(s.total_revenue)
     })
-    const avgByDay = Object.entries(byDay).map(([d, revs]) => ({ day: d, avg: revs.reduce((a, b) => a + b, 0) / revs.length }))
-    const best = avgByDay.sort((a, b) => b.avg - a.avg)[0]
+    const avgByDay = Object.entries(byDay).map(([d, revs]) => ({
+      day: d,
+      avg: revs.reduce((a, b) => a + b, 0) / revs.length,
+    }))
+    avgByDay.sort((a, b) => b.avg - a.avg)
+    const best = avgByDay[0]
     const worst = avgByDay[avgByDay.length - 1]
     if (best && worst && best.day !== worst.day) {
       const diff = ((best.avg - worst.avg) / worst.avg * 100).toFixed(0)
       insights.push({ type: 'info', text: `${best.day} generates ${diff}% higher revenue than ${worst.day}` })
     }
 
-    const weekdays = sales.filter(s => [1,2,3,4].includes(new Date(s.date).getDay()))
-    const weekends = sales.filter(s => [0,5,6].includes(new Date(s.date).getDay()))
+    const weekdays = sales.filter(s => [1, 2, 3, 4].includes(new Date(s.date).getDay()))
+    const weekends = sales.filter(s => [0, 5, 6].includes(new Date(s.date).getDay()))
     if (weekdays.length > 0 && weekends.length > 0) {
       const avgWeekday = weekdays.reduce((s, r) => s + r.total_revenue, 0) / weekdays.length
       const avgWeekend = weekends.reduce((s, r) => s + r.total_revenue, 0) / weekends.length
@@ -45,55 +70,334 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
         insights.push({ type: 'good', text: `Weekend sales average ${formatCurrency(avgWeekend)} vs ${formatCurrency(avgWeekday)} on weekdays` })
       }
     }
+
+    const totalTx = sales.reduce((s, r) => s + (r.transaction_count ?? 0), 0)
+    const totalRev = sales.reduce((s, r) => s + r.total_revenue, 0)
+    if (totalTx > 0) {
+      insights.push({ type: 'info', text: `Average order value this month: ${formatCurrency(totalRev / totalTx)} across ${totalTx} transactions` })
+    }
   }
 
   if (expenses.length > 0) {
     const byCategory = expenses.reduce((acc: Record<string, number>, e) => {
-      acc[e.category] = (acc[e.category] ?? 0) + e.amount; return acc
+      acc[e.category] = (acc[e.category] ?? 0) + e.amount
+      return acc
     }, {})
     const top = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0]
-    if (top) insights.push({ type: 'info', text: `Your biggest expense this month is ${EXPENSE_CATEGORY_LABELS[top[0]] ?? top[0]}: ${formatCurrency(top[1])}` })
+    if (top) insights.push({ type: 'info', text: `Biggest expense: ${EXPENSE_CATEGORY_LABELS[top[0]] ?? top[0]} at ${formatCurrency(top[1])}` })
   }
 
   if (cocktails.length > 0) {
     const best = cocktails[0]
     const worst = cocktails[cocktails.length - 1]
-    if (best?.profit_margin) insights.push({ type: 'good', text: `Your highest margin cocktail is ${best.name} at ${best.profit_margin.toFixed(0)}%` })
-    if (worst?.profit_margin && worst.profit_margin < 50) insights.push({ type: 'bad', text: `Your lowest margin cocktail is ${worst.name} at ${worst.profit_margin.toFixed(0)}% — consider repricing` })
+    if (best?.profit_margin) insights.push({ type: 'good', text: `Highest margin cocktail: ${best.name} at ${best.profit_margin.toFixed(0)}%` })
+    if (worst?.profit_margin && worst.profit_margin < 50) insights.push({ type: 'bad', text: `Lowest margin: ${worst.name} at ${worst.profit_margin.toFixed(0)}% — consider repricing` })
   }
 
   return insights
 }
 
-export function ReportsClient({ monthlySales, monthlyExpenses, cocktails, employees, month, year }: Props) {
-  const totalRevenue = monthlySales.reduce((s, r) => s + r.total_revenue, 0)
-  const cocktailRevenue = monthlySales.reduce((s, r) => s + r.cocktails_revenue, 0)
-  const beerRevenue = monthlySales.reduce((s, r) => s + r.beer_revenue, 0)
-  const wineRevenue = monthlySales.reduce((s, r) => s + r.wine_revenue, 0)
-  const foodRevenue = monthlySales.reduce((s, r) => s + r.food_revenue, 0)
-  const othersRevenue = monthlySales.reduce((s, r) => s + r.others_revenue, 0)
+// Custom tooltip for bar chart
+function RevenueTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-[#1A1A1E] border border-[#2A2A30] rounded-lg px-3 py-2 text-xs">
+      <p className="text-[#9896A4] mb-1">{label}</p>
+      <p className="text-[#F0EEF6] font-semibold">{formatCurrency(payload[0].value)}</p>
+    </div>
+  )
+}
 
-  const totalExpenses = monthlyExpenses.reduce((s, e) => s + e.amount, 0)
+function PaymentTooltip({ active, payload }: { active?: boolean; payload?: Array<{ name: string; value: number }> }) {
+  if (!active || !payload?.length) return null
+  return (
+    <div className="bg-[#1A1A1E] border border-[#2A2A30] rounded-lg px-3 py-2 text-xs">
+      <p className="text-[#9896A4] mb-1">{payload[0].name}</p>
+      <p className="text-[#F0EEF6] font-semibold">{formatCurrency(payload[0].value)}</p>
+    </div>
+  )
+}
+
+export function ReportsClient({ initialSales, initialExpenses, initialCocktails, initialMonth, initialYear }: Props) {
+  const [month, setMonth] = useState(initialMonth)
+  const [year, setYear] = useState(initialYear)
+  const [sales, setSales] = useState<DailySale[]>(initialSales)
+  const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
+  const [cocktails, setCocktails] = useState<Cocktail[]>(initialCocktails)
+  const [loading, setLoading] = useState(false)
+
+  const fetchMonth = useCallback(async (m: number, y: number) => {
+    setLoading(true)
+    try {
+      const res = await fetch(`/api/reports/monthly?month=${m}&year=${y}`)
+      if (res.ok) {
+        const data = await res.json()
+        setSales(data.sales)
+        setExpenses(data.expenses)
+        setCocktails(data.cocktails)
+      }
+    } finally {
+      setLoading(false)
+    }
+  }, [])
+
+  useEffect(() => {
+    fetchMonth(month, year)
+  }, [month, year, fetchMonth])
+
+  const navigateMonth = (dir: -1 | 1) => {
+    let m = month + dir
+    let y = year
+    if (m < 1) { m = 12; y-- }
+    if (m > 12) { m = 1; y++ }
+    setMonth(m)
+    setYear(y)
+  }
+
+  // ─── Aggregates ───────────────────────────────────────────────────────────
+  const totalRevenue = sales.reduce((s, r) => s + r.total_revenue, 0)
+  const cocktailRevenue = sales.reduce((s, r) => s + r.cocktails_revenue, 0)
+  const beerRevenue = sales.reduce((s, r) => s + r.beer_revenue, 0)
+  const wineRevenue = sales.reduce((s, r) => s + r.wine_revenue, 0)
+  const foodRevenue = sales.reduce((s, r) => s + r.food_revenue, 0)
+  const othersRevenue = sales.reduce((s, r) => s + r.others_revenue, 0)
+
+  const totalExpenses = expenses.reduce((s, e) => s + e.amount, 0)
   const netProfit = totalRevenue - totalExpenses
   const profitMargin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
 
-  const expenseByCategory = monthlyExpenses.reduce((acc: Record<string, number>, e) => {
-    acc[e.category] = (acc[e.category] ?? 0) + e.amount; return acc
+  const expenseByCategory = expenses.reduce((acc: Record<string, number>, e) => {
+    acc[e.category] = (acc[e.category] ?? 0) + e.amount
+    return acc
   }, {})
 
-  const insights = generateInsights(monthlySales, monthlyExpenses, cocktails)
+  const totalTransactions = sales.reduce((s, r) => s + (r.transaction_count ?? 0), 0)
+  const avgOrderValue = totalTransactions > 0 ? totalRevenue / totalTransactions : 0
+
+  // ─── Chart data ───────────────────────────────────────────────────────────
+  const dailyChartData = sales.map(s => ({
+    date: new Date(s.date).toLocaleDateString('en-MY', { day: 'numeric', month: 'short' }),
+    revenue: s.total_revenue,
+    isWeekend: [0, 5, 6].includes(new Date(s.date).getDay()),
+  }))
+
+  const revenueMixData = [
+    { name: 'Cocktails', value: cocktailRevenue },
+    { name: 'Beer', value: beerRevenue },
+    { name: 'Wine', value: wineRevenue },
+    { name: 'Food', value: foodRevenue },
+    { name: 'Others', value: othersRevenue },
+  ].filter(d => d.value > 0)
+
+  const cashCollected = sales.reduce((s, r) => s + r.cash_collected, 0)
+  const cardCollected = sales.reduce((s, r) => s + r.credit_card_collected, 0)
+  const qrCollected = sales.reduce((s, r) => s + r.qr_collected, 0)
+  const onlineCollected = sales.reduce((s, r) => s + r.online_collected, 0)
+
+  const paymentMixData = [
+    { name: 'Cash', value: cashCollected, icon: Banknote, color: PAYMENT_COLORS.Cash },
+    { name: 'Card', value: cardCollected, icon: CreditCard, color: PAYMENT_COLORS.Card },
+    { name: 'QR', value: qrCollected, icon: QrCode, color: PAYMENT_COLORS.QR },
+    { name: 'Online', value: onlineCollected, icon: Globe, color: PAYMENT_COLORS.Online },
+  ].filter(d => d.value > 0)
+
+  const totalCollected = paymentMixData.reduce((s, p) => s + p.value, 0)
+
+  const insights = generateInsights(sales, expenses, cocktails)
+
+  const isCurrentMonth = (() => {
+    const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000)
+    return month === nowMYT.getUTCMonth() + 1 && year === nowMYT.getUTCFullYear()
+  })()
 
   return (
-    <div className="space-y-6">
+    <div className={`space-y-6 transition-opacity duration-150 ${loading ? 'opacity-50 pointer-events-none' : ''}`}>
       <TopBar
         title="Reports"
         subtitle={formatMonth(month, year)}
         actions={
-          <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-xs">
-            <Download size={12} /> Export
-          </button>
+          <div className="flex items-center gap-2">
+            {/* Month navigator */}
+            <div className="flex items-center gap-1 bg-[#141417] border border-[#2A2A30] rounded-lg px-1 py-1">
+              <button
+                onClick={() => navigateMonth(-1)}
+                className="p-1 rounded hover:bg-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-colors"
+              >
+                <ChevronLeft size={14} />
+              </button>
+              <span className="text-[#F0EEF6] text-xs font-medium px-2 min-w-[90px] text-center">
+                {formatMonth(month, year)}
+              </span>
+              <button
+                onClick={() => navigateMonth(1)}
+                disabled={isCurrentMonth}
+                className="p-1 rounded hover:bg-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-colors disabled:opacity-30 disabled:cursor-not-allowed"
+              >
+                <ChevronRight size={14} />
+              </button>
+            </div>
+            <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-xs">
+              <Download size={12} /> Export
+            </button>
+          </div>
         }
       />
+
+      {/* KPI strip */}
+      <div className="grid grid-cols-2 lg:grid-cols-4 gap-3">
+        {[
+          { label: 'Total Revenue', value: formatCurrency(totalRevenue), color: 'text-emerald-400' },
+          { label: 'Total Expenses', value: formatCurrency(totalExpenses), color: 'text-rose-400' },
+          { label: 'Net Profit', value: formatCurrency(netProfit), color: netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400' },
+          { label: 'Avg Order Value', value: totalTransactions > 0 ? formatCurrency(avgOrderValue) : '—', color: 'text-[#8B5CF6]' },
+        ].map(k => (
+          <div key={k.label} className="card py-3 px-4">
+            <p className="text-[#9896A4] text-xs mb-1">{k.label}</p>
+            <p className={`font-bold text-lg ${k.color}`}>{k.value}</p>
+          </div>
+        ))}
+      </div>
+
+      {/* Daily revenue trend */}
+      <div className="card">
+        <p className="section-title mb-1 flex items-center gap-2">
+          <TrendingUp size={14} className="text-emerald-400" /> Daily Revenue
+        </p>
+        <p className="text-[#5A5865] text-xs mb-4">Weekends highlighted</p>
+        {dailyChartData.length > 0 ? (
+          <ResponsiveContainer width="100%" height={200}>
+            <BarChart data={dailyChartData} barCategoryGap="30%">
+              <XAxis
+                dataKey="date"
+                tick={{ fontSize: 10, fill: '#5A5865' }}
+                axisLine={false}
+                tickLine={false}
+                interval={dailyChartData.length > 20 ? 2 : 0}
+              />
+              <YAxis
+                tickFormatter={v => `RM${(v / 1000).toFixed(0)}k`}
+                tick={{ fontSize: 10, fill: '#5A5865' }}
+                axisLine={false}
+                tickLine={false}
+                width={45}
+              />
+              <Tooltip content={<RevenueTooltip />} cursor={{ fill: 'rgba(255,255,255,0.03)' }} />
+              <Bar dataKey="revenue" radius={[3, 3, 0, 0]}>
+                {dailyChartData.map((entry, i) => (
+                  <Cell key={i} fill={entry.isWeekend ? '#8B5CF6' : '#3B3B45'} />
+                ))}
+              </Bar>
+            </BarChart>
+          </ResponsiveContainer>
+        ) : (
+          <p className="text-[#5A5865] text-sm text-center py-10">No sales data for this month</p>
+        )}
+        <div className="flex items-center gap-4 mt-2 justify-end">
+          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-[#8B5CF6]" /><span className="text-[#5A5865] text-xs">Weekend</span></div>
+          <div className="flex items-center gap-1.5"><div className="w-2.5 h-2.5 rounded-sm bg-[#3B3B45]" /><span className="text-[#5A5865] text-xs">Weekday</span></div>
+        </div>
+      </div>
+
+      {/* Revenue mix + Payment mix side by side */}
+      <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
+        {/* Revenue breakdown donut */}
+        <div className="card">
+          <p className="section-title mb-4 flex items-center gap-2">
+            <TrendingUp size={14} className="text-emerald-400" /> Revenue Mix
+          </p>
+          {revenueMixData.length > 0 ? (
+            <div className="flex flex-col items-center gap-4">
+              <ResponsiveContainer width="100%" height={200}>
+                <PieChart>
+                  <Pie
+                    data={revenueMixData}
+                    cx="50%"
+                    cy="50%"
+                    innerRadius={55}
+                    outerRadius={85}
+                    paddingAngle={2}
+                    dataKey="value"
+                    stroke="none"
+                  >
+                    {revenueMixData.map((entry) => (
+                      <Cell key={entry.name} fill={REVENUE_COLORS[entry.name] ?? '#6B7280'} />
+                    ))}
+                  </Pie>
+                  <Tooltip content={<PaymentTooltip />} />
+                </PieChart>
+              </ResponsiveContainer>
+              <div className="w-full space-y-2">
+                {revenueMixData.map(entry => {
+                  const pct = totalRevenue > 0 ? (entry.value / totalRevenue * 100).toFixed(1) : '0'
+                  return (
+                    <div key={entry.name} className="flex items-center justify-between">
+                      <div className="flex items-center gap-2">
+                        <div className="w-2 h-2 rounded-full" style={{ backgroundColor: REVENUE_COLORS[entry.name] ?? '#6B7280' }} />
+                        <span className="text-[#9896A4] text-xs">{entry.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[#5A5865] text-xs">{pct}%</span>
+                        <span className="text-[#F0EEF6] text-xs font-medium w-24 text-right">{formatCurrency(entry.value)}</span>
+                      </div>
+                    </div>
+                  )
+                })}
+              </div>
+            </div>
+          ) : (
+            <p className="text-[#5A5865] text-sm text-center py-10">No revenue data</p>
+          )}
+        </div>
+
+        {/* Payment method split */}
+        <div className="card">
+          <p className="section-title mb-4 flex items-center gap-2">
+            <CreditCard size={14} className="text-[#8B5CF6]" /> Payment Mix
+          </p>
+          {paymentMixData.length > 0 ? (
+            <div className="space-y-4">
+              {paymentMixData.map(p => {
+                const Icon = p.icon
+                const pct = totalCollected > 0 ? p.value / totalCollected * 100 : 0
+                return (
+                  <div key={p.name}>
+                    <div className="flex items-center justify-between mb-1.5">
+                      <div className="flex items-center gap-2">
+                        <Icon size={13} style={{ color: p.color }} />
+                        <span className="text-[#9896A4] text-xs">{p.name}</span>
+                      </div>
+                      <div className="flex items-center gap-3">
+                        <span className="text-[#5A5865] text-xs">{pct.toFixed(1)}%</span>
+                        <span className="text-[#F0EEF6] text-xs font-medium w-24 text-right">{formatCurrency(p.value)}</span>
+                      </div>
+                    </div>
+                    <div className="w-full bg-[#1A1A1E] rounded-full h-1.5">
+                      <div
+                        className="h-1.5 rounded-full transition-all duration-500"
+                        style={{ width: `${pct}%`, backgroundColor: p.color }}
+                      />
+                    </div>
+                  </div>
+                )
+              })}
+              <div className="pt-2 border-t border-[#2A2A30] flex items-center justify-between">
+                <span className="text-[#9896A4] text-xs">Total Collected</span>
+                <span className="text-[#F0EEF6] text-sm font-semibold">{formatCurrency(totalCollected)}</span>
+              </div>
+              {Math.abs(totalCollected - totalRevenue) > 0.5 && (
+                <div className="flex items-center justify-between text-xs">
+                  <span className="text-[#9896A4]">Variance vs Revenue</span>
+                  <span className={totalCollected >= totalRevenue ? 'text-emerald-400' : 'text-rose-400'}>
+                    {totalCollected >= totalRevenue ? '+' : ''}{formatCurrency(totalCollected - totalRevenue)}
+                  </span>
+                </div>
+              )}
+            </div>
+          ) : (
+            <p className="text-[#5A5865] text-sm text-center py-10">No payment data</p>
+          )}
+        </div>
+      </div>
 
       {/* Monthly P&L Report */}
       <div className="card">
@@ -158,6 +462,9 @@ export function ReportsClient({ monthlySales, monthlyExpenses, cocktails, employ
             {formatCurrency(netProfit)}
           </p>
           <p className="text-[#9896A4] text-sm mt-1">Profit Margin: {profitMargin.toFixed(1)}%</p>
+          {totalTransactions > 0 && (
+            <p className="text-[#5A5865] text-xs mt-1">{totalTransactions} transactions · avg {formatCurrency(avgOrderValue)}</p>
+          )}
         </div>
       </div>
 
@@ -186,7 +493,7 @@ export function ReportsClient({ monthlySales, monthlyExpenses, cocktails, employ
         )}
       </div>
 
-      {/* Top cocktails by margin */}
+      {/* Cocktail performance */}
       {cocktails.length > 0 && (
         <div className="card">
           <p className="section-title mb-4">Cocktail Performance</p>

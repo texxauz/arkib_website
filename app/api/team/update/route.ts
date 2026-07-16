@@ -1,8 +1,13 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
-import { NextResponse } from 'next/server'
+import { NextRequest, NextResponse } from 'next/server'
+import { rateLimit } from '@/lib/rate-limit'
 
-export async function POST(request: Request) {
+export async function POST(request: NextRequest) {
+  const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
+  if (!rateLimit(`team-update:${ip}`, 20, 60_000)) {
+    return NextResponse.json({ error: 'Too many requests' }, { status: 429 })
+  }
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
@@ -14,6 +19,19 @@ export async function POST(request: Request) {
 
   const { userId, full_name, role, tab_permissions, is_active } = await request.json()
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
+
+  // Fix: prevent privilege escalation — managers cannot grant owner role
+  if (profile.role === 'manager' && role === 'owner') {
+    return NextResponse.json({ error: 'Managers cannot assign the owner role' }, { status: 403 })
+  }
+
+  // Owners cannot be demoted by managers (extra guard)
+  if (profile.role === 'manager') {
+    const { data: target } = await supabase.from('users').select('role').eq('id', userId).single()
+    if (target?.role === 'owner') {
+      return NextResponse.json({ error: 'Managers cannot modify an owner account' }, { status: 403 })
+    }
+  }
 
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,

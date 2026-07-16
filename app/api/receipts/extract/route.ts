@@ -1,13 +1,26 @@
 import Anthropic from '@anthropic-ai/sdk'
 import { NextResponse } from 'next/server'
+import { createClient } from '@/lib/supabase/server'
 
 const client = new Anthropic({ apiKey: process.env.ANTHROPIC_API_KEY })
 
 export async function POST(request: Request) {
+  // Fix: require authentication — this endpoint was previously open to the internet
+  const supabase = await createClient()
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return NextResponse.json({ error: 'Unauthorized' }, { status: 401 })
+
   const { imageUrl, fileType } = await request.json()
 
   if (!imageUrl) {
     return NextResponse.json({ error: 'No image URL provided' }, { status: 400 })
+  }
+
+  // Fix: SSRF protection — only allow images from our own Supabase Storage bucket
+  const supabaseUrl = process.env.NEXT_PUBLIC_SUPABASE_URL ?? ''
+  const allowedPrefix = `${supabaseUrl}/storage/v1/object/`
+  if (!supabaseUrl || !imageUrl.startsWith(allowedPrefix)) {
+    return NextResponse.json({ error: 'Image URL must be a Supabase Storage URL' }, { status: 400 })
   }
 
   if (!process.env.ANTHROPIC_API_KEY) {
