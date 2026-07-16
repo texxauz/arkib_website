@@ -377,15 +377,57 @@ export function BarInventoryClient({
     if (eonEntries.length === 0 && eonMenuEntries.length === 0) return
     if (eonLoading) return
 
-    // Bug #2: Guard against double-submission for the same date
-    const { data: existingCheck } = await supabase.from('cocktail_sales').select('id').eq('date', eonDate).limit(1)
-    if (existingCheck && existingCheck.length > 0) {
-      toast(`EON already submitted for ${eonDate}. Delete it in Sales → EON History first before resubmitting.`, 'error')
-      return
-    }
-
     setEonLoading(true)
     try {
+      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+
+      // Check if cocktail_sales rows already exist for this date.
+      const { data: existingRows } = await supabase
+        .from('cocktail_sales')
+        .select('id, category, quantity, unit_price')
+        .eq('date', eonDate)
+      const alreadySubmitted = (existingRows ?? []).length > 0
+
+      if (alreadySubmitted) {
+        // cocktail_sales already recorded — only sync daily_sales from the canonical DB rows.
+        // This repairs the case where the first submission wrote cocktail_sales but
+        // daily_sales was never updated (e.g. network failure, RLS rejection, early abort).
+        const rows = existingRows!
+        const dbCocktailRev = rows
+          .filter(r => r.category === 'house_cocktail' || r.category === 'classic')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbWineRev = rows
+          .filter(r => r.category === 'wine')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbWhiskyRev = rows
+          .filter(r => r.category === 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbOthersRev = rows
+          .filter(r => r.category !== 'house_cocktail' && r.category !== 'classic' && r.category !== 'wine' && r.category !== 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const dbTotalQty = rows.reduce((s, r) => s + r.quantity, 0)
+
+        const { data: dsRow } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
+        if (!dsRow) {
+          await supabase.from('daily_sales').insert({
+            date: eonDate,
+            cocktails_revenue: dbCocktailRev,
+            wine_revenue: dbWineRev,
+            others_revenue: dbOthersRev + dbWhiskyRev,
+            beer_revenue: 0,
+            food_revenue: 0,
+            transaction_count: dbTotalQty,
+          })
+          toast(`Daily sales synced from existing EON · ${formatCurrency(dbCocktailRev + dbWineRev + dbOthersRev + dbWhiskyRev)}`, 'success')
+        } else {
+          toast(`EON already submitted for ${eonDate}. Delete it in Sales → EON History first to resubmit.`, 'error')
+        }
+        setEonLoading(false)
+        return
+      }
+
+      // ── Fresh submission ──────────────────────────────────────────────────
+
       // Insert house cocktail sales
       if (eonEntries.length > 0) {
         const { error: salesErr } = await supabase.from('cocktail_sales').insert(
@@ -418,8 +460,7 @@ export function BarInventoryClient({
         if (menuSalesErr) throw menuSalesErr
       }
 
-      // Update bar_premixes sold_serves; warn if cocktail name doesn't match any premix
-      const normName = (n: string) => n.toLowerCase().replace(/\s*[—–-]\s*/g, ' ').replace(/\s*\(.*?\)/g, '').replace(/\s+/g, ' ').trim()
+      // Update bar_premixes sold_serves
       const unmatchedPremixes: string[] = []
       for (const c of eonEntries) {
         const qty = eonQty[c.id]
@@ -435,9 +476,9 @@ export function BarInventoryClient({
         toast(`⚠ No premix matched for: ${unmatchedPremixes.join(', ')} — sold_serves not deducted`, 'error')
       }
 
-      // Deduct spirit volumes used for classic cocktails sold (manually entered per item)
+      // Deduct spirit volumes for classic cocktails
       const unmatchedClassicSpirits: string[] = []
-      const classicSpiritDelta = new Map<string, number>() // spirit id -> total ml
+      const classicSpiritDelta = new Map<string, number>()
       for (const m of eonMenuEntries) {
         if (m.category !== 'classic') continue
         const qty = eonMenuQty[m.id]
@@ -470,7 +511,7 @@ export function BarInventoryClient({
         toast(`⚠ Spirit not found, inventory not deducted: ${unmatchedClassicSpirits.join(', ')}`, 'error')
       }
 
-      // Deduct bottle stock for wine/whisky menu items sold; warn if not matched
+      // Deduct bottle stock for wine/whisky
       const unmatchedBottles: string[] = []
       for (const m of eonMenuEntries) {
         if (m.category !== 'wine' && m.category !== 'whisky') continue
@@ -487,7 +528,7 @@ export function BarInventoryClient({
         toast(`⚠ No spirit matched for: ${unmatchedBottles.join(', ')} — bottle stock not deducted`, 'error')
       }
 
-      // Bug #1: Correctly split revenue — classics count as cocktails, whisky separate from others
+      // Split revenue by category — classics count as cocktails, whisky goes into others
       const classicRevenue = eonMenuEntries.filter(m => m.category === 'classic').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const wineRevenue = eonMenuEntries.filter(m => m.category === 'wine').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const whiskeyRevenue = eonMenuEntries.filter(m => m.category === 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
@@ -504,7 +545,6 @@ export function BarInventoryClient({
           transaction_count: existing.transaction_count + eonTotalQty,
         }).eq('date', eonDate)
       } else {
-        // Bug #8: is_balanced should be false — Sales page handles reconciliation
         await supabase.from('daily_sales').insert({
           date: eonDate,
           cocktails_revenue: cocktailsRevenue,
