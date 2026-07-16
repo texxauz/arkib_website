@@ -210,19 +210,57 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
         return s + (r.unit_price ?? 0) * qty
       }, 0)
 
-      // Adjust daily_sales contribution
-      const dsRow = sales.find(s => s.date === editEonDate)
-      if (dsRow) {
-        const diff = newTotal - oldTotal
-        const { error: dsErr } = await supabase.from('daily_sales').update({
-          cocktails_revenue: Math.max(0, (dsRow.cocktails_revenue ?? 0) + diff),
-        }).eq('id', dsRow.id)
-        if (dsErr) throw dsErr
-        setSales(prev => prev.map(s => s.id === dsRow.id ? {
-          ...s,
-          total_revenue: Math.max(0, (s.total_revenue ?? 0) + diff),
-          cocktails_revenue: Math.max(0, (s.cocktails_revenue ?? 0) + diff),
-        } : s))
+      // Adjust daily_sales — recompute from canonical cocktail_sales rows for this date
+      // so daily_sales stays correct even if the row was absent or manually altered.
+      const { data: allRows } = await supabase
+        .from('cocktail_sales')
+        .select('category, quantity, unit_price')
+        .eq('date', editEonDate)
+      if (allRows) {
+        const cocktailRev = allRows
+          .filter(r => r.category === 'house_cocktail' || r.category === 'classic')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const wineRev = allRows
+          .filter(r => r.category === 'wine')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const whiskyRev = allRows
+          .filter(r => r.category === 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const othersRev = allRows
+          .filter(r => r.category !== 'house_cocktail' && r.category !== 'classic' && r.category !== 'wine' && r.category !== 'whisky')
+          .reduce((s, r) => s + r.unit_price * r.quantity, 0)
+        const totalQty = allRows.reduce((s, r) => s + r.quantity, 0)
+
+        const dsRow = sales.find(s => s.date === editEonDate)
+        if (dsRow) {
+          const { error: dsErr } = await supabase.from('daily_sales').update({
+            cocktails_revenue: cocktailRev,
+            wine_revenue: wineRev,
+            others_revenue: othersRev + whiskyRev,
+            transaction_count: totalQty,
+          }).eq('id', dsRow.id)
+          if (dsErr) throw dsErr
+          setSales(prev => prev.map(s => s.id === dsRow.id ? {
+            ...s,
+            cocktails_revenue: cocktailRev,
+            wine_revenue: wineRev,
+            others_revenue: othersRev + whiskyRev,
+            total_revenue: cocktailRev + wineRev + othersRev + whiskyRev,
+            transaction_count: totalQty,
+          } : s))
+        } else {
+          // daily_sales row missing — create it from the updated cocktail_sales
+          const { error: dsErr } = await supabase.from('daily_sales').insert({
+            date: editEonDate,
+            cocktails_revenue: cocktailRev,
+            wine_revenue: wineRev,
+            others_revenue: othersRev + whiskyRev,
+            beer_revenue: 0,
+            food_revenue: 0,
+            transaction_count: totalQty,
+          })
+          if (dsErr) throw dsErr
+        }
       }
 
       // Update local eonSales state
