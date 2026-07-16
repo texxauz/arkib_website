@@ -88,17 +88,21 @@ export async function POST(req: NextRequest) {
   if (closeErr) return NextResponse.json({ error: closeErr.message }, { status: 500 })
   if (!closed?.length) return NextResponse.json({ error: 'Order was already closed by another request' }, { status: 409 })
 
-  // 7. Insert payments — if this fails the order is already closed.
-  //    We return 500 so the client knows to escalate to a manager (who can reopen).
-  const { error: payErr } = await supabase.from('pos_payments').insert(
-    payments.map((p: { method: string; amount: number }) => ({
-      order_id: orderId,
-      method: p.method,
-      amount: p.amount,
-      captured_by: user.id,
-    }))
-  )
-  if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
+  // 7. Insert payments — guard against duplicate inserts first (idempotent on retry).
+  //    If payments already exist for this order (prior partial close), skip re-insert.
+  const { data: existingPayments } = await supabase
+    .from('pos_payments').select('id').eq('order_id', orderId).limit(1)
+  if (!existingPayments?.length) {
+    const { error: payErr } = await supabase.from('pos_payments').insert(
+      payments.map((p: { method: string; amount: number }) => ({
+        order_id: orderId,
+        method: p.method,
+        amount: p.amount,
+        captured_by: user.id,
+      }))
+    )
+    if (payErr) return NextResponse.json({ error: `Payment insert failed: ${payErr.message}` }, { status: 500 })
+  }
 
   // 8. Insert cocktail_sales rows (analytics — non-fatal on failure).
   //    order_id is included so reopen-order can cleanly reverse these rows.
@@ -254,6 +258,12 @@ export async function POST(req: NextRequest) {
       entity_id: orderId,
       payload: { error: dsErr.message, date: orderDate },
     })
+    // Return 500 so the client knows daily_sales was not updated.
+    // The order is already closed — manager can check pos_audit_log and
+    // manually correct daily_sales via the Sales page if needed.
+    return NextResponse.json({
+      error: `Order closed but daily sales update failed: ${dsErr.message}. Check audit log.`,
+    }, { status: 500 })
   }
 
   // 15. Audit log.

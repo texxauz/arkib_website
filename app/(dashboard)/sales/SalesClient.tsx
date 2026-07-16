@@ -115,7 +115,8 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             }
           }
           for (const [id, vals] of premixDelta) {
-            await supabase.from('bar_premixes').update(vals).eq('id', id)
+            const { error: pmErr } = await supabase.from('bar_premixes').update(vals).eq('id', id)
+            if (pmErr) throw new Error(`Premix restore failed: ${pmErr.message}`)
           }
         }
       }
@@ -135,7 +136,8 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
             }
           }
           for (const [id, vals] of spiritDelta) {
-            await supabase.from('bar_spirits').update(vals).eq('id', id)
+            const { error: spErr } = await supabase.from('bar_spirits').update(vals).eq('id', id)
+            if (spErr) throw new Error(`Spirit restore failed: ${spErr.message}`)
           }
         }
       }

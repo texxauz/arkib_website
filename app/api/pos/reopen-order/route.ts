@@ -83,7 +83,11 @@ export async function POST(req: NextRequest) {
       if (match) premixDelta.set(match.id, (premixDelta.get(match.id) ?? 0) + item.quantity)
     }
     for (const [id, delta] of premixDelta) {
-      await supabase.rpc('decrement_premix_serves', { p_id: id, p_delta: delta })
+      const { error } = await supabase.rpc('decrement_premix_serves', { p_id: id, p_delta: delta })
+      if (error) await supabase.from('pos_audit_log').insert({
+        actor_id: user.id, event: 'inventory.revert_failed', entity_type: 'bar_premixes', entity_id: id,
+        payload: { order_id: orderId, delta, error: error.message },
+      })
     }
 
     const spiritBottleDelta = new Map<string, number>()
@@ -93,7 +97,11 @@ export async function POST(req: NextRequest) {
       if (match) spiritBottleDelta.set(match.id, (spiritBottleDelta.get(match.id) ?? 0) + item.quantity)
     }
     for (const [id, delta] of spiritBottleDelta) {
-      await supabase.rpc('increment_spirit_bottles', { p_id: id, p_delta: delta })
+      const { error } = await supabase.rpc('increment_spirit_bottles', { p_id: id, p_delta: delta })
+      if (error) await supabase.from('pos_audit_log').insert({
+        actor_id: user.id, event: 'inventory.revert_failed', entity_type: 'bar_spirits', entity_id: id,
+        payload: { order_id: orderId, delta, error: error.message },
+      })
     }
 
     const classicMlDelta = new Map<string, number>()
@@ -110,15 +118,21 @@ export async function POST(req: NextRequest) {
       } catch {}
     }
     for (const [id, ml] of classicMlDelta) {
-      await supabase.rpc('decrement_spirit_ml', { p_id: id, p_ml: ml })
+      const { error } = await supabase.rpc('decrement_spirit_ml', { p_id: id, p_ml: ml })
+      if (error) await supabase.from('pos_audit_log').insert({
+        actor_id: user.id, event: 'inventory.revert_failed', entity_type: 'bar_spirits', entity_id: id,
+        payload: { order_id: orderId, ml, error: error.message },
+      })
     }
   }
 
   // Reverse cocktail_sales rows so re-closing doesn't double-count
-  await supabase.from('cocktail_sales').delete().eq('order_id', orderId)
+  const { error: csDelErr } = await supabase.from('cocktail_sales').delete().eq('order_id', orderId)
+  if (csDelErr) return NextResponse.json({ error: `Failed to reverse cocktail sales: ${csDelErr.message}` }, { status: 500 })
 
   // Delete payments (they'll be re-entered when the order is closed again)
-  await supabase.from('pos_payments').delete().eq('order_id', orderId)
+  const { error: payDelErr } = await supabase.from('pos_payments').delete().eq('order_id', orderId)
+  if (payDelErr) return NextResponse.json({ error: `Failed to delete payments: ${payDelErr.message}` }, { status: 500 })
 
   // Reopen the order
   const { error } = await supabase.from('pos_orders').update({

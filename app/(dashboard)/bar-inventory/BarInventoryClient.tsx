@@ -466,7 +466,8 @@ export function BarInventoryClient({
         const qty = eonQty[c.id]
         const premix = premixes.find(p => normName(p.cocktail_name ?? '') === normName(c.name))
         if (premix) {
-          await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
+          const { error: pmErr } = await supabase.from('bar_premixes').update({ sold_serves: premix.sold_serves + qty }).eq('id', premix.id)
+          if (pmErr) throw new Error(`Premix inventory update failed (${c.name}): ${pmErr.message}`)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, sold_serves: p.sold_serves + qty } : p))
         } else {
           unmatchedPremixes.push(c.name)
@@ -503,7 +504,8 @@ export function BarInventoryClient({
       for (const [spiritId, totalMl] of classicSpiritDelta) {
         const spirit = spirits.find(s => s.id === spiritId)
         if (spirit) {
-          await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spiritId)
+          const { error: spErr } = await supabase.from('bar_spirits').update({ used_classics_ml: spirit.used_classics_ml + totalMl }).eq('id', spiritId)
+          if (spErr) throw new Error(`Spirit ml deduction failed (${spirit.name}): ${spErr.message}`)
           setSpirits(prev => prev.map(s => s.id === spiritId ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
         }
       }
@@ -518,7 +520,8 @@ export function BarInventoryClient({
         const qty = eonMenuQty[m.id]
         const spirit = spirits.find(s => normName(s.name) === normName(m.name))
         if (spirit) {
-          await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
+          const { error: btlErr } = await supabase.from('bar_spirits').update({ full_bottles: spirit.full_bottles - qty }).eq('id', spirit.id)
+          if (btlErr) throw new Error(`Bottle stock deduction failed (${m.name}): ${btlErr.message}`)
           setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: s.full_bottles - qty } : s))
         } else {
           unmatchedBottles.push(m.name)
@@ -535,17 +538,18 @@ export function BarInventoryClient({
       const othersRevenue = eonMenuEntries.filter(m => m.category !== 'wine' && m.category !== 'classic' && m.category !== 'whisky').reduce((s, m) => s + m.price * eonMenuQty[m.id], 0)
       const cocktailsRevenue = eonCocktailRevenue + classicRevenue
 
-      // Upsert daily_sales
+      // Upsert daily_sales — throw on failure so cocktail_sales is not orphaned silently
       const { data: existing } = await supabase.from('daily_sales').select('*').eq('date', eonDate).maybeSingle()
       if (existing) {
-        await supabase.from('daily_sales').update({
+        const { error: dsErr } = await supabase.from('daily_sales').update({
           cocktails_revenue: (existing.cocktails_revenue ?? 0) + cocktailsRevenue,
           wine_revenue: (existing.wine_revenue ?? 0) + wineRevenue,
           others_revenue: (existing.others_revenue ?? 0) + othersRevenue + whiskeyRevenue,
           transaction_count: existing.transaction_count + eonTotalQty,
         }).eq('date', eonDate)
+        if (dsErr) throw new Error(`Daily sales update failed: ${dsErr.message}`)
       } else {
-        await supabase.from('daily_sales').insert({
+        const { error: dsErr } = await supabase.from('daily_sales').insert({
           date: eonDate,
           cocktails_revenue: cocktailsRevenue,
           wine_revenue: wineRevenue,
@@ -554,6 +558,7 @@ export function BarInventoryClient({
           food_revenue: 0,
           transaction_count: eonTotalQty,
         })
+        if (dsErr) throw new Error(`Daily sales insert failed: ${dsErr.message}`)
       }
 
       toast(`End of night logged · ${formatCurrency(eonTotalRevenue)}`, 'success')
@@ -668,9 +673,10 @@ export function BarInventoryClient({
       if (logForm.activity_type === 'Infusion Made' && volMl) {
         const infusion = infusions.find(i => i.name.toLowerCase() === logForm.product.toLowerCase())
         if (infusion) {
-          await supabase.from('bar_infusions')
+          const { error: infErr } = await supabase.from('bar_infusions')
             .update({ produced_ml: infusion.produced_ml + volMl })
             .eq('id', infusion.id)
+          if (infErr) throw new Error(`Infusion update failed: ${infErr.message}`)
           setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: i.produced_ml + volMl } : i))
         }
         // Deduct spirits used to make this infusion
@@ -681,18 +687,20 @@ export function BarInventoryClient({
         for (const u of infusionSpiritUpdates) {
           const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
           if (spirit) {
-            await supabase.from('bar_spirits')
+            const { error: spErr } = await supabase.from('bar_spirits')
               .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
               .eq('id', spirit.id)
+            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
           }
         }
       } else if (logForm.activity_type === 'Premix Made') {
         const premix = premixes.find(p => p.name.toLowerCase() === logForm.product.toLowerCase())
         if (premix) {
-          await supabase.from('bar_premixes')
+          const { error: pmErr } = await supabase.from('bar_premixes')
             .update({ produced_serves: premix.produced_serves + qty })
             .eq('id', premix.id)
+          if (pmErr) throw new Error(`Premix update failed: ${pmErr.message}`)
           setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: p.produced_serves + qty } : p))
         }
 
@@ -704,18 +712,20 @@ export function BarInventoryClient({
           if (r.ingredient_type === 'infusion') {
             const infusion = infusions.find(i => i.name.toLowerCase() === r.ingredient_name.toLowerCase())
             if (infusion) {
-              await supabase.from('bar_infusions')
+              const { error: infErr } = await supabase.from('bar_infusions')
                 .update({ used_premix_ml: infusion.used_premix_ml + totalMl })
                 .eq('id', infusion.id)
+              if (infErr) throw new Error(`Infusion deduction failed (${r.ingredient_name}): ${infErr.message}`)
               setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, used_premix_ml: i.used_premix_ml + totalMl } : i))
               deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
             }
           } else if (r.ingredient_type === 'spirit') {
             const spirit = spirits.find(s => s.name.toLowerCase() === r.ingredient_name.toLowerCase())
             if (spirit) {
-              await supabase.from('bar_spirits')
+              const { error: spErr } = await supabase.from('bar_spirits')
                 .update({ used_classics_ml: spirit.used_classics_ml + totalMl })
                 .eq('id', spirit.id)
+              if (spErr) throw new Error(`Spirit deduction failed (${r.ingredient_name}): ${spErr.message}`)
               setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
               deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
             }
@@ -729,9 +739,10 @@ export function BarInventoryClient({
         for (const u of rawSpiritUpdates) {
           const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
           if (spirit) {
-            await supabase.from('bar_spirits')
+            const { error: spErr } = await supabase.from('bar_spirits')
               .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
               .eq('id', spirit.id)
+            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
             setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
             deductionSummary.push(`${u.name} −${u.vol}ml`)
           }
@@ -817,7 +828,8 @@ export function BarInventoryClient({
             const spirit = spirits.find(s => s.name === name)
             if (spirit) {
               const updated = spirit.used_classics_ml + delta
-              await supabase.from('bar_spirits').update({ used_classics_ml: updated }).eq('id', spirit.id)
+              const { error: spErr } = await supabase.from('bar_spirits').update({ used_classics_ml: updated }).eq('id', spirit.id)
+              if (spErr) throw new Error(`Spirit inventory correction failed (${name}): ${spErr.message}`)
               setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: updated } : s))
             }
           }

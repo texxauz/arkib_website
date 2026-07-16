@@ -102,7 +102,7 @@ export async function POST(req: NextRequest) {
         else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
       }
 
-      await supabase.rpc('decrement_daily_sales', {
+      const { error: dsErr } = await supabase.rpc('decrement_daily_sales', {
         p_date: orderDate,
         p_cocktails_revenue: cocktailsGross * (1 - discountRatio),
         p_beer_revenue: beerGross * (1 - discountRatio),
@@ -115,6 +115,17 @@ export async function POST(req: NextRequest) {
         p_online_collected: onlineCol,
         p_transaction_count: 1,
       })
+      if (dsErr) {
+        await supabase.from('pos_audit_log').insert({
+          actor_id: user.id,
+          actor_name: profile?.full_name ?? null,
+          event: 'inventory.daily_sales_failed',
+          entity_type: 'pos_orders',
+          entity_id: orderId,
+          payload: { error: dsErr.message, date: orderDate, action: 'decrement_on_delete' },
+        })
+        return NextResponse.json({ error: `daily_sales reversal failed: ${dsErr.message}. Order not deleted — check audit log.` }, { status: 500 })
+      }
     }
   }
 
