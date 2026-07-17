@@ -133,13 +133,16 @@ export async function POST(req: NextRequest) {
 
   // 8. Insert cocktail_sales rows (analytics — non-fatal on failure).
   //    order_id is included so reopen-order can cleanly reverse these rows.
+  //    discountRatio computed here so unit_price reflects post-discount revenue.
+  const _grossForSales = items.reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
+  const _discountRatioForSales = _grossForSales > 0 ? discountAmount / _grossForSales : 0
   const salesRows = items.map(i => ({
     order_id: orderId,
     date: orderDate,
     cocktail_name: i.item_name,
     cocktail_id: i.item_type === 'cocktail' ? i.item_id : null,
     quantity: i.quantity,
-    unit_price: parseFloat((i.unit_price * (1 - discountRatio)).toFixed(2)),
+    unit_price: parseFloat((i.unit_price * (1 - _discountRatioForSales)).toFixed(2)),
     unit_cost: i.unit_cost ?? 0,
     category: i.category ?? 'other',
     logged_by: user.id,
