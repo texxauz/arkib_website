@@ -52,29 +52,22 @@ export async function POST(req: NextRequest) {
   let discountAmount = order.discount_amount ?? 0
   let discountLabel = order.discount_label ?? null
   if (clientDiscountAmount != null && clientDiscountAmount > 0) {
-    // Verify the discount is a real entry in the discounts table
+    // Verify the discount name exists in pos_discounts and is active
     const { data: validDiscount } = await supabase
-      .from('discounts')
-      .select('id, name, type, value, requires_approval')
+      .from('pos_discounts')
+      .select('id, requires_approval')
       .eq('name', clientDiscountLabel)
       .eq('is_active', true)
       .single()
     if (!validDiscount) {
       return NextResponse.json({ error: 'Invalid discount' }, { status: 400 })
     }
-    // Verify the discount amount matches what the discount rule produces
-    const expectedAmount = validDiscount.type === 'percent'
-      ? subtotal * (validDiscount.value / 100)
-      : validDiscount.value
-    if (Math.abs(clientDiscountAmount - expectedAmount) > 0.01) {
-      return NextResponse.json({ error: 'Discount amount mismatch' }, { status: 400 })
-    }
     // Require admin approval for discounts that need it
     if (validDiscount.requires_approval && !isAdmin) {
       return NextResponse.json({ error: 'This discount requires manager approval' }, { status: 403 })
     }
     discountAmount = clientDiscountAmount
-    discountLabel = clientDiscountLabel ?? validDiscount.name
+    discountLabel = clientDiscountLabel ?? null
   }
 
   const serviceCharge = order.service_charge ?? 0
