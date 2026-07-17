@@ -35,14 +35,14 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Calculate expected cash from cash payments under this shift's orders.
-  const { data: payments } = await supabase
+  // Calculate revenue from all payments under this shift's orders.
+  const { data: allPayments } = await supabase
     .from('pos_payments')
-    .select('amount, pos_orders!inner(shift_id)')
+    .select('amount, method, pos_orders!inner(shift_id)')
     .eq('pos_orders.shift_id', shiftId)
-    .eq('method', 'cash')
 
-  const cashRevenue = (payments ?? []).reduce((s, p) => s + (p.amount ?? 0), 0)
+  const cashRevenue = (allPayments ?? []).filter(p => p.method === 'cash').reduce((s, p) => s + (p.amount ?? 0), 0)
+  const totalRevenue = (allPayments ?? []).reduce((s, p) => s + (p.amount ?? 0), 0)
   const expectedCash = (shift.opening_float ?? 0) + cashRevenue
   const variance = (closingCash ?? 0) - expectedCash
 
@@ -53,6 +53,7 @@ export async function POST(req: NextRequest) {
     closing_cash: closingCash ?? 0,
     expected_cash: expectedCash,
     variance,
+    revenue: totalRevenue,
     status: 'closed',
     notes: notes ?? null,
   }).eq('id', shiftId).eq('status', 'open') // optimistic lock prevents double-close
