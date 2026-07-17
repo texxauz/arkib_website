@@ -139,7 +139,7 @@ export async function POST(req: NextRequest) {
     cocktail_name: i.item_name,
     cocktail_id: i.item_type === 'cocktail' ? i.item_id : null,
     quantity: i.quantity,
-    unit_price: i.unit_price,
+    unit_price: parseFloat((i.unit_price * (1 - discountRatio)).toFixed(2)),
     unit_cost: i.unit_cost ?? 0,
     category: i.category ?? 'other',
     logged_by: user.id,
