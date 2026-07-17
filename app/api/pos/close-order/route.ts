@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const body = await req.json()
-  const { orderId, payments } = body
+  const { orderId, payments, discountAmount: clientDiscountAmount, discountLabel: clientDiscountLabel } = body
 
   if (!orderId || !Array.isArray(payments) || !payments.length) {
     return NextResponse.json({ error: 'orderId and payments required' }, { status: 400 })
@@ -45,8 +45,38 @@ export async function POST(req: NextRequest) {
   if (!items?.length) return NextResponse.json({ error: 'No items on order' }, { status: 400 })
 
   // 3. Compute totals server-side from authoritative DB values.
+  //    Discount is applied at payment time — validate the client-supplied discount
+  //    against the discounts table before trusting it.
   const subtotal = items.reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
-  const discountAmount = order.discount_amount ?? 0
+
+  let discountAmount = order.discount_amount ?? 0
+  let discountLabel = order.discount_label ?? null
+  if (clientDiscountAmount != null && clientDiscountAmount > 0) {
+    // Verify the discount is a real entry in the discounts table
+    const { data: validDiscount } = await supabase
+      .from('discounts')
+      .select('id, name, type, value, requires_approval')
+      .eq('name', clientDiscountLabel)
+      .eq('is_active', true)
+      .single()
+    if (!validDiscount) {
+      return NextResponse.json({ error: 'Invalid discount' }, { status: 400 })
+    }
+    // Verify the discount amount matches what the discount rule produces
+    const expectedAmount = validDiscount.type === 'percent'
+      ? subtotal * (validDiscount.value / 100)
+      : validDiscount.value
+    if (Math.abs(clientDiscountAmount - expectedAmount) > 0.01) {
+      return NextResponse.json({ error: 'Discount amount mismatch' }, { status: 400 })
+    }
+    // Require admin approval for discounts that need it
+    if (validDiscount.requires_approval && !isAdmin) {
+      return NextResponse.json({ error: 'This discount requires manager approval' }, { status: 403 })
+    }
+    discountAmount = clientDiscountAmount
+    discountLabel = clientDiscountLabel ?? validDiscount.name
+  }
+
   const serviceCharge = order.service_charge ?? 0
   const taxAmount = order.tax_amount ?? 0
   const total = subtotal - discountAmount + serviceCharge + taxAmount
@@ -78,7 +108,7 @@ export async function POST(req: NextRequest) {
       closed_at: now,
       subtotal,
       discount_amount: discountAmount,
-      discount_label: order.discount_label ?? null,
+      discount_label: discountLabel,
       service_charge: serviceCharge,
       tax_amount: taxAmount,
       total,
