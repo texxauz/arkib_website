@@ -18,8 +18,9 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'orderId and payments required' }, { status: 400 })
   }
 
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('role, pos_permissions').eq('id', user.id).single()
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+  const posPerm = (profile?.pos_permissions ?? {}) as Record<string, boolean>
 
   // 1. Load order — read authoritative financial values from the database.
   //    NEVER trust client-supplied discountAmount / serviceCharge / taxAmount.
@@ -31,7 +32,7 @@ export async function POST(req: NextRequest) {
   if (orderErr || !order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
   if (order.status !== 'open') return NextResponse.json({ error: 'Order already closed' }, { status: 400 })
 
-  if (!isAdmin && order.server_id !== user.id) {
+  if (!isAdmin && !posPerm.close_any_table && order.server_id !== user.id) {
     return NextResponse.json({ error: 'You can only close your own orders' }, { status: 403 })
   }
 
@@ -63,7 +64,7 @@ export async function POST(req: NextRequest) {
       return NextResponse.json({ error: 'Invalid discount' }, { status: 400 })
     }
     // Require admin approval for discounts that need it
-    if (validDiscount.requires_approval && !isAdmin) {
+    if (validDiscount.requires_approval && !isAdmin && !posPerm.apply_approval_discounts) {
       return NextResponse.json({ error: 'This discount requires manager approval' }, { status: 403 })
     }
     discountAmount = clientDiscountAmount

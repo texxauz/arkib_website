@@ -6,7 +6,24 @@ import { Modal } from '@/components/ui/Modal'
 import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
 import type { Database } from '@/types/database'
 
-type UserProfile = Database['public']['Tables']['users']['Row'] & { tab_permissions?: Record<string, string> | null }
+type UserProfile = Database['public']['Tables']['users']['Row'] & {
+  tab_permissions?: Record<string, string> | null
+  pos_permissions?: Record<string, boolean> | null
+}
+
+const POS_ACTION_PERMS = [
+  { key: 'close_any_table', label: 'Close any table', desc: "Close orders they didn't open" },
+  { key: 'reopen_order', label: 'Reopen orders', desc: 'Void and reopen closed orders' },
+  { key: 'apply_approval_discounts', label: 'Apply manager discounts', desc: 'Use Manager Discount & Complimentary' },
+  { key: 'delete_order', label: 'Delete orders', desc: 'Permanently delete orders' },
+]
+
+const DEFAULT_POS_PERMS: Record<string, boolean> = {
+  close_any_table: false,
+  reopen_order: false,
+  apply_approval_discounts: false,
+  delete_order: false,
+}
 
 const MGMT_TABS = [
   { key: 'dashboard', label: 'Dashboard' },
@@ -81,6 +98,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   const [editTarget, setEditTarget] = useState<UserProfile | null>(null)
   const [inviteForm, setInviteForm] = useState(emptyInvite)
   const [editPerms, setEditPerms] = useState<Record<string, string>>({})
+  const [editPosPerms, setEditPosPerms] = useState<Record<string, boolean>>(DEFAULT_POS_PERMS)
   const [editRole, setEditRole] = useState('bartender')
   const [editName, setEditName] = useState('')
   const [loading, setLoading] = useState(false)
@@ -103,6 +121,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setEditRole(m.role)
     setEditName(m.full_name)
     setEditPerms(m.tab_permissions ?? defaultPermsForRole(m.role))
+    setEditPosPerms({ ...DEFAULT_POS_PERMS, ...(m.pos_permissions ?? {}) })
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -130,7 +149,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     const res = await fetch('/api/team/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms }),
+      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms }),
     })
     const data = await res.json()
     setLoading(false)
@@ -331,6 +350,29 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             <p className="label mb-2">Tab Access <span className="text-[#5A5865] font-normal normal-case">(click to cycle: none → view → edit)</span></p>
             <PermGrid perms={editPerms} onCycle={cyclePerm} />
           </div>
+
+          {!['owner', 'manager'].includes(editRole) && (
+            <div>
+              <p className="label mb-2">POS Permissions <span className="text-[#5A5865] font-normal normal-case">— extra actions beyond their role</span></p>
+              <div className="space-y-2">
+                {POS_ACTION_PERMS.map(({ key, label, desc }) => (
+                  <div key={key} className="flex items-center justify-between px-3 py-2.5 rounded-lg border border-[#2A2A30] bg-[#1A1A1E]">
+                    <div>
+                      <p className="text-[#F0EEF6] text-sm font-medium">{label}</p>
+                      <p className="text-[#5A5865] text-xs">{desc}</p>
+                    </div>
+                    <button
+                      type="button"
+                      onClick={() => setEditPosPerms(p => ({ ...p, [key]: !p[key] }))}
+                      className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${editPosPerms[key] ? 'bg-[#8B5CF6]' : 'bg-[#2A2A30]'}`}
+                    >
+                      <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${editPosPerms[key] ? 'translate-x-5' : 'translate-x-0'}`} />
+                    </button>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
 
           <div className="flex gap-3 pt-2">
             <button type="button" onClick={() => setEditTarget(null)} className="btn-secondary flex-1">Cancel</button>

@@ -11,8 +11,10 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
-  if (profile?.role !== 'owner' && profile?.role !== 'manager') {
+  const { data: profile } = await supabase.from('users').select('role, full_name, pos_permissions').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+  const posPerm = (profile?.pos_permissions ?? {}) as Record<string, boolean>
+  if (!isAdmin && !posPerm.reopen_order) {
     return NextResponse.json({ error: 'Manager or owner access required' }, { status: 403 })
   }
 

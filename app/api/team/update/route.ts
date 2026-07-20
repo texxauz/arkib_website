@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { userId, full_name, role, tab_permissions, is_active } = await request.json()
+  const { userId, full_name, role, tab_permissions, pos_permissions, is_active } = await request.json()
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
   // Fix: prevent privilege escalation — managers cannot grant owner role
@@ -42,6 +42,7 @@ export async function POST(request: NextRequest) {
     full_name,
     role,
     tab_permissions,
+    pos_permissions,
     is_active,
   }).eq('id', userId)
 
