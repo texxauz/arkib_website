@@ -1553,6 +1553,9 @@ export function BarInventoryClient({
                   <p className="text-[#A78BFA] font-bold text-lg">{eonMargin.toFixed(1)}%</p>
                 </div>
               </div>
+              <div className="rounded-xl border border-amber-500/30 bg-amber-500/10 px-4 py-3 text-amber-400 text-xs leading-relaxed">
+                <span className="font-semibold">⚠ POS is active</span> — sales are recorded automatically when POS orders are closed. Only submit here if sales were <span className="font-semibold">not</span> processed through POS tonight. Submitting when POS was used will double-count your daily sales.
+              </div>
               <button onClick={handleEON} disabled={eonLoading} className="btn-primary w-full disabled:opacity-50">
                 {eonLoading ? 'Submitting...' : `Submit End of Night · ${eonTotalQty} items · ${formatCurrency(eonTotalRevenue)}`}
               </button>
