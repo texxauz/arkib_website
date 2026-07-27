@@ -10,7 +10,7 @@ import { cn } from '@/lib/utils'
 import {
   Plus, Minus, Trash2, Send, CreditCard, Search,
   ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound, WifiOff,
-  Printer, Mail,
+  Printer, Mail, Wand2,
 } from 'lucide-react'
 import { ReceiptPrint, ReceiptData } from './ReceiptPrint'
 
@@ -44,6 +44,7 @@ interface Props {
   userId: string
   userName: string
   isAdmin: boolean
+  canCreateCustomItem: boolean
   config: Record<string, string>
 }
 
@@ -58,8 +59,10 @@ function formatCurrency(amount: number) {
   return 'RM ' + amount.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })
 }
 
+const CUSTOM_CATEGORIES = ['cocktail', 'beer', 'wine', 'food', 'others']
+
 export function OrderTicketClient({
-  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, config
+  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, canCreateCustomItem, config
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -91,6 +94,13 @@ export function OrderTicketClient({
   const [emailModal, setEmailModal] = useState(false)
   const [emailAddress, setEmailAddress] = useState('')
   const [emailSending, setEmailSending] = useState(false)
+
+  const [customModal, setCustomModal] = useState(false)
+  const [customName, setCustomName] = useState('')
+  const [customPrice, setCustomPrice] = useState('')
+  const [customCategory, setCustomCategory] = useState('cocktail')
+  const [customQty, setCustomQty] = useState('1')
+  const [customLoading, setCustomLoading] = useState(false)
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine)
@@ -174,6 +184,43 @@ export function OrderTicketClient({
       setItems(prev => prev.find(i => i.id === (data as OrderItem).id) ? prev : [...prev, data as OrderItem])
     }
   }, [activeItems, order.id, userId, supabase, toast])
+
+  const addCustomItem = async () => {
+    const price = parseFloat(customPrice)
+    const qty = parseInt(customQty) || 1
+    if (!customName.trim()) { toast('Item name is required', 'error'); return }
+    if (isNaN(price) || price <= 0) { toast('Price must be greater than 0', 'error'); return }
+    setCustomLoading(true)
+    const { data, error } = await supabase.from('pos_order_items').insert({
+      order_id: order.id,
+      item_type: 'custom',
+      item_id: null,
+      item_name: customName.trim(),
+      category: customCategory,
+      quantity: qty,
+      unit_price: price,
+      unit_cost: 0,
+      discount: 0,
+      status: 'pending',
+      added_by: userId,
+    }).select().single()
+    if (error) {
+      toast(error.message, 'error')
+    } else if (data) {
+      setItems(prev => prev.find(i => i.id === (data as OrderItem).id) ? prev : [...prev, data as OrderItem])
+      await supabase.from('pos_audit_log').insert({
+        actor_id: userId,
+        event: 'order.custom_item_added',
+        entity_type: 'pos_orders',
+        entity_id: order.id,
+        payload: { item_name: customName.trim(), price, qty, category: customCategory, added_by: userName },
+      })
+      toast(`Added: ${customName.trim()}`, 'success')
+      setCustomModal(false)
+      setCustomName(''); setCustomPrice(''); setCustomQty('1'); setCustomCategory('cocktail')
+    }
+    setCustomLoading(false)
+  }
 
   const updateQty = useCallback(async (itemId: string, delta: number) => {
     const item = items.find(i => i.id === itemId)
@@ -403,7 +450,7 @@ export function OrderTicketClient({
   const MenuPanel = (
     <div className="flex flex-col h-full bg-[#0E0E11]">
       {/* Search */}
-      <div className="p-3 border-b border-[#2A2A30]">
+      <div className="p-3 border-b border-[#2A2A30] space-y-2">
         <div className="relative">
           <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
           <input
@@ -414,6 +461,14 @@ export function OrderTicketClient({
             className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg pl-9 pr-3 py-2 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
           />
         </div>
+        {canCreateCustomItem && (
+          <button
+            onClick={() => setCustomModal(true)}
+            className="w-full flex items-center justify-center gap-2 py-2 rounded-lg border border-dashed border-[#7B5EA7]/50 text-[#A78BFA] text-xs font-medium hover:bg-[#7B5EA7]/10 transition-all"
+          >
+            <Wand2 size={13} /> Custom Item
+          </button>
+        )}
       </div>
 
       {/* Category tabs */}
@@ -957,6 +1012,76 @@ export function OrderTicketClient({
               className="px-4 py-2 rounded-xl text-sm font-medium bg-rose-600 text-white hover:bg-rose-500 transition-all disabled:opacity-50"
             >
               {loading ? 'Cancelling…' : 'Cancel Order'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Custom Item Modal */}
+      <Modal isOpen={customModal} onClose={() => { setCustomModal(false); setCustomName(''); setCustomPrice(''); setCustomQty('1'); setCustomCategory('cocktail') }} title="Custom Item" size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">Create a one-off item with a custom price. This will be logged for accountability.</p>
+          <div>
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Item Name <span className="text-rose-400">*</span></label>
+            <input
+              type="text"
+              value={customName}
+              onChange={e => setCustomName(e.target.value)}
+              placeholder="e.g. Special Cocktail, Birthday Cake…"
+              className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+              autoFocus
+            />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Price (RM) <span className="text-rose-400">*</span></label>
+              <input
+                type="number"
+                min="0.01"
+                step="0.01"
+                value={customPrice}
+                onChange={e => setCustomPrice(e.target.value)}
+                placeholder="0.00"
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+              />
+            </div>
+            <div>
+              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Qty</label>
+              <input
+                type="number"
+                min="1"
+                step="1"
+                value={customQty}
+                onChange={e => setCustomQty(e.target.value)}
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
+              />
+            </div>
+          </div>
+          <div>
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Category</label>
+            <select
+              value={customCategory}
+              onChange={e => setCustomCategory(e.target.value)}
+              className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
+            >
+              {CUSTOM_CATEGORIES.map(c => (
+                <option key={c} value={c}>{c.charAt(0).toUpperCase() + c.slice(1)}</option>
+              ))}
+            </select>
+          </div>
+          <div className="flex gap-2 justify-end pt-1">
+            <button
+              onClick={() => { setCustomModal(false); setCustomName(''); setCustomPrice(''); setCustomQty('1'); setCustomCategory('cocktail') }}
+              className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all"
+            >
+              Cancel
+            </button>
+            <button
+              onClick={addCustomItem}
+              disabled={customLoading || !customName.trim() || !customPrice}
+              className="px-4 py-2 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] disabled:opacity-40 transition-all"
+            >
+              {customLoading ? 'Adding…' : 'Add Item'}
             </button>
           </div>
         </div>
