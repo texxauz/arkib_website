@@ -11,12 +11,14 @@ export async function POST(req: NextRequest) {
   if (!orderId) return NextResponse.json({ error: 'orderId required' }, { status: 400 })
 
   // Load actor profile
-  const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('role, full_name, pos_permissions').eq('id', user.id).single()
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+  const posPerm = (profile?.pos_permissions ?? {}) as Record<string, boolean>
+  const canCancelOrder = isAdmin || !!posPerm.cancel_order
 
-  // Non-admins must supply a manager PIN
+  // Non-admins without cancel_order permission must supply a manager PIN
   let approvedByName: string | null = null
-  if (!isAdmin) {
+  if (!canCancelOrder) {
     if (!managerPin) return NextResponse.json({ error: 'Manager PIN required to cancel an order' }, { status: 403 })
     const pinStr = String(managerPin).trim()
     const { data: managers } = await supabase
@@ -34,6 +36,9 @@ export async function POST(req: NextRequest) {
     }
     if (!matched) return NextResponse.json({ error: 'Invalid manager PIN' }, { status: 403 })
     approvedByName = matched.full_name ?? null
+  } else if (!isAdmin) {
+    // Has cancel_order permission — log who cancelled without needing a PIN
+    approvedByName = profile?.full_name ?? null
   }
 
   // Load order

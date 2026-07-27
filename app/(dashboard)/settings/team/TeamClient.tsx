@@ -12,6 +12,7 @@ type UserProfile = Database['public']['Tables']['users']['Row'] & {
 }
 
 const POS_ACTION_PERMS = [
+  { key: 'cancel_order', label: 'Cancel orders', desc: 'Cancel an open order without manager PIN' },
   { key: 'close_any_table', label: 'Close any table', desc: "Close orders they didn't open" },
   { key: 'reopen_order', label: 'Reopen orders', desc: 'Void and reopen closed orders' },
   { key: 'apply_approval_discounts', label: 'Apply manager discounts', desc: 'Use Manager Discount & Complimentary' },
@@ -20,6 +21,7 @@ const POS_ACTION_PERMS = [
 ]
 
 const DEFAULT_POS_PERMS: Record<string, boolean> = {
+  cancel_order: false,
   close_any_table: false,
   reopen_order: false,
   apply_approval_discounts: false,

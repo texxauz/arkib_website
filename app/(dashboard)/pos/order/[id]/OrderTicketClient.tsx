@@ -45,6 +45,7 @@ interface Props {
   userName: string
   isAdmin: boolean
   canCreateCustomItem: boolean
+  canCancelOrder: boolean
   config: Record<string, string>
 }
 
@@ -62,7 +63,7 @@ function formatCurrency(amount: number) {
 const CUSTOM_CATEGORIES = ['cocktail', 'beer', 'wine', 'food', 'others']
 
 export function OrderTicketClient({
-  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, canCreateCustomItem, config
+  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, canCreateCustomItem, canCancelOrder, config
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -321,7 +322,8 @@ export function OrderTicketClient({
       toast('A reason is required to cancel an order', 'error')
       return
     }
-    if (!isAdmin && cancelPin.length < 4) {
+    const needsPin = !isAdmin && !canCancelOrder
+    if (needsPin && cancelPin.length < 4) {
       toast('Enter your manager PIN', 'error')
       return
     }
@@ -329,7 +331,7 @@ export function OrderTicketClient({
     const res = await fetch('/api/pos/cancel-order', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ orderId: currentOrder.id, reason: cancelReason, managerPin: isAdmin ? undefined : cancelPin }),
+      body: JSON.stringify({ orderId: currentOrder.id, reason: cancelReason, managerPin: needsPin ? cancelPin : undefined }),
     })
     setLoading(false)
     if (!res.ok) {
@@ -339,7 +341,7 @@ export function OrderTicketClient({
       setCancelModal(false)
       router.push('/pos')
     }
-  }, [cancelReason, cancelPin, isAdmin, currentOrder.id, router, toast])
+  }, [cancelReason, cancelPin, isAdmin, canCancelOrder, currentOrder.id, router, toast])
 
   const handleSaveNote = useCallback(async () => {
     if (!noteModal.itemId) return
@@ -985,7 +987,7 @@ export function OrderTicketClient({
               className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
             />
           </div>
-          {!isAdmin && (
+          {!isAdmin && !canCancelOrder && (
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Manager PIN <span className="text-rose-400">*</span></label>
               <input
