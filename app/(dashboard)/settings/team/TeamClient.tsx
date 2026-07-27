@@ -16,6 +16,7 @@ const POS_ACTION_PERMS = [
   { key: 'reopen_order', label: 'Reopen orders', desc: 'Void and reopen closed orders' },
   { key: 'apply_approval_discounts', label: 'Apply manager discounts', desc: 'Use Manager Discount & Complimentary' },
   { key: 'delete_order', label: 'Delete orders', desc: 'Permanently delete orders' },
+  { key: 'create_custom_item', label: 'Create custom items', desc: 'Add custom drinks/items with manual price on the spot' },
 ]
 
 const DEFAULT_POS_PERMS: Record<string, boolean> = {
@@ -23,6 +24,7 @@ const DEFAULT_POS_PERMS: Record<string, boolean> = {
   reopen_order: false,
   apply_approval_discounts: false,
   delete_order: false,
+  create_custom_item: false,
 }
 
 const MGMT_TABS = [

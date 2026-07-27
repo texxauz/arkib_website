@@ -12,8 +12,10 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
   const { id } = await params
 
   const { data: userProfile } = await supabase
-    .from('users').select('role, full_name').eq('id', user.id).single()
+    .from('users').select('role, full_name, pos_permissions').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
+  const posPerm = (userProfile?.pos_permissions ?? {}) as Record<string, boolean>
+  const canCreateCustomItem = isAdmin || !!posPerm.create_custom_item
 
   const [{ data: order }, { data: items }, { data: cocktails }, { data: menuItemsRaw }, { data: config }, { data: tables }] = await Promise.all([
     supabase.from('pos_orders').select('id, table_id, table_name, section, server_name, covers, status, subtotal, discount_amount, service_charge, tax_amount, total, notes, opened_at, customer_name').eq('id', id).single(),
@@ -38,6 +40,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
       userId={user.id}
       userName={userProfile?.full_name ?? 'Staff'}
       isAdmin={isAdmin}
+      canCreateCustomItem={canCreateCustomItem}
       config={configMap}
     />
   )
