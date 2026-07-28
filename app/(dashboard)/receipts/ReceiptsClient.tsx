@@ -103,6 +103,10 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
   const [newExpPayment, setNewExpPayment] = useState('bank_transfer')
   const [creatingExp, setCreatingExp] = useState(false)
 
+  // Manual amount entry
+  const [manualAmount, setManualAmount] = useState('')
+  const [savingManualAmount, setSavingManualAmount] = useState(false)
+
   // Accounting tab
   const [accountingYear, setAccountingYear] = useState(CURRENT_YEAR)
 
@@ -296,6 +300,20 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
     setReceipts(prev => prev.map(r => r.id === receipt.id ? { ...r, is_paid: newPaid, paid_at: newPaid ? new Date().toISOString() : null } : r))
     if (selected?.id === receipt.id) setSelected(s => s ? { ...s, is_paid: newPaid } : s)
     toast(newPaid ? 'Marked as paid' : 'Marked as unpaid', 'success')
+  }
+
+  const handleSaveManualAmount = async () => {
+    if (!selected) return
+    const val = parseFloat(manualAmount)
+    if (isNaN(val) || val <= 0) { toast('Enter a valid amount', 'error'); return }
+    setSavingManualAmount(true)
+    const { error } = await supabase.from('receipts').update({ ocr_amount: val } as any).eq('id', selected.id)
+    setSavingManualAmount(false)
+    if (error) { toast(error.message, 'error'); return }
+    setReceipts(prev => prev.map(r => r.id === selected.id ? { ...r, ocr_amount: val } : r))
+    setSelected(s => s ? { ...s, ocr_amount: val } as any : s)
+    setManualAmount('')
+    toast('Amount saved', 'success')
   }
 
   const isImage = (type: string) => type.startsWith('image/')
@@ -518,7 +536,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
               {filtered.map(r => (
                 <GridCard key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
                   onTogglePaid={handleTogglePaid}
-                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
+                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch(''); setManualAmount('') }} />
               ))}
             </div>
           ) : (
@@ -526,7 +544,7 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
               {filtered.map(r => (
                 <ListRow key={r.id} receipt={r} isImage={isImage} extracting={uploadingId === r.id}
                   onTogglePaid={handleTogglePaid}
-                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch('') }} />
+                  onClick={() => { setSelected(r); setLinkExpenseId(r.expense_id ?? ''); setClaimedByInput(r.claimed_by ?? ''); setConfirmDelete(false); setShowCreateExpense(false); setExpenseSearch(''); setManualAmount('') }} />
               ))}
             </div>
           )}
@@ -602,6 +620,35 @@ export function ReceiptsClient({ initialReceipts, expenses: initialExpenses, cur
                     ) : null
                   } catch { return null }
                 })()}
+              </div>
+            )}
+
+            {/* Manual amount entry (shown when AI didn't extract an amount) */}
+            {(selected as any).ocr_amount == null && (
+              <div className="bg-[#1A1A1E] border border-[#2A2A30] rounded-xl p-4">
+                <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Total Amount</p>
+                <p className="text-[#5A5865] text-xs mb-3">Amount not extracted — enter it manually.</p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <span className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865] text-sm">RM</span>
+                    <input
+                      type="number"
+                      min="0.01"
+                      step="0.01"
+                      value={manualAmount}
+                      onChange={e => setManualAmount(e.target.value)}
+                      placeholder="0.00"
+                      className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl pl-10 pr-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleSaveManualAmount}
+                    disabled={savingManualAmount || !manualAmount}
+                    className="px-4 py-2.5 rounded-xl text-sm font-medium bg-[#7B5EA7] text-white hover:bg-[#8B6EB7] disabled:opacity-40 transition-all"
+                  >
+                    {savingManualAmount ? 'Saving…' : 'Save'}
+                  </button>
+                </div>
               </div>
             )}
 
