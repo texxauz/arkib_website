@@ -111,7 +111,7 @@ const PAYMENT_LABELS: Record<string, string> = {
 function normalizeMethod(method: string): 'cash' | 'card' | 'qr' {
   const m = method.toLowerCase()
   if (m === 'cash') return 'cash'
-  if (m === 'credit_card' || m === 'debit_card' || m === 'card') return 'card'
+  if (m === 'credit_card' || m === 'debit_card' || m === 'card' || m === 'visa' || m === 'mastercard') return 'card'
   return 'qr'
 }
 

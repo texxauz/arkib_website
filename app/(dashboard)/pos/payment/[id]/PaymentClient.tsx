@@ -96,6 +96,7 @@ export function PaymentClient({
   })
   const [approvalPin, setApprovalPin] = useState('')
   const [payMethod, setPayMethod] = useState<PayMethod>('cash')
+  const [cardType, setCardType] = useState<'credit_card' | 'visa' | 'mastercard'>('credit_card')
   const [cashEntered, setCashEntered] = useState('')
   const [mixedPayments, setMixedPayments] = useState({ cash: '', card: '', qr: '' })
   const [tipAmount, setTipAmount] = useState(0)
@@ -183,7 +184,7 @@ export function PaymentClient({
     if (payMethod === 'cash') {
       payments = [{ method: 'cash', amount: total }]
     } else if (payMethod === 'credit_card') {
-      payments = [{ method: 'credit_card', amount: total }]
+      payments = [{ method: cardType, amount: total }]
     } else if (payMethod === 'qr_payment') {
       payments = [{ method: 'qr_payment', amount: total }]
     } else {
@@ -538,6 +539,32 @@ export function PaymentClient({
               ))}
             </div>
           </div>
+
+          {/* Card type sub-selector */}
+          {payMethod === 'credit_card' && (
+            <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
+              <span className="text-[#9896A4] text-xs font-semibold uppercase tracking-widest block mb-3">Card Network</span>
+              <div className="grid grid-cols-3 gap-2">
+                {([
+                  { key: 'credit_card', label: 'Unspecified' },
+                  { key: 'visa', label: 'Visa' },
+                  { key: 'mastercard', label: 'Mastercard' },
+                ] as const).map(({ key, label }) => (
+                  <button
+                    key={key}
+                    onClick={() => setCardType(key)}
+                    className={`py-2 rounded-xl border text-xs font-medium transition-all ${
+                      cardType === key
+                        ? 'bg-[#8B5CF6]/15 border-[#8B5CF6]/50 text-[#A78BFA]'
+                        : 'bg-[#1A1A1E] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42]'
+                    }`}
+                  >
+                    {label}
+                  </button>
+                ))}
+              </div>
+            </div>
+          )}
 
           {/* Cash input */}
           {payMethod === 'cash' && (
