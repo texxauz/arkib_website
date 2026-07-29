@@ -26,7 +26,7 @@ export default async function ShiftsPage() {
   // cannot expose via FK embed; resolve names from public.users after fetching scalar IDs.
   const { data: shiftHistoryRaw } = await supabase
     .from('pos_shifts')
-    .select('*')
+    .select('*, night_report, night_report_saved_at')
     .eq('status', 'closed')
     .order('closed_at', { ascending: false })
     .limit(10)
@@ -48,18 +48,26 @@ export default async function ShiftsPage() {
   }))
 
   // If there's an open shift, get its orders summary
-  let shiftOrders: { count: number; revenue: number; payment_breakdown: Record<string,number> } | null = null
+  let shiftOrders: {
+    count: number; revenue: number; subtotal: number; discount: number
+    covers: number; payment_breakdown: Record<string,number>
+    drinksSold: number; voidValue: number; voidCount: number
+  } | null = null
   if (openShift) {
-    const { data: orders } = await supabase
-      .from('pos_orders')
-      .select('total, status')
-      .eq('shift_id', openShift.id)
-      .eq('status', 'closed')
-
-    const { data: payments } = await supabase
-      .from('pos_payments')
-      .select('method, amount, pos_orders!inner(shift_id)')
-      .eq('pos_orders.shift_id', openShift.id)
+    const [{ data: orders }, { data: payments }, { data: orderItems }, { data: voidedItems }] = await Promise.all([
+      supabase.from('pos_orders')
+        .select('id, total, subtotal, discount_amount, covers, status')
+        .eq('shift_id', openShift.id).eq('status', 'closed'),
+      supabase.from('pos_payments')
+        .select('method, amount, pos_orders!inner(shift_id)')
+        .eq('pos_orders.shift_id', openShift.id),
+      supabase.from('pos_order_items')
+        .select('quantity, pos_orders!inner(shift_id)')
+        .eq('pos_orders.shift_id', openShift.id).is('voided_at', null),
+      supabase.from('pos_order_items')
+        .select('quantity, unit_price, pos_orders!inner(shift_id)')
+        .eq('pos_orders.shift_id', openShift.id).not('voided_at', 'is', null),
+    ])
 
     const breakdown: Record<string, number> = {}
     for (const p of (payments ?? [])) {
@@ -68,7 +76,13 @@ export default async function ShiftsPage() {
     shiftOrders = {
       count: orders?.length ?? 0,
       revenue: orders?.reduce((s, o) => s + (o.total ?? 0), 0) ?? 0,
+      subtotal: orders?.reduce((s, o) => s + (o.subtotal ?? 0), 0) ?? 0,
+      discount: orders?.reduce((s, o) => s + (o.discount_amount ?? 0), 0) ?? 0,
+      covers: orders?.reduce((s, o) => s + (o.covers ?? 0), 0) ?? 0,
       payment_breakdown: breakdown,
+      drinksSold: (orderItems ?? []).reduce((s, i) => s + (i.quantity ?? 0), 0),
+      voidValue: (voidedItems ?? []).reduce((s, i) => s + i.quantity * i.unit_price, 0),
+      voidCount: (voidedItems ?? []).reduce((s, i) => s + i.quantity, 0),
     }
   }
 

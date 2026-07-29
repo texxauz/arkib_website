@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert } from 'lucide-react'
+import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert, FileText, Copy, Printer, Save } from 'lucide-react'
 
 type PosShift = {
   id: string; opened_by: string; closed_by: string | null
@@ -17,12 +17,23 @@ type PosShift = {
 }
 
 type ShiftOrders = {
-  count: number; revenue: number; payment_breakdown: Record<string, number>
+  count: number; revenue: number; subtotal: number; discount: number
+  covers: number; payment_breakdown: Record<string, number>
+  drinksSold: number; voidValue: number; voidCount: number
+}
+
+type NightReport = {
+  date: string; staff: string; partTimeStaff: string
+  salesBeforeDiscount: number; salesAfterDiscount: number
+  cash: number; mastercard: number; visa: number; debit: number; qr: number
+  drinksSold: number; guestsTables: number; guestsPax: number
+  notableGuests: string; incidentReport: string; breakage: string
+  freeShots: string; discount: number; voidValue: number; voidCount: number
 }
 
 type Props = {
   openShift: PosShift | null
-  shiftHistory: PosShift[]
+  shiftHistory: (PosShift & { night_report?: NightReport | null; night_report_saved_at?: string | null })[]
   shiftOrders: ShiftOrders | null
   userId: string
   userName: string
@@ -78,6 +89,128 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [closingCash, setClosingCash] = useState('')
   const [shiftNotes, setShiftNotes] = useState('')
   const [loading, setLoading] = useState(false)
+
+  // Night report state
+  const [nightReportModal, setNightReportModal] = useState(false)
+  const [viewReportModal, setViewReportModal] = useState(false)
+  const [viewReportData, setViewReportData] = useState<NightReport | null>(null)
+  const [reportSaving, setReportSaving] = useState(false)
+  const [reportSaved, setReportSaved] = useState(false)
+  const [nightReport, setNightReport] = useState<NightReport>({
+    date: '', staff: '', partTimeStaff: '',
+    salesBeforeDiscount: 0, salesAfterDiscount: 0,
+    cash: 0, mastercard: 0, visa: 0, debit: 0, qr: 0,
+    drinksSold: 0, guestsTables: 0, guestsPax: 0,
+    notableGuests: '', incidentReport: '', breakage: '',
+    freeShots: '', discount: 0, voidValue: 0, voidCount: 0,
+  })
+
+  function openNightReport() {
+    if (!openShift) return
+    const pb = shiftOrders?.payment_breakdown ?? {}
+    setReportSaved(false)
+    setNightReport({
+      date: new Date(openShift.opened_at).toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' }),
+      staff: openShift.users_opened?.full_name ?? userName,
+      partTimeStaff: '',
+      salesBeforeDiscount: shiftOrders?.subtotal ?? 0,
+      salesAfterDiscount: shiftOrders?.revenue ?? 0,
+      cash: pb.cash ?? 0,
+      mastercard: pb.mastercard ?? 0,
+      visa: pb.visa ?? 0,
+      debit: pb.credit_card ?? 0,
+      qr: (pb.qr_payment ?? 0),
+      drinksSold: shiftOrders?.drinksSold ?? 0,
+      guestsTables: shiftOrders?.count ?? 0,
+      guestsPax: shiftOrders?.covers ?? 0,
+      notableGuests: '', incidentReport: '', breakage: '',
+      freeShots: '',
+      discount: shiftOrders?.discount ?? 0,
+      voidValue: shiftOrders?.voidValue ?? 0,
+      voidCount: shiftOrders?.voidCount ?? 0,
+    })
+    setNightReportModal(true)
+  }
+
+  function buildReportText(r: NightReport): string {
+    const fmt = (n: number) => `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    return [
+      `NIGHT REPORT — ARKIB BAR`,
+      `──────────────────────────`,
+      `Date            : ${r.date}`,
+      `Staff           : ${r.staff}`,
+      `Part time staff : ${r.partTimeStaff || '—'}`,
+      ``,
+      `── SALES ──────────────────`,
+      `Sales (before discount) : ${fmt(r.salesBeforeDiscount)}`,
+      `Sales (after discount)  : ${fmt(r.salesAfterDiscount)}`,
+      `Discount                : ${fmt(r.discount)}`,
+      ``,
+      `── PAYMENTS ───────────────`,
+      `Cash            : ${fmt(r.cash)}`,
+      `Card (Mastercard): ${fmt(r.mastercard)}`,
+      `Card (Visa)     : ${fmt(r.visa)}`,
+      `Card (Debit)    : ${fmt(r.debit)}`,
+      `QR Code         : ${fmt(r.qr)}`,
+      ``,
+      `── FLOOR ──────────────────`,
+      `Drinks Sold     : ${r.drinksSold}`,
+      `Guests (tables) : ${r.guestsTables}`,
+      `Guests (pax)    : ${r.guestsPax}`,
+      ``,
+      `── NOTES ──────────────────`,
+      `Notable Guests  : ${r.notableGuests || '—'}`,
+      `Incident Report : ${r.incidentReport || '—'}`,
+      `Breakage        : ${r.breakage || '—'}`,
+      `Free Shots      : ${r.freeShots || '—'}`,
+      `Void            : ${r.voidCount} items / ${fmt(r.voidValue)}`,
+      `──────────────────────────`,
+    ].join('\n')
+  }
+
+  async function handleCopyReport() {
+    try {
+      await navigator.clipboard.writeText(buildReportText(nightReport))
+      toast('Report copied to clipboard', 'success')
+    } catch {
+      toast('Could not copy — please select and copy manually', 'error')
+    }
+  }
+
+  function handlePrintReport() {
+    const text = buildReportText(nightReport)
+    const win = window.open('', '_blank', 'width=400,height=700')
+    if (!win) { toast('Pop-up blocked — allow pop-ups and try again', 'error'); return }
+    win.document.write(`
+      <!DOCTYPE html><html><head>
+      <title>Night Report</title>
+      <style>
+        @page { size: 80mm auto; margin: 4mm; }
+        body { font-family: 'Courier New', monospace; font-size: 11px; color: #000; background: #fff; white-space: pre-wrap; margin: 0; padding: 0; }
+        @media screen { body { background: #111; color: #eee; padding: 16px; } }
+      </style>
+      </head><body>${text}</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => { win.print() }, 300)
+  }
+
+  async function handleSaveReport() {
+    if (!openShift) return
+    setReportSaving(true)
+    try {
+      const res = await fetch('/api/pos/save-night-report', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftId: openShift.id, report: nightReport }),
+      })
+      if (!res.ok) { const e = await res.json(); toast(e.error ?? 'Failed to save', 'error'); return }
+      setReportSaved(true)
+      toast('Night report saved', 'success')
+    } finally {
+      setReportSaving(false)
+    }
+  }
 
   const denomTotal = DENOMINATIONS.reduce((s, d) => s + d.value * (denomCounts[d.value] ?? 0), 0)
 
@@ -204,12 +337,20 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
               <span className="text-emerald-400 font-medium text-sm">Shift Open</span>
               <span className="text-[#9896A4] text-sm"> — started {formatTime(openShift.opened_at)} by {openShift.users_opened?.full_name ?? 'Staff'}</span>
             </div>
-            <button
-              onClick={() => { setClosingCash(''); setShiftNotes(''); setCloseModal(true) }}
-              className="shrink-0 bg-red-500/20 hover:bg-red-500/30 text-red-400 text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
-            >
-              Close Shift
-            </button>
+            <div className="flex items-center gap-2 shrink-0">
+              <button
+                onClick={openNightReport}
+                className="flex items-center gap-1.5 bg-[#7B5EA7]/20 hover:bg-[#7B5EA7]/30 text-[#A78BFA] text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+              >
+                <FileText size={14} /> Night Report
+              </button>
+              <button
+                onClick={() => { setClosingCash(''); setShiftNotes(''); setCloseModal(true) }}
+                className="bg-red-500/20 hover:bg-red-500/30 text-red-400 text-sm font-medium px-4 py-1.5 rounded-lg transition-colors"
+              >
+                Close Shift
+              </button>
+            </div>
           </div>
 
           {/* Stats row */}
@@ -280,7 +421,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#1E1E24]">
-                  {['Date', 'Opened By', 'Closed By', 'Float', 'Revenue', 'Variance', 'Duration'].map(h => (
+                  {['Date', 'Opened By', 'Closed By', 'Float', 'Revenue', 'Variance', 'Duration', ''].map(h => (
                     <th key={h} className="text-left text-[#5A5865] font-medium text-xs px-4 py-2.5">{h}</th>
                   ))}
                 </tr>
@@ -321,6 +462,18 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                       <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
                         {shift.closed_at ? formatDuration(shift.opened_at, shift.closed_at) : '—'}
                       </td>
+                      <td className="px-4 py-3">
+                        {shift.night_report ? (
+                          <button
+                            onClick={() => { setViewReportData(shift.night_report!); setViewReportModal(true) }}
+                            className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
+                          >
+                            <FileText size={11} /> Report
+                          </button>
+                        ) : (
+                          <span className="text-[#3A3A42] text-xs">—</span>
+                        )}
+                      </td>
                     </tr>
                   )
                 })}
@@ -329,6 +482,145 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
           </div>
         </div>
       )}
+
+      {/* ── Night Report Modal ─────────────────────────────────────────────── */}
+      <Modal isOpen={nightReportModal} onClose={() => setNightReportModal(false)} title="Night Report" size="lg">
+        <div className="space-y-5">
+          {/* Auto-filled section */}
+          <div>
+            <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-3">Auto-filled by system</p>
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                { label: 'Date', value: nightReport.date },
+                { label: 'Staff (Opened By)', value: nightReport.staff },
+                { label: 'Sales (before discount)', value: `RM ${nightReport.salesBeforeDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Sales (after discount)', value: `RM ${nightReport.salesAfterDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Cash', value: `RM ${nightReport.cash.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Card (Mastercard)', value: `RM ${nightReport.mastercard.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Card (Visa)', value: `RM ${nightReport.visa.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Card (Debit/Other)', value: `RM ${nightReport.debit.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'QR Code', value: `RM ${nightReport.qr.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Drinks Sold', value: nightReport.drinksSold.toString() },
+                { label: 'Guests (tables)', value: nightReport.guestsTables.toString() },
+                { label: 'Guests (pax)', value: nightReport.guestsPax.toString() },
+                { label: 'Discount', value: `RM ${nightReport.discount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                { label: 'Void', value: `${nightReport.voidCount} items / RM ${nightReport.voidValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+              ].map(({ label, value }) => (
+                <div key={label} className="bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5">
+                  <p className="text-[#5A5865] text-xs mb-0.5">{label}</p>
+                  <p className="text-[#F0EEF6] text-sm font-medium">{value}</p>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Manual fields */}
+          <div>
+            <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-3">Fill in manually</p>
+            <div className="space-y-3">
+              <div>
+                <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Part Time Staff</label>
+                <input type="text" value={nightReport.partTimeStaff}
+                  onChange={e => setNightReport(r => ({ ...r, partTimeStaff: e.target.value }))}
+                  placeholder="Names of part time staff tonight…"
+                  className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors" />
+              </div>
+              <div>
+                <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Notable Guests</label>
+                <input type="text" value={nightReport.notableGuests}
+                  onChange={e => setNightReport(r => ({ ...r, notableGuests: e.target.value }))}
+                  placeholder="e.g. VIP tables, regulars, influencers…"
+                  className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors" />
+              </div>
+              <div>
+                <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Incident Report</label>
+                <textarea value={nightReport.incidentReport}
+                  onChange={e => setNightReport(r => ({ ...r, incidentReport: e.target.value }))}
+                  rows={3} placeholder="Any incidents tonight? Leave blank if none."
+                  className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors resize-none" />
+              </div>
+              <div className="grid grid-cols-2 gap-3">
+                <div>
+                  <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Breakage</label>
+                  <input type="text" value={nightReport.breakage}
+                    onChange={e => setNightReport(r => ({ ...r, breakage: e.target.value }))}
+                    placeholder="e.g. 2 glasses, 1 bottle"
+                    className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors" />
+                </div>
+                <div>
+                  <label className="block text-[#9896A4] text-xs font-medium mb-1.5">Free Shots</label>
+                  <input type="text" value={nightReport.freeShots}
+                    onChange={e => setNightReport(r => ({ ...r, freeShots: e.target.value }))}
+                    placeholder="e.g. 4 shots to Table 3"
+                    className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors" />
+                </div>
+              </div>
+            </div>
+          </div>
+
+          {/* Actions */}
+          <div className="flex flex-wrap gap-2 pt-1 border-t border-[#2A2A30]">
+            <button onClick={handleSaveReport} disabled={reportSaving}
+              className={`flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-all ${reportSaved ? 'bg-emerald-500/20 text-emerald-400 border border-emerald-500/30' : 'bg-[#7B5EA7]/20 text-[#A78BFA] border border-[#7B5EA7]/30 hover:bg-[#7B5EA7]/30'}`}>
+              <Save size={14} />{reportSaving ? 'Saving…' : reportSaved ? 'Saved ✓' : 'Save Report'}
+            </button>
+            <button onClick={handleCopyReport}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
+              <Copy size={14} /> Copy Text
+            </button>
+            <button onClick={handlePrintReport}
+              className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
+              <Printer size={14} /> Print / PDF
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* ── View Past Report Modal ─────────────────────────────────────────── */}
+      <Modal isOpen={viewReportModal} onClose={() => setViewReportModal(false)} title="Night Report" size="lg">
+        {viewReportData && (
+          <div className="space-y-4">
+            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+              {[
+                ['Date', viewReportData.date],
+                ['Staff', viewReportData.staff],
+                ['Part Time Staff', viewReportData.partTimeStaff || '—'],
+                ['Sales (before discount)', `RM ${viewReportData.salesBeforeDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Sales (after discount)', `RM ${viewReportData.salesAfterDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Cash', `RM ${viewReportData.cash.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Card (Mastercard)', `RM ${viewReportData.mastercard.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Card (Visa)', `RM ${viewReportData.visa.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Card (Debit/Other)', `RM ${viewReportData.debit.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['QR Code', `RM ${viewReportData.qr.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Drinks Sold', viewReportData.drinksSold.toString()],
+                ['Guests (tables)', viewReportData.guestsTables.toString()],
+                ['Guests (pax)', viewReportData.guestsPax.toString()],
+                ['Discount', `RM ${viewReportData.discount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Void', `${viewReportData.voidCount} items / RM ${viewReportData.voidValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`],
+                ['Notable Guests', viewReportData.notableGuests || '—'],
+                ['Incident Report', viewReportData.incidentReport || '—'],
+                ['Breakage', viewReportData.breakage || '—'],
+                ['Free Shots', viewReportData.freeShots || '—'],
+              ].map(([label, value]) => (
+                <div key={label} className="bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5">
+                  <p className="text-[#5A5865] text-xs mb-0.5">{label}</p>
+                  <p className="text-[#F0EEF6] text-sm font-medium">{value}</p>
+                </div>
+              ))}
+            </div>
+            <div className="flex gap-2 pt-1 border-t border-[#2A2A30]">
+              <button onClick={async () => { if (viewReportData) { try { await navigator.clipboard.writeText(buildReportText(viewReportData)); toast('Copied!', 'success') } catch { toast('Could not copy', 'error') } }}}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
+                <Copy size={14} /> Copy Text
+              </button>
+              <button onClick={() => { if (viewReportData) { const text = buildReportText(viewReportData); const win = window.open('', '_blank', 'width=400,height=700'); if (!win) return; win.document.write(`<!DOCTYPE html><html><head><title>Night Report</title><style>@page{size:80mm auto;margin:4mm}body{font-family:'Courier New',monospace;font-size:11px;color:#000;white-space:pre-wrap;margin:0;padding:0}@media screen{body{background:#111;color:#eee;padding:16px}}</style></head><body>${text}</body></html>`); win.document.close(); win.focus(); setTimeout(()=>win.print(),300) }}}
+                className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
+                <Printer size={14} /> Print / PDF
+              </button>
+            </div>
+          </div>
+        )}
+      </Modal>
 
       {/* Open Shift Modal */}
       <Modal isOpen={openModal} onClose={() => { setOpenModal(false); setOpenPassword('') }} title="Open New Shift" size="sm">
