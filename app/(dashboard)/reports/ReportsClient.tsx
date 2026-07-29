@@ -493,6 +493,120 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         )}
       </div>
 
+      {/* ── Weekly revenue trend ─────────────────────────────────────────── */}
+      {sales.length > 0 && (() => {
+        const weekMap: Record<number, number> = {}
+        for (const s of sales) {
+          const d = new Date(s.date)
+          const weekNum = Math.ceil(d.getDate() / 7)
+          weekMap[weekNum] = (weekMap[weekNum] ?? 0) + s.total_revenue
+        }
+        const weekData = Object.entries(weekMap)
+          .sort((a, b) => Number(a[0]) - Number(b[0]))
+          .map(([w, revenue]) => ({ week: `Week ${w}`, revenue }))
+        if (weekData.length < 2) return null
+        return (
+          <div className="card">
+            <p className="section-title mb-1">Weekly Revenue Trend</p>
+            <p className="text-[#5A5865] text-xs mb-4">Revenue broken down by week this month</p>
+            <ResponsiveContainer width="100%" height={160}>
+              <BarChart data={weekData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <XAxis dataKey="week" tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} width={56}
+                  tickFormatter={v => `RM ${(v / 1000).toFixed(0)}k`} />
+                <Tooltip
+                  formatter={(v) => [`RM ${Number(v).toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`, 'Revenue']}
+                  contentStyle={{ background: '#1A1A1E', border: '1px solid #2A2A30', borderRadius: 8, fontSize: 12 }}
+                  itemStyle={{ color: '#F0EEF6' }}
+                />
+                <Bar dataKey="revenue" fill="#8B5CF6" radius={[4, 4, 0, 0]} />
+              </BarChart>
+            </ResponsiveContainer>
+          </div>
+        )
+      })()}
+
+      {/* ── Break-even tracker ───────────────────────────────────────────── */}
+      {(() => {
+        if (sales.length === 0 || totalExpenses === 0) return null
+        const daysInMonth = new Date(year, month, 0).getDate()
+        const dailyFixedCost = totalExpenses / daysInMonth
+        let breakEvenDay: number | null = null
+        let cumulative = 0
+        const cumulativeData: { day: string; revenue: number; costs: number }[] = []
+        for (let day = 1; day <= daysInMonth; day++) {
+          const dateStr = `${year}-${String(month).padStart(2, '0')}-${String(day).padStart(2, '0')}`
+          const daySale = sales.find(s => s.date === dateStr)
+          cumulative += daySale?.total_revenue ?? 0
+          const cumulativeCost = dailyFixedCost * day
+          if (breakEvenDay === null && cumulative >= cumulativeCost) breakEvenDay = day
+          if (daySale || day <= new Date().getDate()) {
+            cumulativeData.push({ day: String(day), revenue: cumulative, costs: Math.round(cumulativeCost) })
+          }
+        }
+        const isBroken = breakEvenDay !== null
+        const shortfall = totalExpenses - totalRevenue
+        return (
+          <div className="card">
+            <div className="flex items-start justify-between mb-4">
+              <div>
+                <p className="section-title mb-0.5">Break-Even Tracker</p>
+                <p className="text-[#5A5865] text-xs">Cumulative revenue vs prorated expenses</p>
+              </div>
+              <div className="text-right">
+                {isBroken ? (
+                  <>
+                    <p className="text-emerald-400 font-bold text-lg">Day {breakEvenDay}</p>
+                    <p className="text-[#5A5865] text-xs">Break-even reached</p>
+                  </>
+                ) : (
+                  <>
+                    <p className="text-rose-400 font-bold text-lg">{formatCurrency(shortfall)} short</p>
+                    <p className="text-[#5A5865] text-xs">Not yet profitable</p>
+                  </>
+                )}
+              </div>
+            </div>
+            <div className="grid grid-cols-3 gap-3 mb-4">
+              <div className="bg-[#1A1A1E] rounded-lg p-3">
+                <p className="text-[#9896A4] text-xs mb-1">Monthly Expenses</p>
+                <p className="text-rose-400 font-semibold tabular-nums">{formatCurrency(totalExpenses)}</p>
+              </div>
+              <div className="bg-[#1A1A1E] rounded-lg p-3">
+                <p className="text-[#9896A4] text-xs mb-1">Revenue So Far</p>
+                <p className="text-emerald-400 font-semibold tabular-nums">{formatCurrency(totalRevenue)}</p>
+              </div>
+              <div className="bg-[#1A1A1E] rounded-lg p-3">
+                <p className="text-[#9896A4] text-xs mb-1">Net</p>
+                <p className={`font-semibold tabular-nums ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
+                  {netProfit >= 0 ? '+' : ''}{formatCurrency(netProfit)}
+                </p>
+              </div>
+            </div>
+            {cumulativeData.length > 1 && (
+              <ResponsiveContainer width="100%" height={160}>
+                <BarChart data={cumulativeData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="day" tick={{ fill: '#9896A4', fontSize: 10 }} axisLine={false} tickLine={false} interval={4} />
+                  <YAxis tick={{ fill: '#9896A4', fontSize: 10 }} axisLine={false} tickLine={false} width={56}
+                    tickFormatter={v => `RM ${(v / 1000).toFixed(0)}k`} />
+                  <Tooltip
+                    formatter={(v, name) => [`RM ${Number(v).toLocaleString('en-MY', { minimumFractionDigits: 0 })}`, name === 'revenue' ? 'Revenue' : 'Costs']}
+                    contentStyle={{ background: '#1A1A1E', border: '1px solid #2A2A30', borderRadius: 8, fontSize: 12 }}
+                    itemStyle={{ color: '#F0EEF6' }}
+                  />
+                  <Bar dataKey="costs" fill="#f43f5e" opacity={0.4} radius={[2, 2, 0, 0]} />
+                  <Bar dataKey="revenue" fill="#34d399" opacity={0.8} radius={[2, 2, 0, 0]} />
+                </BarChart>
+              </ResponsiveContainer>
+            )}
+            <p className="text-[#5A5865] text-xs mt-2">
+              <span className="inline-block w-3 h-2 rounded-sm bg-emerald-400 opacity-80 mr-1" />Revenue &nbsp;
+              <span className="inline-block w-3 h-2 rounded-sm bg-rose-400 opacity-40 mr-1 ml-2" />Prorated expenses
+            </p>
+          </div>
+        )
+      })()}
+
       {/* Cocktail performance */}
       {cocktails.length > 0 && (
         <div className="card">

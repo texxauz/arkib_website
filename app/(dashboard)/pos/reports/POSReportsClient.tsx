@@ -50,11 +50,19 @@ type VoidedItem = {
   voided_at: string | null
   void_reason: string | null
   created_at: string
+  server_name?: string | null
 }
 
 type DiscountLog = {
   payload: Record<string, unknown> | null
   created_at: string
+  actor_name?: string | null
+}
+
+type MenuItem = {
+  id: string
+  name: string
+  category: string
 }
 
 interface Props {
@@ -63,10 +71,11 @@ interface Props {
   payments: Payment[]
   voids: VoidedItem[]
   discountLogs: DiscountLog[]
+  allMenuItems: MenuItem[]
   isAdmin: boolean
 }
 
-type Tab = 'overview' | 'items' | 'payments' | 'staff' | 'voids'
+type Tab = 'overview' | 'items' | 'payments' | 'staff' | 'operational' | 'voids'
 
 function fmtRM(n: number) {
   return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -128,7 +137,7 @@ function CountTooltip({ active, payload, label }: any) {
   )
 }
 
-export function POSReportsClient({ orders, items, payments, voids, discountLogs, isAdmin }: Props) {
+export function POSReportsClient({ orders, items, payments, voids, discountLogs, allMenuItems, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
@@ -246,11 +255,79 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       .sort((a, b) => b.revenue - a.revenue)
   }, [orders])
 
+  // ── Operational: peak hours heatmap (revenue by hour) ────────────────────────
+  const hourlyRevenue = useMemo(() => {
+    const data = Array.from({ length: 24 }, (_, h) => ({ hour: `${String(h).padStart(2, '0')}:00`, revenue: 0, orders: 0 }))
+    for (const o of orders) {
+      const h = new Date(o.opened_at).getHours()
+      data[h].revenue += o.total
+      data[h].orders++
+    }
+    return data
+  }, [orders])
+
+  // ── Operational: table turnover (avg minutes open per table) ─────────────────
+  const tableTurnover = useMemo(() => {
+    const map: Record<string, { totalMins: number; count: number }> = {}
+    for (const o of orders) {
+      if (!o.table_name || !o.closed_at) continue
+      const mins = (new Date(o.closed_at).getTime() - new Date(o.opened_at).getTime()) / 60000
+      if (mins <= 0 || mins > 600) continue // ignore bad data
+      if (!map[o.table_name]) map[o.table_name] = { totalMins: 0, count: 0 }
+      map[o.table_name].totalMins += mins
+      map[o.table_name].count++
+    }
+    return Object.entries(map)
+      .map(([table, v]) => ({ table, avgMins: Math.round(v.totalMins / v.count), orders: v.count }))
+      .sort((a, b) => b.avgMins - a.avgMins)
+  }, [orders])
+
+  const overallAvgTurnover = useMemo(() => {
+    if (!tableTurnover.length) return 0
+    const total = tableTurnover.reduce((s, t) => s + t.avgMins * t.orders, 0)
+    const count = tableTurnover.reduce((s, t) => s + t.orders, 0)
+    return count > 0 ? Math.round(total / count) : 0
+  }, [tableTurnover])
+
+  // ── Operational: slow movers (menu items with 0 or low sales) ────────────────
+  const slowMovers = useMemo(() => {
+    const soldMap: Record<string, number> = {}
+    for (const item of items) {
+      soldMap[item.item_name] = (soldMap[item.item_name] ?? 0) + item.quantity
+    }
+    return allMenuItems
+      .map(m => ({ name: m.name, category: m.category, qty: soldMap[m.name] ?? 0 }))
+      .filter(m => m.qty < 3)
+      .sort((a, b) => a.qty - b.qty)
+  }, [items, allMenuItems])
+
+  // ── Staff: void & discount rates ─────────────────────────────────────────────
+  const staffVoidDiscount = useMemo(() => {
+    const map: Record<string, { voids: number; voidValue: number; discounts: number; discountValue: number }> = {}
+    for (const v of voids) {
+      const name = v.server_name ?? 'Unknown'
+      if (!map[name]) map[name] = { voids: 0, voidValue: 0, discounts: 0, discountValue: 0 }
+      map[name].voids++
+      map[name].voidValue += v.quantity * v.unit_price
+    }
+    for (const d of discountLogs) {
+      const name = d.actor_name ?? 'Unknown'
+      if (!map[name]) map[name] = { voids: 0, voidValue: 0, discounts: 0, discountValue: 0 }
+      map[name].discounts++
+      const amt = typeof d.payload?.discount_amount === 'number' ? d.payload.discount_amount : 0
+      map[name].discountValue += amt
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.voidValue + b.discountValue - (a.voidValue + a.discountValue))
+  }, [voids, discountLogs])
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'items', label: 'Items Sold' },
     { id: 'payments', label: 'Payments' },
     { id: 'staff', label: 'Staff' },
+    { id: 'operational', label: 'Operational' },
     ...(isAdmin ? [{ id: 'voids' as Tab, label: 'Voids & Discounts' }] : []),
   ]
 
@@ -590,6 +667,44 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
                 ))}
               </div>
 
+              {/* Void & discount rate per staff */}
+              {isAdmin && staffVoidDiscount.length > 0 && (
+                <div className="card overflow-x-auto">
+                  <p className="section-title mb-1">Void & Discount Activity</p>
+                  <p className="text-[#5A5865] text-xs mb-4">High rates may indicate training gaps or misuse</p>
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                        <th className="text-left py-2 pr-4">Staff</th>
+                        <th className="text-right py-2 px-4">Voids</th>
+                        <th className="text-right py-2 px-4">Void Value</th>
+                        <th className="text-right py-2 px-4">Discounts</th>
+                        <th className="text-right py-2 pl-4">Discount Value</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {staffVoidDiscount.map((s, i) => (
+                        <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                          <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">{s.name}</td>
+                          <td className="py-2.5 px-4 text-right tabular-nums">
+                            <span className={s.voids > 3 ? 'text-rose-400 font-semibold' : 'text-[#9896A4]'}>{s.voids}</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right tabular-nums">
+                            <span className={s.voidValue > 50 ? 'text-rose-400 font-semibold' : 'text-[#9896A4]'}>{fmtRM(s.voidValue)}</span>
+                          </td>
+                          <td className="py-2.5 px-4 text-right tabular-nums">
+                            <span className={s.discounts > 3 ? 'text-amber-400 font-semibold' : 'text-[#9896A4]'}>{s.discounts}</span>
+                          </td>
+                          <td className="py-2.5 pl-4 text-right tabular-nums">
+                            <span className={s.discountValue > 100 ? 'text-amber-400 font-semibold' : 'text-[#9896A4]'}>{fmtRM(s.discountValue)}</span>
+                          </td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              )}
+
               {/* Full table */}
               <div className="card overflow-x-auto">
                 <p className="section-title mb-4">Performance Breakdown — Last 30 Days</p>
@@ -634,6 +749,117 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
               </div>
             </>
           )}
+        </div>
+      )}
+
+      {/* ── OPERATIONAL TAB ──────────────────────────────────────────────────── */}
+      {activeTab === 'operational' && (
+        <div className="space-y-6">
+          {/* Peak hours — revenue heatmap */}
+          <div className="card">
+            <p className="section-title mb-1">Peak Hours — Revenue by Hour</p>
+            <p className="text-[#5A5865] text-xs mb-4">When your bar makes the most money</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={hourlyRevenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <XAxis dataKey="hour" tick={{ fill: '#9896A4', fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
+                <YAxis tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} width={52} tickFormatter={v => v > 0 ? `${(v / 1000).toFixed(0)}k` : '0'} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#8B5CF6', opacity: 0.08 }} />
+                <Bar dataKey="revenue" radius={[3, 3, 0, 0]}>
+                  {hourlyRevenue.map((entry, i) => {
+                    const max = Math.max(...hourlyRevenue.map(h => h.revenue))
+                    const pct = max > 0 ? entry.revenue / max : 0
+                    const fill = pct > 0.7 ? '#a78bfa' : pct > 0.4 ? '#7c3aed' : pct > 0.1 ? '#4c1d95' : '#2A2A30'
+                    return <Cell key={i} fill={fill} />
+                  })}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <div className="flex items-center gap-4 mt-3 justify-end">
+              {[['#a78bfa', 'Peak'], ['#7c3aed', 'Busy'], ['#4c1d95', 'Slow'], ['#2A2A30', 'Quiet']].map(([color, label]) => (
+                <div key={label} className="flex items-center gap-1.5">
+                  <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
+                  <span className="text-[#5A5865] text-xs">{label}</span>
+                </div>
+              ))}
+            </div>
+          </div>
+
+          {/* Table turnover */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4">
+              <div>
+                <p className="section-title">Table Turnover</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">Average minutes from order open to close</p>
+              </div>
+              <div className="text-right">
+                <p className="text-[#9896A4] text-xs uppercase tracking-wider">Overall Avg</p>
+                <p className="text-[#A78BFA] font-bold text-xl tabular-nums">{overallAvgTurnover} min</p>
+              </div>
+            </div>
+            {tableTurnover.length === 0 ? (
+              <p className="text-[#5A5865] text-sm text-center py-6">No closed orders with timing data</p>
+            ) : (
+              <div className="space-y-2">
+                {tableTurnover.map(t => {
+                  const pct = overallAvgTurnover > 0 ? Math.min((t.avgMins / (overallAvgTurnover * 1.5)) * 100, 100) : 50
+                  const color = t.avgMins > overallAvgTurnover * 1.3 ? 'bg-rose-500' : t.avgMins < overallAvgTurnover * 0.7 ? 'bg-emerald-500' : 'bg-[#7B5EA7]'
+                  return (
+                    <div key={t.table} className="flex items-center gap-3">
+                      <span className="text-[#F0EEF6] text-sm w-20 shrink-0 truncate">{t.table}</span>
+                      <div className="flex-1 h-2 bg-[#1A1A1E] rounded-full overflow-hidden">
+                        <div className={`h-full rounded-full transition-all ${color}`} style={{ width: `${pct}%` }} />
+                      </div>
+                      <span className="text-[#9896A4] text-xs tabular-nums w-16 text-right">{t.avgMins} min</span>
+                      <span className="text-[#5A5865] text-xs w-14 text-right">{t.orders} orders</span>
+                    </div>
+                  )
+                })}
+              </div>
+            )}
+            <p className="text-[#5A5865] text-xs mt-4">
+              <span className="inline-block w-2 h-2 rounded-full bg-emerald-500 mr-1" />Fast turnover &nbsp;
+              <span className="inline-block w-2 h-2 rounded-full bg-[#7B5EA7] mr-1 ml-2" />Normal &nbsp;
+              <span className="inline-block w-2 h-2 rounded-full bg-rose-500 mr-1 ml-2" />Long sit
+            </p>
+          </div>
+
+          {/* Slow movers */}
+          <div className="card">
+            <div className="mb-4">
+              <p className="section-title">Slow Movers</p>
+              <p className="text-[#5A5865] text-xs mt-0.5">Active menu items sold fewer than 3 times in the last 30 days — consider removing or promoting</p>
+            </div>
+            {slowMovers.length === 0 ? (
+              <p className="text-emerald-400 text-sm text-center py-6">All menu items are selling well!</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4">Item</th>
+                      <th className="text-left py-2 pr-4">Category</th>
+                      <th className="text-right py-2 pl-4">Sold (30d)</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {slowMovers.map((m, i) => (
+                      <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 pr-4 text-[#F0EEF6]">{m.name}</td>
+                        <td className="py-2.5 pr-4">
+                          <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20">
+                            {m.category}
+                          </span>
+                        </td>
+                        <td className="py-2.5 pl-4 text-right">
+                          <span className={`font-bold tabular-nums ${m.qty === 0 ? 'text-rose-400' : 'text-amber-400'}`}>{m.qty}</span>
+                        </td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
         </div>
       )}
 
