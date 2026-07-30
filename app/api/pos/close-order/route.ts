@@ -253,7 +253,7 @@ export async function POST(req: NextRequest) {
   let cashCol = 0, cardCol = 0, qrCol = 0, onlineCol = 0
   for (const p of payments as Array<{ method: string; amount: number }>) {
     if (p.method === 'cash') cashCol += p.amount
-    else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount
+    else if (p.method === 'credit_card' || p.method === 'debit_card' || p.method === 'visa' || p.method === 'mastercard') cardCol += p.amount
     else if (p.method === 'qr_payment') qrCol += p.amount
     else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
   }
