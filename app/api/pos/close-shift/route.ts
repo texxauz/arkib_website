@@ -35,16 +35,50 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // Calculate revenue from all payments under this shift's orders.
-  const { data: allPayments } = await supabase
-    .from('pos_payments')
-    .select('amount, method, pos_orders!inner(shift_id)')
-    .eq('pos_orders.shift_id', shiftId)
+  // Gather all data needed for auto night report generation
+  const [
+    { data: allPayments },
+    { data: closedOrders },
+    { data: orderItems },
+    { data: voidedItems },
+    { data: openerProfile },
+  ] = await Promise.all([
+    supabase.from('pos_payments').select('amount, method, pos_orders!inner(shift_id)').eq('pos_orders.shift_id', shiftId),
+    supabase.from('pos_orders').select('id, total, subtotal, discount_amount, covers').eq('shift_id', shiftId).eq('status', 'closed'),
+    supabase.from('pos_order_items').select('quantity, pos_orders!inner(shift_id)').eq('pos_orders.shift_id', shiftId).is('voided_at', null),
+    supabase.from('pos_order_items').select('quantity, unit_price, pos_orders!inner(shift_id)').eq('pos_orders.shift_id', shiftId).not('voided_at', 'is', null),
+    supabase.from('users').select('full_name').eq('id', shift.opened_by).single(),
+  ])
 
   const cashRevenue = (allPayments ?? []).filter(p => p.method === 'cash').reduce((s, p) => s + (p.amount ?? 0), 0)
   const totalRevenue = (allPayments ?? []).reduce((s, p) => s + (p.amount ?? 0), 0)
   const expectedCash = (shift.opening_float ?? 0) + cashRevenue
   const variance = (closingCash ?? 0) - expectedCash
+
+  // Build auto night report from computed shift data
+  const pmts = allPayments ?? []
+  const nightReport = {
+    date: new Date(shift.opened_at).toLocaleDateString('en-MY', { timeZone: 'Asia/Kuala_Lumpur', day: '2-digit', month: 'short', year: 'numeric' }),
+    staff: openerProfile?.full_name ?? 'Unknown',
+    partTimeStaff: '',
+    salesBeforeDiscount: (closedOrders ?? []).reduce((s, o) => s + (o.subtotal ?? 0), 0),
+    salesAfterDiscount: (closedOrders ?? []).reduce((s, o) => s + (o.total ?? 0), 0),
+    cash: pmts.filter(p => p.method === 'cash').reduce((s, p) => s + p.amount, 0),
+    mastercard: pmts.filter(p => p.method === 'mastercard').reduce((s, p) => s + p.amount, 0),
+    visa: pmts.filter(p => p.method === 'visa').reduce((s, p) => s + p.amount, 0),
+    debit: pmts.filter(p => p.method === 'debit_card' || p.method === 'credit_card').reduce((s, p) => s + p.amount, 0),
+    qr: pmts.filter(p => p.method === 'qr_payment').reduce((s, p) => s + p.amount, 0),
+    drinksSold: (orderItems ?? []).reduce((s, i) => s + (i.quantity ?? 0), 0),
+    guestsTables: (closedOrders ?? []).length,
+    guestsPax: (closedOrders ?? []).reduce((s, o) => s + (o.covers ?? 0), 0),
+    discount: (closedOrders ?? []).reduce((s, o) => s + (o.discount_amount ?? 0), 0),
+    voidValue: (voidedItems ?? []).reduce((s, i) => s + i.quantity * i.unit_price, 0),
+    voidCount: (voidedItems ?? []).reduce((s, i) => s + i.quantity, 0),
+    notableGuests: '',
+    incidentReport: '',
+    breakage: '',
+    freeShots: '',
+  }
 
   const now = new Date().toISOString()
   const { data: closedShift, error } = await supabase.from('pos_shifts').update({
@@ -56,6 +90,8 @@ export async function POST(req: NextRequest) {
     revenue: totalRevenue,
     status: 'closed',
     notes: notes ?? null,
+    night_report: nightReport,
+    night_report_saved_at: now,
   }).eq('id', shiftId).eq('status', 'open').select('id') // optimistic lock prevents double-close
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
