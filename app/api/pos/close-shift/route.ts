@@ -47,7 +47,7 @@ export async function POST(req: NextRequest) {
   const variance = (closingCash ?? 0) - expectedCash
 
   const now = new Date().toISOString()
-  const { error } = await supabase.from('pos_shifts').update({
+  const { data: closedShift, error } = await supabase.from('pos_shifts').update({
     closed_by: user.id,
     closed_at: now,
     closing_cash: closingCash ?? 0,
@@ -56,9 +56,10 @@ export async function POST(req: NextRequest) {
     revenue: totalRevenue,
     status: 'closed',
     notes: notes ?? null,
-  }).eq('id', shiftId).eq('status', 'open') // optimistic lock prevents double-close
+  }).eq('id', shiftId).eq('status', 'open').select('id') // optimistic lock prevents double-close
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!closedShift?.length) return NextResponse.json({ error: 'Shift was already closed by another request' }, { status: 409 })
 
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,

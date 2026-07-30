@@ -9,10 +9,11 @@ export async function POST(req: NextRequest) {
   const { orderId, discountId } = await req.json()
   if (!orderId || !discountId) return NextResponse.json({ error: 'orderId and discountId required' }, { status: 400 })
 
-  const [{ data: order }, { data: discount }, { data: profile }] = await Promise.all([
-    supabase.from('pos_orders').select('id, subtotal, status').eq('id', orderId).single(),
-    supabase.from('pos_discounts').select('*').eq('id', discountId).single(),
+  const [{ data: order }, { data: discount }, { data: profile }, { data: items }] = await Promise.all([
+    supabase.from('pos_orders').select('id, status').eq('id', orderId).single(),
+    supabase.from('pos_discounts').select('*').eq('id', discountId).eq('is_active', true).single(),
     supabase.from('users').select('role, full_name').eq('id', user.id).single(),
+    supabase.from('pos_order_items').select('quantity, unit_price, discount').eq('order_id', orderId).is('voided_at', null),
   ])
 
   if (!order || order.status !== 'open') return NextResponse.json({ error: 'Order not found or closed' }, { status: 404 })
@@ -23,8 +24,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Manager approval required for this discount' }, { status: 403 })
   }
 
-  // Calculate discount amount
-  const subtotal = order.subtotal ?? 0
+  // Calculate discount amount from live items (not stale order.subtotal)
+  const subtotal = (items ?? []).reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)
   const discountAmount = discount.type === 'percent'
     ? subtotal * discount.value / 100
     : Math.min(discount.value, subtotal)

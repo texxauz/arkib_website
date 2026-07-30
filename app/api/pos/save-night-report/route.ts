@@ -9,6 +9,16 @@ export async function POST(req: NextRequest) {
   const { shiftId, report } = await req.json()
   if (!shiftId || !report) return NextResponse.json({ error: 'shiftId and report required' }, { status: 400 })
 
+  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
+  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
+
+  // Verify shift belongs to this user (unless admin)
+  const { data: shift } = await supabase.from('pos_shifts').select('id, opened_by').eq('id', shiftId).single()
+  if (!shift) return NextResponse.json({ error: 'Shift not found' }, { status: 404 })
+  if (!isAdmin && shift.opened_by !== user.id) {
+    return NextResponse.json({ error: 'You can only save the night report for your own shift' }, { status: 403 })
+  }
+
   const { error } = await supabase
     .from('pos_shifts')
     .update({ night_report: report, night_report_saved_at: new Date().toISOString() })

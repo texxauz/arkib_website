@@ -55,7 +55,7 @@ export async function POST(req: NextRequest) {
     let cashCol = 0, cardCol = 0, qrCol = 0, onlineCol = 0
     for (const p of payments ?? []) {
       if (p.method === 'cash') cashCol += p.amount
-      else if (p.method === 'credit_card' || p.method === 'debit_card') cardCol += p.amount
+      else if (p.method === 'credit_card' || p.method === 'debit_card' || p.method === 'visa' || p.method === 'mastercard') cardCol += p.amount
       else if (p.method === 'qr_payment') qrCol += p.amount
       else if (p.method === 'online' || p.method === 'bank_transfer' || p.method === 'other') onlineCol += p.amount
     }
@@ -145,8 +145,8 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: `Failed to delete payments after retries: ${err.message}` }, { status: 500 })
   }
 
-  // Reopen the order
-  const { error } = await supabase.from('pos_orders').update({
+  // Reopen the order — optimistic lock prevents double-reopen and associated double inventory revert
+  const { data: reopened, error } = await supabase.from('pos_orders').update({
     status: 'open',
     closed_at: null,
     subtotal: 0,
@@ -155,9 +155,10 @@ export async function POST(req: NextRequest) {
     service_charge: 0,
     tax_amount: 0,
     total: 0,
-  }).eq('id', orderId)
+  }).eq('id', orderId).eq('status', 'closed').select('id')
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (!reopened?.length) return NextResponse.json({ error: 'Order was already reopened or not in a closed state' }, { status: 409 })
 
   // Relink the table if it exists
   if (order.table_id) {

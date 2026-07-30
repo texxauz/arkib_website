@@ -60,11 +60,14 @@ export async function POST(req: NextRequest) {
     if (voidErr) return NextResponse.json({ error: `Failed to void items: ${voidErr.message}` }, { status: 500 })
   }
 
-  // Mark order as voided
-  const { error: orderErr } = await supabase.from('pos_orders')
+  // Mark order as voided — optimistic lock prevents race with close-order
+  const { data: voided, error: orderErr } = await supabase.from('pos_orders')
     .update({ status: 'voided', closed_at: now })
     .eq('id', orderId)
+    .eq('status', 'open')
+    .select('id')
   if (orderErr) return NextResponse.json({ error: orderErr.message }, { status: 500 })
+  if (!voided?.length) return NextResponse.json({ error: 'Order was already closed or cancelled by another request' }, { status: 409 })
 
   // Free the table
   if (order.table_id) {

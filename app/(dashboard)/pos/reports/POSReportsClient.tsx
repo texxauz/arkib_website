@@ -33,6 +33,7 @@ type Item = {
   category: string | null
   quantity: number
   unit_price: number
+  discount?: number | null
   voided_at: string | null
   created_at: string
 }
@@ -157,7 +158,11 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
   const dailyRevenue = useMemo(() => {
     const map: Record<string, number> = {}
     for (const o of orders) {
-      const day = o.opened_at.slice(0, 10)
+      // Use MYT (UTC+8) date to match business-date logic in daily_sales
+      const ts = o.opened_at ? new Date(o.opened_at) : null
+      if (!ts) continue
+      const myt = new Date(ts.getTime() + 8 * 60 * 60 * 1000)
+      const day = myt.toISOString().slice(0, 10)
       map[day] = (map[day] ?? 0) + o.total
     }
     return Object.entries(map)
@@ -172,7 +177,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       if (item.voided_at) continue
       if (!map[item.item_name]) map[item.item_name] = { qty: 0, revenue: 0 }
       map[item.item_name].qty += item.quantity
-      map[item.item_name].revenue += item.quantity * item.unit_price
+      map[item.item_name].revenue += item.quantity * item.unit_price - (item.discount ?? 0)
     }
     return Object.entries(map)
       .sort((a, b) => b[1].revenue - a[1].revenue)
@@ -197,7 +202,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       if (item.voided_at) continue
       if (!map[item.item_name]) map[item.item_name] = { category: item.category, qty: 0, unit_price: item.unit_price, revenue: 0 }
       map[item.item_name].qty += item.quantity
-      map[item.item_name].revenue += item.quantity * item.unit_price
+      map[item.item_name].revenue += item.quantity * item.unit_price - (item.discount ?? 0)
     }
     return Object.entries(map).map(([name, v]) => ({ name, ...v }))
   }, [items])

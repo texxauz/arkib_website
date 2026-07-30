@@ -79,9 +79,10 @@ export function OrderTicketClient({
   const [noteModal, setNoteModal] = useState<{ open: boolean; itemId: string | null; text: string }>({
     open: false, itemId: null, text: ''
   })
-  const [voidModal, setVoidModal] = useState<{ open: boolean; itemId: string | null; reason: string }>({
-    open: false, itemId: null, reason: ''
+  const [voidModal, setVoidModal] = useState<{ open: boolean; itemId: string | null; reason: string; itemStatus: string }>({
+    open: false, itemId: null, reason: '', itemStatus: 'pending'
   })
+  const [voidPin, setVoidPin] = useState('')
   const [moveModal, setMoveModal] = useState(false)
   const [moveTarget, setMoveTarget] = useState<PosTable | null>(null)
   const [guestModal, setGuestModal] = useState(false)
@@ -228,7 +229,8 @@ export function OrderTicketClient({
     if (!item) return
     const newQty = item.quantity + delta
     if (newQty <= 0) {
-      setVoidModal({ open: true, itemId, reason: '' })
+      const itemStatus = items.find(i => i.id === itemId)?.status ?? 'pending'
+      setVoidModal({ open: true, itemId, reason: '', itemStatus })
       return
     }
     // Optimistic update
@@ -244,17 +246,22 @@ export function OrderTicketClient({
   }, [items, supabase, toast])
 
   const handleVoid = useCallback(async () => {
-    const { itemId, reason } = voidModal
+    const { itemId, reason, itemStatus } = voidModal
     if (!itemId) return
     if (!isAdmin && !reason.trim()) {
       toast('A reason is required to void items', 'error')
+      return
+    }
+    const needsPin = !isAdmin && itemStatus !== 'pending'
+    if (needsPin && voidPin.length < 4) {
+      toast('Enter your manager PIN to void sent items', 'error')
       return
     }
     setLoading(true)
     const res = await fetch('/api/pos/void-item', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ itemId, reason }),
+      body: JSON.stringify({ itemId, reason, managerPin: needsPin ? voidPin : undefined }),
     })
     setLoading(false)
     if (!res.ok) {
@@ -264,9 +271,10 @@ export function OrderTicketClient({
       const voidedAt = new Date().toISOString()
       setItems(prev => prev.map(i => i.id === itemId ? { ...i, voided_at: voidedAt } : i))
       toast('Item voided', 'info')
-      setVoidModal({ open: false, itemId: null, reason: '' })
+      setVoidModal({ open: false, itemId: null, reason: '', itemStatus: 'pending' })
+      setVoidPin('')
     }
-  }, [voidModal, isAdmin, userId, supabase, toast])
+  }, [voidModal, voidPin, isAdmin, userId, supabase, toast])
 
   const handleSendToKDS = useCallback(async () => {
     const pendingIds = activeItems.filter(i => i.status === 'pending').map(i => i.id)
@@ -640,7 +648,7 @@ export function OrderTicketClient({
                     <Plus size={12} />
                   </button>
                   <button
-                    onClick={() => setVoidModal({ open: true, itemId: item.id, reason: '' })}
+                    onClick={() => setVoidModal({ open: true, itemId: item.id, reason: '', itemStatus: item.status ?? 'pending' })}
                     className="w-7 h-7 rounded-lg bg-[#1A1A1E] border border-[#2A2A30] flex items-center justify-center text-[#9896A4] hover:text-rose-400 hover:bg-rose-950/40 hover:border-rose-800/40 transition-all ml-0.5"
                   >
                     <Trash2 size={12} />
@@ -814,7 +822,7 @@ export function OrderTicketClient({
       {/* Void Modal */}
       <Modal
         isOpen={voidModal.open}
-        onClose={() => setVoidModal({ open: false, itemId: null, reason: '' })}
+        onClose={() => { setVoidModal({ open: false, itemId: null, reason: '', itemStatus: 'pending' }); setVoidPin('') }}
         title="Void Item"
         size="sm"
       >
@@ -829,9 +837,23 @@ export function OrderTicketClient({
             rows={3}
             className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7] resize-none"
           />
+          {!isAdmin && voidModal.itemStatus !== 'pending' && (
+            <div>
+              <p className="text-amber-400 text-xs mb-2">This item has already been sent — a manager PIN is required.</p>
+              <input
+                type="password"
+                inputMode="numeric"
+                maxLength={6}
+                value={voidPin}
+                onChange={e => setVoidPin(e.target.value.replace(/\D/g, ''))}
+                placeholder="Manager PIN"
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7] tracking-widest"
+              />
+            </div>
+          )}
           <div className="flex gap-2 justify-end">
             <button
-              onClick={() => setVoidModal({ open: false, itemId: null, reason: '' })}
+              onClick={() => { setVoidModal({ open: false, itemId: null, reason: '', itemStatus: 'pending' }); setVoidPin('') }}
               className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all"
             >
               Cancel

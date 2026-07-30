@@ -17,6 +17,9 @@ export async function POST(req: NextRequest) {
   if (!orderId || !Array.isArray(payments) || !payments.length) {
     return NextResponse.json({ error: 'orderId and payments required' }, { status: 400 })
   }
+  if (payments.some((p: { method: string; amount: number }) => typeof p.amount !== 'number' || p.amount <= 0)) {
+    return NextResponse.json({ error: 'All payment amounts must be positive numbers' }, { status: 400 })
+  }
 
   const { data: profile } = await supabase.from('users').select('role, pos_permissions').eq('id', user.id).single()
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
@@ -53,10 +56,10 @@ export async function POST(req: NextRequest) {
   let discountAmount = order.discount_amount ?? 0
   let discountLabel = order.discount_label ?? null
   if (clientDiscountAmount != null && clientDiscountAmount > 0) {
-    // Verify the discount name exists in pos_discounts and is active
+    // Verify the discount name exists in pos_discounts and is active; re-derive the amount server-side
     const { data: validDiscount } = await supabase
       .from('pos_discounts')
-      .select('id, requires_approval')
+      .select('id, type, value, requires_approval')
       .eq('name', clientDiscountLabel)
       .eq('is_active', true)
       .single()
@@ -67,7 +70,10 @@ export async function POST(req: NextRequest) {
     if (validDiscount.requires_approval && !isAdmin && !posPerm.apply_approval_discounts) {
       return NextResponse.json({ error: 'This discount requires manager approval' }, { status: 403 })
     }
-    discountAmount = clientDiscountAmount
+    // Re-derive discount amount from the formula — never trust client-supplied value
+    discountAmount = validDiscount.type === 'percent'
+      ? subtotal * validDiscount.value / 100
+      : Math.min(validDiscount.value, subtotal)
     discountLabel = clientDiscountLabel ?? null
   }
 
