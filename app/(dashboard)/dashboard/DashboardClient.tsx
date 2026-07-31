@@ -148,7 +148,7 @@ export function DashboardClient({ todaySales, allSales, allExpenses, allCOGS, lo
   const periodCOGS = useMemo(() =>
     allCOGS.filter(c => c.date >= fromStr && c.date <= toStr), [allCOGS, fromStr, toStr])
 
-  const totalRevenue = periodSales.reduce((s, r) => s + r.total_revenue - (r.discount_amount ?? 0), 0)
+  const totalRevenue = periodSales.reduce((s, r) => s + r.total_revenue, 0)
   const totalExpenses = periodExpenses.reduce((s, e) => s + e.amount, 0)
   const totalCOGS = periodCOGS.reduce((s, c) => s + (c.total_cogs ?? 0), 0)
   const netProfit = totalRevenue - totalExpenses
