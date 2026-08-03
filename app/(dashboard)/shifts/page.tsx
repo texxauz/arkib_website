@@ -31,15 +31,22 @@ export default async function ShiftsPage() {
     ? await supabase.from('users').select('id, full_name, role').order('full_name')
     : { data: [] }
 
-  // Fetch hourly rates from employees table (linked by user_id)
+  // Fetch employment details from employees table
   const { data: employeeRates } = await supabase
     .from('employees')
-    .select('user_id, hourly_rate')
+    .select('user_id, hourly_rate, employment_type, monthly_salary')
     .not('user_id', 'is', null)
 
   const rateByUserId: Record<string, number> = {}
+  const employmentByUserId: Record<string, { type: 'part_time' | 'full_time'; monthlySalary: number | null }> = {}
   for (const e of employeeRates ?? []) {
-    if (e.user_id) rateByUserId[e.user_id] = e.hourly_rate ?? 10
+    if (e.user_id) {
+      rateByUserId[e.user_id] = e.hourly_rate ?? 10
+      employmentByUserId[e.user_id] = {
+        type: e.employment_type ?? 'part_time',
+        monthlySalary: e.monthly_salary ?? null,
+      }
+    }
   }
 
   return (
@@ -50,6 +57,7 @@ export default async function ShiftsPage() {
       isAdmin={isAdmin ?? false}
       staffUsers={staffUsers ?? []}
       rateByUserId={rateByUserId}
+      employmentByUserId={employmentByUserId}
     />
   )
 }
