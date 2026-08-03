@@ -31,9 +31,13 @@ export type ReceiptData = {
   isPreliminary?: boolean
 }
 
-const W = 42 // chars per line on 80mm thermal
+const FONT = '"Courier New", Courier, monospace'
+const FS = '11px'
+const LH = '1.55'
+const COLOR = '#000'
 
-function fmt(n: number) { return n.toFixed(2) }
+function fmt(n: number) { return `RM ${n.toFixed(2)}` }
+function fmtNeg(n: number) { return `-RM ${n.toFixed(2)}` }
 
 function formatDateTime(iso: string | null) {
   if (!iso) return '—'
@@ -51,25 +55,35 @@ function payLabel(method: string) {
     cash: 'CASH',
     credit_card: 'CREDIT CARD',
     debit_card: 'DEBIT CARD',
+    visa: 'VISA',
+    mastercard: 'MASTERCARD',
     qr_payment: 'QR / DUITNOW',
   }
   return map[method] ?? method.toUpperCase()
 }
 
-// Left label, right value, padded to W chars
-function row(label: string, value: string, bold = false): string {
-  const gap = W - label.length - value.length
-  return label + ' '.repeat(Math.max(1, gap)) + value
+const base: React.CSSProperties = { fontFamily: FONT, fontSize: FS, lineHeight: LH, color: COLOR }
+
+function Row({ label, value, bold, large }: { label: string; value: string; bold?: boolean; large?: boolean }) {
+  return (
+    <div style={{ ...base, display: 'flex', justifyContent: 'space-between', fontWeight: bold ? 'bold' : 'normal', fontSize: large ? '13px' : FS }}>
+      <span>{label}</span>
+      <span style={{ marginLeft: '8px', whiteSpace: 'nowrap' }}>{value}</span>
+    </div>
+  )
 }
 
-// Centred text
-function centre(text: string): string {
-  const pad = Math.max(0, Math.floor((W - text.length) / 2))
-  return ' '.repeat(pad) + text
+function Centre({ children, bold, large }: { children: React.ReactNode; bold?: boolean; large?: boolean }) {
+  return (
+    <div style={{ ...base, textAlign: 'center', fontWeight: bold ? 'bold' : 'normal', fontSize: large ? '15px' : FS }}>
+      {children}
+    </div>
+  )
 }
 
-const DIVIDER = '-'.repeat(W)
-const THICK   = '='.repeat(W)
+function Divider({ thick }: { thick?: boolean }) {
+  return <div style={{ ...base, borderTop: `1px ${thick ? 'double' : 'dashed'} #000`, margin: '4px 0' }} />
+}
 
 export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: () => void }) {
   function handlePrint() {
@@ -111,112 +125,6 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
     return acc
   }, {})
 
-  const FONT = '"Courier New", Courier, monospace'
-
-  const s: React.CSSProperties = {
-    fontFamily: FONT,
-    fontSize: '11px',
-    lineHeight: '1.5',
-    color: '#000',
-    whiteSpace: 'pre',
-  }
-
-  const lines: Array<{ text: string; bold?: boolean; centre?: boolean; size?: string }> = []
-
-  const add = (text: string, opts?: { bold?: boolean; centre?: boolean; size?: string }) =>
-    lines.push({ text, ...opts })
-
-  // ── Preliminary banner ───────────────────────────────────────────
-  if (data.isPreliminary) {
-    add(centre('*** PRELIMINARY BILL ***'), { bold: true })
-    add(centre('Payment not yet received'))
-    add('')
-  }
-
-  // ── Header ──────────────────────────────────────────────────────
-  add('ARKIB BAR', { bold: true, centre: true, size: '15px' })
-  add('HIDDEN CHAMBERS VENTURE', { centre: true })
-  add('(RA0123876-X)', { centre: true })
-  add('133-1, 135-1 JALAN TUN TAN CHENG LOCK', { centre: true })
-  add('75200 MELAKA', { centre: true })
-  add('')
-  add(DIVIDER)
-  add(centre('INVOICE'), { bold: true })
-  add(DIVIDER)
-
-  // ── Meta ────────────────────────────────────────────────────────
-  add(`INV#  ${String(invoiceNum).padStart(5, '0')}`)
-  add(`Date: ${formatDateTime(data.closedAt ?? data.openedAt)}`)
-  add(`Table: ${(data.tableName ?? 'Walk-in').toUpperCase()}   Covers: ${data.covers}`)
-  add(`Served by: ${(data.serverName ?? 'Staff').toUpperCase()}`)
-  add(DIVIDER)
-
-  // ── Items ───────────────────────────────────────────────────────
-  Object.entries(groups).forEach(([cat, catItems]) => {
-    add(`[ ${cat} ]`, { bold: true })
-    catItems.forEach(item => {
-      const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
-      // Item name — wrap if longer than W
-      const name = item.item_name
-      if (name.length <= W) {
-        add(name)
-      } else {
-        // break at word boundary
-        const words = name.split(' ')
-        let line = ''
-        words.forEach(w => {
-          if ((line + ' ' + w).trim().length > W) { add(line); line = w }
-          else line = (line + ' ' + w).trim()
-        })
-        if (line) add(line)
-      }
-      // qty × price line
-      const qtyPrice = `  ${item.quantity} x ${fmt(item.unit_price)}`
-      const amtStr   = `RM ${fmt(lineTotal)}`
-      const gap      = W - qtyPrice.length - amtStr.length
-      add(qtyPrice + ' '.repeat(Math.max(1, gap)) + amtStr)
-      if ((item.discount ?? 0) > 0) {
-        add(`  Discount              -RM ${fmt(item.discount)}`)
-      }
-    })
-  })
-
-  add(DIVIDER)
-
-  // ── Totals ──────────────────────────────────────────────────────
-  add(row('Sub Total', `RM ${fmt(data.subtotal)}`))
-  if (data.discountAmount > 0) {
-    const dlabel = data.discountLabel ? `Discount (${data.discountLabel})` : 'Discount'
-    add(row(dlabel, `-RM ${fmt(data.discountAmount)}`))
-  }
-  if (data.serviceCharge > 0) {
-    add(row('Service Charge', `RM ${fmt(data.serviceCharge)}`))
-  }
-  if (data.taxAmount > 0) {
-    add(row('Tax', `RM ${fmt(data.taxAmount)}`))
-  }
-  add(THICK)
-  add(row('TOTAL', `RM ${fmt(data.total)}`), { bold: true, size: '13px' })
-  add(THICK)
-
-  // ── Payments ────────────────────────────────────────────────────
-  data.payments.forEach(p => {
-    add(row(payLabel(p.method), `RM ${fmt(p.amount)}`))
-  })
-  if (change > 0) {
-    add(row('CHANGE', `RM ${fmt(change)}`))
-  }
-
-  add(DIVIDER)
-
-  // ── Footer ──────────────────────────────────────────────────────
-  add(centre('* * * * * * * * * * * * * *'))
-  add(centre(data.footerNote || 'Thank you and Come Again!'), { centre: true })
-  add(centre('* * * * * * * * * * * * * *'))
-  add('')
-  add(centre(`Ref: #${data.orderId.slice(-8).toUpperCase()}`), { size: '9px' })
-  add('')
-
   return (
     <div
       id="__receipt_root__"
@@ -232,31 +140,105 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
         id="__receipt_paper__"
         style={{
           backgroundColor: '#fff',
-          color: '#000',
+          color: COLOR,
           fontFamily: FONT,
-          fontSize: '11px',
-          width: `${W}ch`,
-          padding: '12px 10px',
+          fontSize: FS,
+          width: '300px',
+          maxWidth: 'calc(100vw - 32px)',
+          padding: '14px 12px',
           borderRadius: '4px',
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
           maxHeight: '85vh',
           overflowY: 'auto',
+          boxSizing: 'border-box',
         }}
       >
-        {lines.map((line, i) => (
-          <div
-            key={i}
-            style={{
-              ...s,
-              fontSize: line.size ?? '11px',
-              fontWeight: line.bold ? 'bold' : 'normal',
-              textAlign: line.centre ? 'center' : 'left',
-              whiteSpace: 'pre',
-            }}
-          >
-            {line.centre ? line.text.trim() : line.text}
+        {/* Preliminary banner */}
+        {data.isPreliminary && (
+          <>
+            <Centre bold>*** PRELIMINARY BILL ***</Centre>
+            <Centre>Payment not yet received</Centre>
+            <div style={{ height: '6px' }} />
+          </>
+        )}
+
+        {/* Header */}
+        <Centre bold large>ARKIB BAR</Centre>
+        <Centre>HIDDEN CHAMBERS VENTURE</Centre>
+        <Centre>(RA0123876-X)</Centre>
+        <Centre>133-1, 135-1 JALAN TUN TAN CHENG LOCK</Centre>
+        <Centre>75200 MELAKA</Centre>
+        <div style={{ height: '4px' }} />
+        <Divider />
+        <Centre bold>INVOICE</Centre>
+        <Divider />
+
+        {/* Meta */}
+        <div style={{ ...base }}>
+          <div>INV#&nbsp; {String(invoiceNum).padStart(5, '0')}</div>
+          <div>Date: {formatDateTime(data.closedAt ?? data.openedAt)}</div>
+          <div>Table: {(data.tableName ?? 'Walk-in').toUpperCase()}&nbsp;&nbsp; Covers: {data.covers}</div>
+          <div>Served by: {(data.serverName ?? 'Staff').toUpperCase()}</div>
+        </div>
+        <Divider />
+
+        {/* Items */}
+        {Object.entries(groups).map(([cat, catItems]) => (
+          <div key={cat}>
+            <div style={{ ...base, fontWeight: 'bold', marginTop: '2px' }}>[ {cat} ]</div>
+            {catItems.map((item, i) => {
+              const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
+              return (
+                <div key={i} style={{ marginBottom: '3px' }}>
+                  <div style={{ ...base }}>{item.item_name}</div>
+                  <div style={{ ...base, display: 'flex', justifyContent: 'space-between', paddingLeft: '12px' }}>
+                    <span style={{ color: '#444' }}>{item.quantity} x {item.unit_price.toFixed(2)}</span>
+                    <span style={{ whiteSpace: 'nowrap' }}>{fmt(lineTotal)}</span>
+                  </div>
+                  {(item.discount ?? 0) > 0 && (
+                    <div style={{ ...base, display: 'flex', justifyContent: 'space-between', paddingLeft: '12px' }}>
+                      <span style={{ color: '#444' }}>Discount</span>
+                      <span style={{ whiteSpace: 'nowrap' }}>{fmtNeg(item.discount)}</span>
+                    </div>
+                  )}
+                </div>
+              )
+            })}
           </div>
         ))}
+
+        <Divider />
+
+        {/* Totals */}
+        <Row label="Sub Total" value={fmt(data.subtotal)} />
+        {data.discountAmount > 0 && (
+          <Row
+            label={data.discountLabel ? `Discount (${data.discountLabel})` : 'Discount'}
+            value={fmtNeg(data.discountAmount)}
+          />
+        )}
+        {data.serviceCharge > 0 && <Row label="Service Charge" value={fmt(data.serviceCharge)} />}
+        {data.taxAmount > 0 && <Row label="Tax" value={fmt(data.taxAmount)} />}
+        <Divider thick />
+        <Row label="TOTAL" value={fmt(data.total)} bold large />
+        <Divider thick />
+
+        {/* Payments */}
+        {data.payments.map((p, i) => (
+          <Row key={i} label={payLabel(p.method)} value={fmt(p.amount)} />
+        ))}
+        {change > 0 && <Row label="CHANGE" value={fmt(change)} />}
+
+        <Divider />
+
+        {/* Footer */}
+        <div style={{ height: '4px' }} />
+        <Centre>* * * * * * * * * * * * * *</Centre>
+        <Centre>{data.footerNote || 'Thank you and Come Again!'}</Centre>
+        <Centre>* * * * * * * * * * * * * *</Centre>
+        <div style={{ height: '4px' }} />
+        <Centre><span style={{ fontSize: '9px', color: '#666' }}>Ref: #{data.orderId.slice(-8).toUpperCase()}</span></Centre>
+        <div style={{ height: '8px' }} />
       </div>
 
       <div
