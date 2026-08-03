@@ -24,7 +24,7 @@ export default async function DashboardPage() {
     supabase.from('daily_sales').select('date, total_revenue, total_collected, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, transaction_count, discount_amount').gte('date', sixMonthsAgoStr).order('date', { ascending: true }),
     supabase.from('expenses').select('date, expense_period, category, amount').gte('date', sixMonthsAgoStr).is('deleted_at', null),
     supabase.from('cocktail_sales').select('date, total_cogs, total_revenue').gte('date', sixMonthsAgoStr),
-    supabase.from('bar_spirits').select('name, full_bottles, min_bottles').not('min_bottles', 'is', null),
+    supabase.from('bar_spirits').select('name, full_bottles, open_ml, used_classics_ml, min_bottles').not('min_bottles', 'is', null),
   ])
 
   return (
@@ -33,7 +33,10 @@ export default async function DashboardPage() {
       allSales={(allSalesRaw ?? []) as any[]}
       allExpenses={(allExpensesRaw ?? []) as any[]}
       allCOGS={(allCOGSRaw ?? []) as any[]}
-      lowStock={(allSpirits ?? []).filter((s: any) => s.full_bottles < s.min_bottles).map((s: any) => ({ name: s.name, current_stock: s.full_bottles, min_stock_level: s.min_bottles }))}
+      lowStock={(allSpirits ?? []).filter((s: any) =>
+        s.full_bottles < s.min_bottles &&
+        (s.full_bottles > 0 || (s.open_ml ?? 0) > 0 || (s.used_classics_ml ?? 0) > 0)
+      ).map((s: any) => ({ name: s.name, current_stock: s.full_bottles, min_stock_level: s.min_bottles }))}
     />
   )
 }
