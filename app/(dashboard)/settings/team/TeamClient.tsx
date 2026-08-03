@@ -3,12 +3,13 @@ import { useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
-import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight } from 'lucide-react'
+import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight, KeyRound, ShieldCheck } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type UserProfile = Database['public']['Tables']['users']['Row'] & {
   tab_permissions?: Record<string, string> | null
   pos_permissions?: Record<string, boolean> | null
+  manager_pin?: string | null
 }
 
 const POS_ACTION_PERMS = [
@@ -106,6 +107,11 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   const [editRole, setEditRole] = useState('bartender')
   const [editName, setEditName] = useState('')
   const [loading, setLoading] = useState(false)
+  const [editManagerPin, setEditManagerPin] = useState<string | null>(null)
+  const [pinEnabled, setPinEnabled] = useState(false)
+  const [resetPasswordTarget, setResetPasswordTarget] = useState<UserProfile | null>(null)
+  const [newPassword, setNewPassword] = useState('')
+  const [pwLoading, setPwLoading] = useState(false)
   const { toast } = useToast()
 
   const openInvite = () => {
@@ -126,6 +132,9 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setEditName(m.full_name)
     setEditPerms(m.tab_permissions ?? defaultPermsForRole(m.role))
     setEditPosPerms({ ...DEFAULT_POS_PERMS, ...(m.pos_permissions ?? {}) })
+    const hasPinSet = !!m.manager_pin
+    setPinEnabled(hasPinSet)
+    setEditManagerPin(hasPinSet ? m.manager_pin! : '')
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -147,13 +156,33 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     window.location.reload()
   }
 
+  const handleResetPassword = async () => {
+    if (!resetPasswordTarget || !newPassword) return
+    setPwLoading(true)
+    const res = await fetch('/api/team/reset-password', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: resetPasswordTarget.id, password: newPassword }),
+    })
+    const data = await res.json()
+    setPwLoading(false)
+    if (!res.ok) { toast(data.error ?? 'Failed to reset password', 'error'); return }
+    toast(`Password reset for ${resetPasswordTarget.full_name}`, 'success')
+    setResetPasswordTarget(null)
+    setNewPassword('')
+  }
+
   const handleUpdate = async () => {
     if (!editTarget) return
+    if (pinEnabled && (!editManagerPin || editManagerPin.length < 4)) {
+      toast('PIN must be at least 4 digits', 'error'); return
+    }
     setLoading(true)
+    const manager_pin = pinEnabled ? editManagerPin : null
     const res = await fetch('/api/team/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms }),
+      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms, manager_pin }),
     })
     const data = await res.json()
     setLoading(false)
@@ -244,6 +273,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                     ${m.role === 'owner' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-[#1A1A1E] text-[#9896A4] border-[#2A2A30]'}`}>
                     {m.role === 'staff' ? 'Bartender' : m.role === 'full_timer' ? 'Full Timer' : m.role === 'part_timer' ? 'Part Timer' : m.role === 'accountant' ? 'Accountant' : m.role}
                   </span>
+                  {m.manager_pin && <span className="text-[9px] bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20 px-2 py-0.5 rounded-full flex items-center gap-1"><ShieldCheck size={9} /> PIN</span>}
                   {!m.is_active && <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full">Suspended</span>}
                 </div>
                 <p className="text-[#5A5865] text-xs mt-0.5">{m.email}</p>
@@ -378,10 +408,74 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
             </div>
           )}
 
+          {/* Manager PIN */}
+          {!['owner', 'manager'].includes(editRole) && (
+            <div className="rounded-xl border border-[#2A2A30] bg-[#0D0D10] p-4 space-y-3">
+              <div className="flex items-center justify-between">
+                <div>
+                  <div className="flex items-center gap-2">
+                    <ShieldCheck size={14} className="text-[#A78BFA]" />
+                    <p className="text-[#F0EEF6] text-sm font-medium">Discount Approval PIN</p>
+                  </div>
+                  <p className="text-[#5A5865] text-xs mt-0.5">Lets this staff approve manager-level discounts using their own PIN</p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setPinEnabled(p => !p); setEditManagerPin('') }}
+                  className={`relative w-11 h-6 rounded-full transition-colors flex-shrink-0 ${pinEnabled ? 'bg-[#8B5CF6]' : 'bg-[#2A2A30]'}`}
+                >
+                  <span className={`absolute top-0.5 left-0.5 w-5 h-5 rounded-full bg-white transition-transform ${pinEnabled ? 'translate-x-5' : 'translate-x-0'}`} />
+                </button>
+              </div>
+              {pinEnabled && (
+                <div>
+                  <label className="label">PIN (4+ digits)</label>
+                  <input
+                    className="input"
+                    type="text"
+                    inputMode="numeric"
+                    maxLength={8}
+                    placeholder="e.g. 1234"
+                    value={editManagerPin ?? ''}
+                    onChange={e => setEditManagerPin(e.target.value.replace(/\D/g, ''))}
+                  />
+                </div>
+              )}
+            </div>
+          )}
+
           <div className="flex gap-3 pt-2">
+            <button type="button" onClick={() => { setResetPasswordTarget(editTarget); setNewPassword('') }}
+              className="btn-secondary flex items-center gap-2 px-3">
+              <KeyRound size={14} /> Reset Password
+            </button>
             <button type="button" onClick={() => setEditTarget(null)} className="btn-secondary flex-1">Cancel</button>
             <button onClick={handleUpdate} disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
               {loading ? 'Saving...' : 'Save Changes'}
+            </button>
+          </div>
+        </div>
+      </Modal>
+
+      {/* Reset Password Modal */}
+      <Modal isOpen={!!resetPasswordTarget} onClose={() => { setResetPasswordTarget(null); setNewPassword('') }} title={`Reset Password — ${resetPasswordTarget?.full_name}`} size="sm">
+        <div className="space-y-4">
+          <p className="text-[#9896A4] text-sm">Set a new password for this account. They will need to use the new password next time they log in.</p>
+          <div>
+            <label className="label">New Password</label>
+            <input
+              className="input"
+              type="password"
+              placeholder="Min 6 characters"
+              minLength={6}
+              value={newPassword}
+              onChange={e => setNewPassword(e.target.value)}
+            />
+          </div>
+          <div className="flex gap-3">
+            <button type="button" onClick={() => { setResetPasswordTarget(null); setNewPassword('') }} className="btn-secondary flex-1">Cancel</button>
+            <button onClick={handleResetPassword} disabled={pwLoading || newPassword.length < 6} className="btn-primary flex-1 disabled:opacity-50">
+              {pwLoading ? 'Resetting...' : 'Reset Password'}
             </button>
           </div>
         </div>
