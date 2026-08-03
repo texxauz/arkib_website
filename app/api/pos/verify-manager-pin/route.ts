@@ -52,11 +52,11 @@ export async function POST(req: NextRequest) {
 
   const pinStr = String(pin).trim()
 
-  // Fetch all managers/owners with a PIN set (hash or legacy plain-text).
+  // Fetch all users with a PIN set — owners/managers by role, or any staff with a personal pin granted.
   const { data: managers } = await supabase
     .from('users')
     .select('id, full_name, manager_pin, manager_pin_hash')
-    .in('role', ['owner', 'manager'])
+    .not('manager_pin', 'is', null)
     .eq('is_active', true)
 
   let matched: { id: string; full_name: string | null } | null = null
