@@ -111,8 +111,10 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
     return acc
   }, {})
 
+  const FONT = '"Courier New", Courier, monospace'
+
   const s: React.CSSProperties = {
-    fontFamily: '"Courier New", Courier, monospace',
+    fontFamily: FONT,
     fontSize: '11px',
     lineHeight: '1.5',
     color: '#000',
@@ -231,7 +233,9 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
         style={{
           backgroundColor: '#fff',
           color: '#000',
-          width: '302px', // 80mm at 96dpi
+          fontFamily: FONT,
+          fontSize: '11px',
+          width: `${W}ch`,
           padding: '12px 10px',
           borderRadius: '4px',
           boxShadow: '0 8px 32px rgba(0,0,0,0.6)',
@@ -250,7 +254,7 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
               whiteSpace: 'pre',
             }}
           >
-            {line.text}
+            {line.centre ? line.text.trim() : line.text}
           </div>
         ))}
       </div>
