@@ -404,27 +404,60 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
               </div>
 
               {payrollData.map(d => (
-                <div key={d.userId} className="card space-y-2">
-                  <div className="flex items-center justify-between">
-                    <p className="text-[#F0EEF6] font-medium text-sm">{d.name}</p>
-                    <p className="text-[#A78BFA] font-bold">{formatCurrency(d.totalPay)}</p>
+                <div key={d.userId} className="card space-y-0 overflow-hidden">
+                  {/* Staff header */}
+                  <div className="flex items-center justify-between mb-4">
+                    <div>
+                      <p className="text-[#F0EEF6] font-semibold text-base">{d.name}</p>
+                      <p className="text-[#5A5865] text-xs mt-0.5">{d.shifts.length} shift{d.shifts.length !== 1 ? 's' : ''} · {d.totalHours.toFixed(1)} total hours</p>
+                    </div>
+                    <div className="text-right">
+                      <p className="text-[#9896A4] text-xs mb-0.5">Total to pay</p>
+                      <p className="text-[#A78BFA] font-bold text-2xl">{formatCurrency(d.totalPay)}</p>
+                    </div>
                   </div>
-                  {d.shifts.sort((a, b) => a.clock_in.localeCompare(b.clock_in)).map(s => {
-                    const h = calcHours(s.clock_in, s.clock_out!)
-                    return (
-                      <div key={s.id} className="flex items-center justify-between text-xs py-1.5 border-t border-[#1A1A1E]">
-                        <span className="text-[#9896A4]">{formatShiftDate(s.clock_in)} · {formatTime(s.clock_in)}–{formatTime(s.clock_out!)}</span>
-                        <div className="flex items-center gap-3">
-                          {s.is_public_holiday && <span className="text-amber-400 text-[10px] px-1.5 py-0.5 bg-amber-500/10 rounded">PH</span>}
-                          <span className="text-[#5A5865]">{h.toFixed(1)}h × RM{s.hourly_rate}</span>
-                          <span className="text-[#F0EEF6] font-medium">{formatCurrency(h * s.hourly_rate)}</span>
+
+                  {/* Column headers */}
+                  <div className="grid grid-cols-4 gap-2 px-3 py-2 bg-[#0D0D10] rounded-lg mb-2">
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Date</span>
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Clock In</span>
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Clock Out</span>
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold text-right">Pay</span>
+                  </div>
+
+                  {/* Shift rows */}
+                  <div className="space-y-1">
+                    {d.shifts.sort((a, b) => a.clock_in.localeCompare(b.clock_in)).map(s => {
+                      const h = calcHours(s.clock_in, s.clock_out!)
+                      const pay = h * s.hourly_rate
+                      return (
+                        <div key={s.id} className="grid grid-cols-4 gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1A1A1E] transition-colors">
+                          <div>
+                            <p className="text-[#F0EEF6] text-sm font-medium">{formatShiftDate(s.clock_in)}</p>
+                            {s.is_public_holiday && <span className="text-amber-400 text-[10px] px-1.5 py-0.5 bg-amber-500/10 rounded mt-0.5 inline-block">Public Holiday</span>}
+                          </div>
+                          <div>
+                            <p className="text-[#F0EEF6] text-sm">{formatTime(s.clock_in)}</p>
+                          </div>
+                          <div>
+                            <p className="text-[#F0EEF6] text-sm">{formatTime(s.clock_out!)}</p>
+                            <p className="text-[#5A5865] text-xs">{h.toFixed(1)}h × RM{s.hourly_rate}/hr</p>
+                          </div>
+                          <div className="text-right">
+                            <p className="text-[#F0EEF6] text-sm font-semibold">{formatCurrency(pay)}</p>
+                          </div>
                         </div>
-                      </div>
-                    )
-                  })}
-                  <div className="flex justify-between pt-1 border-t border-[#2A2A30]">
-                    <span className="text-[#5A5865] text-xs">{d.totalHours.toFixed(1)} total hours</span>
-                    <span className="text-[#A78BFA] text-xs font-bold">{formatCurrency(d.totalPay)}</span>
+                      )
+                    })}
+                  </div>
+
+                  {/* Footer total */}
+                  <div className="flex items-center justify-between mt-3 pt-3 border-t border-[#2A2A30]">
+                    <span className="text-[#9896A4] text-sm">{d.totalHours.toFixed(1)} hours worked</span>
+                    <div className="text-right">
+                      <p className="text-[#5A5865] text-xs">Amount due</p>
+                      <p className="text-[#A78BFA] font-bold text-lg">{formatCurrency(d.totalPay)}</p>
+                    </div>
                   </div>
                 </div>
               ))}
