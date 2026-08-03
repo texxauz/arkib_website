@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2 } from 'lucide-react'
+import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type Shift = {
   id: string
@@ -376,7 +376,31 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       {activeTab === 'payroll' && isAdmin && (
         <div className="space-y-4">
           <div className="flex items-center justify-between">
-            <input type="month" value={payrollMonth} onChange={e => setPayrollMonth(e.target.value)} className="input w-40 text-sm" />
+            <div className="flex items-center gap-2">
+              <button
+                onClick={() => {
+                  const [y, m] = payrollMonth.split('-').map(Number)
+                  const d = new Date(y, m - 2, 1)
+                  setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
+              >
+                <ChevronLeft size={16} />
+              </button>
+              <span className="text-[#F0EEF6] font-medium text-sm min-w-[120px] text-center">
+                {new Date(payrollMonth + '-01').toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })}
+              </span>
+              <button
+                onClick={() => {
+                  const [y, m] = payrollMonth.split('-').map(Number)
+                  const d = new Date(y, m, 1)
+                  setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+                }}
+                className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
+              >
+                <ChevronRight size={16} />
+              </button>
+            </div>
             {payrollData.length > 0 && (
               <button onClick={exportPayroll} className="btn-secondary flex items-center gap-2 text-xs">
                 <Download size={13} /> Export CSV
