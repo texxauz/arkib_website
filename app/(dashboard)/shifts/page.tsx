@@ -31,6 +31,19 @@ export default async function ShiftsPage() {
     ? await supabase.from('users').select('id, full_name, role').order('full_name')
     : { data: [] }
 
+  // Kiosk staff: all active users with a clock_pin set
+  const [{ data: kioskUsers }, { data: activeShifts }] = await Promise.all([
+    supabase.from('users').select('id, full_name, role').eq('is_active', true).not('clock_pin', 'is', null).order('full_name'),
+    supabase.from('staff_shifts').select('user_id, clock_in').is('clock_out', null),
+  ])
+  const clockedInMap: Record<string, string> = {}
+  for (const s of activeShifts ?? []) clockedInMap[s.user_id] = s.clock_in
+  const kioskStaff = (kioskUsers ?? []).map(u => ({
+    id: u.id, full_name: u.full_name, role: u.role,
+    clocked_in: !!clockedInMap[u.id],
+    clock_in_time: clockedInMap[u.id] ?? null,
+  }))
+
   // Fetch employment details from employees table
   const { data: employeeRates } = await supabase
     .from('employees')
@@ -58,6 +71,7 @@ export default async function ShiftsPage() {
       staffUsers={staffUsers ?? []}
       rateByUserId={rateByUserId}
       employmentByUserId={employmentByUserId}
+      kioskStaff={kioskStaff}
     />
   )
 }

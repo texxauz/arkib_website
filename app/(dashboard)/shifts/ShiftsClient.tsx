@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2, ChevronLeft, ChevronRight, MonitorSmartphone } from 'lucide-react'
+import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
 
 type Shift = {
   id: string
@@ -21,6 +21,7 @@ type Shift = {
 }
 
 type StaffUser = { id: string; full_name: string; role: string }
+type KioskStaff = { id: string; full_name: string; role: string; clocked_in: boolean; clock_in_time: string | null }
 
 type EmploymentInfo = { type: 'part_time' | 'full_time'; monthlySalary: number | null }
 
@@ -32,6 +33,7 @@ interface Props {
   staffUsers: StaffUser[]
   rateByUserId: Record<string, number>
   employmentByUserId: Record<string, EmploymentInfo>
+  kioskStaff: KioskStaff[]
 }
 
 function calcHours(start: string, end: string) {
@@ -55,7 +57,7 @@ function formatShiftDate(dt: string) {
 
 const CURRENT_MONTH = new Date().toISOString().slice(0, 7)
 
-export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUserName, isAdmin, staffUsers, rateByUserId, employmentByUserId }: Props) {
+export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUserName, isAdmin, staffUsers, rateByUserId, employmentByUserId, kioskStaff: initialKioskStaff }: Props) {
   const [shifts, setShifts] = useState<Shift[]>(initialShifts)
   const [activeTab, setActiveTab] = useState<'clock' | 'history' | 'payroll'>('clock')
   const [now, setNow] = useState(new Date())
@@ -77,8 +79,51 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
     is_public_holiday: false,
     notes: '',
   })
+  const [kioskStaff, setKioskStaff] = useState<KioskStaff[]>(initialKioskStaff)
+  const [kioskActive, setKioskActive] = useState<KioskStaff | null>(null)
+  const [kioskPin, setKioskPin] = useState('')
+  const [kioskLoading, setKioskLoading] = useState(false)
+  const [kioskShake, setKioskShake] = useState(false)
+  const [kioskFlash, setKioskFlash] = useState<{ name: string; action: 'clock_in' | 'clock_out' } | null>(null)
   const { toast } = useToast()
   const supabase = createClient()
+
+  function initials(name: string) {
+    return name.split(' ').map((w: string) => w[0]).join('').slice(0, 2).toUpperCase()
+  }
+
+  const refreshKiosk = async () => {
+    const res = await fetch('/api/kiosk/staff')
+    if (res.ok) setKioskStaff(await res.json())
+  }
+
+  const kioskPressNum = (n: string) => { if (kioskPin.length < 4) setKioskPin(p => p + n) }
+  const kioskPressBack = () => setKioskPin(p => p.slice(0, -1))
+
+  const kioskConfirm = async () => {
+    if (!kioskActive || kioskPin.length < 4 || kioskLoading) return
+    setKioskLoading(true)
+    const res = await fetch('/api/kiosk/clock', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ userId: kioskActive.id, pin: kioskPin }),
+    })
+    setKioskLoading(false)
+    if (!res.ok) {
+      setKioskShake(true); setKioskPin('')
+      setTimeout(() => setKioskShake(false), 400)
+      toast('Incorrect PIN', 'error')
+      return
+    }
+    const data = await res.json()
+    setKioskActive(null); setKioskPin('')
+    setKioskFlash({ name: data.name, action: data.action })
+    setTimeout(() => setKioskFlash(null), 2500)
+    await refreshKiosk()
+    // Also refresh shifts list
+    const sr = await supabase.from('staff_shifts').select('*, users(full_name, role)').order('clock_in', { ascending: false }).limit(500)
+    if (sr.data) setShifts(sr.data as Shift[])
+  }
 
   useEffect(() => {
     const t = setInterval(() => setNow(new Date()), 1000)
@@ -224,21 +269,11 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
         title="Shifts"
         subtitle="Staff clock in/out and payroll"
         actions={
-          <div className="flex items-center gap-2">
-            <a
-              href="/kiosk"
-              target="_blank"
-              rel="noopener noreferrer"
-              className="btn-secondary flex items-center gap-2 text-sm"
-            >
-              <MonitorSmartphone size={14} /> Open Kiosk
-            </a>
-            {isAdmin && activeTab !== 'clock' && (
-              <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
-                <Plus size={14} /> Add Shift
-              </button>
-            )}
-          </div>
+          isAdmin && activeTab !== 'clock' ? (
+            <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
+              <Plus size={14} /> Add Shift
+            </button>
+          ) : undefined
         }
       />
 
@@ -262,82 +297,129 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       {/* ── CLOCK TAB ── */}
       {activeTab === 'clock' && (
         <div className="space-y-6">
-          {isAdmin && activeShifts.length > 0 && (
-            <div className="bg-emerald-500/5 border border-emerald-500/20 rounded-xl p-4">
-              <p className="text-emerald-400 text-xs font-medium uppercase tracking-wider mb-3 flex items-center gap-2">
-                <CheckCircle2 size={12} /> Currently Clocked In
-              </p>
-              <div className="space-y-2">
-                {activeShifts.map(s => (
-                  <div key={s.id} className="flex items-center justify-between">
-                    <p className="text-[#F0EEF6] text-sm font-medium">{s.users?.full_name ?? 'Unknown'}</p>
-                    <p className="text-[#9896A4] text-xs">Since {formatTime(s.clock_in)} · {formatDuration(s.clock_in, null)}</p>
-                  </div>
-                ))}
-              </div>
-            </div>
-          )}
-
-          <div className="bg-[#111113] border border-[#2A2A30] rounded-2xl p-8 text-center space-y-6">
-            <div>
-              <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-1">Welcome</p>
-              <p className="text-[#F0EEF6] text-xl font-bold">{currentUserName}</p>
-            </div>
-            <div>
-              <p className="text-[#A78BFA] text-4xl font-mono font-bold tracking-wider">
-                {now.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
-              </p>
-              <p className="text-[#5A5865] text-sm mt-1">
-                {now.toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
-              </p>
-            </div>
-
-            {myActiveShift ? (
-              <div className="space-y-4">
-                <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-xl p-4">
-                  <p className="text-emerald-400 text-sm font-medium">Shift in progress</p>
-                  <p className="text-[#F0EEF6] text-2xl font-bold mt-1">{formatDuration(myActiveShift.clock_in, null)}</p>
-                  <p className="text-[#9896A4] text-xs mt-1">Since {formatTime(myActiveShift.clock_in)}</p>
-                </div>
-                <button
-                  onClick={handleClockOut}
-                  disabled={clockLoading}
-                  className="w-full py-4 rounded-xl text-base font-bold bg-rose-500/20 text-rose-400 border border-rose-500/30 hover:bg-rose-500/30 disabled:opacity-50 transition-all flex items-center justify-center gap-3"
-                >
-                  <LogOut size={20} />{clockLoading ? 'Clocking Out...' : 'Clock Out'}
-                </button>
-              </div>
-            ) : (
-              <button
-                onClick={handleClockIn}
-                disabled={clockLoading}
-                className="w-full py-4 rounded-xl text-base font-bold bg-[#8B5CF6]/20 text-[#A78BFA] border border-[#8B5CF6]/30 hover:bg-[#8B5CF6]/30 disabled:opacity-50 transition-all flex items-center justify-center gap-3"
-              >
-                <LogIn size={20} />{clockLoading ? 'Clocking In...' : 'Clock In'}
-              </button>
-            )}
+          {/* Live clock */}
+          <div className="text-center py-4">
+            <p className="text-[#A78BFA] text-4xl font-mono font-bold tracking-wider">
+              {now.toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', second: '2-digit', hour12: true })}
+            </p>
+            <p className="text-[#5A5865] text-sm mt-1">
+              {now.toLocaleDateString('en-MY', { weekday: 'long', day: 'numeric', month: 'long', year: 'numeric' })}
+            </p>
           </div>
 
-          {myShifts.length > 0 && (
-            <div className="space-y-2">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider font-medium">My Recent Shifts</p>
-              {myShifts.map(s => {
-                const h = calcHours(s.clock_in, s.clock_out!)
-                return (
-                  <div key={s.id} className="card flex items-center justify-between gap-4">
-                    <div>
-                      <p className="text-[#F0EEF6] text-sm font-medium">{formatShiftDate(s.clock_in)}</p>
-                      <p className="text-[#9896A4] text-xs">{formatTime(s.clock_in)} → {formatTime(s.clock_out!)} · {formatDuration(s.clock_in, s.clock_out)}</p>
-                    </div>
-                    <div className="text-right flex-shrink-0">
-                      <p className="text-[#F0EEF6] font-bold text-sm">{formatCurrency(h * s.hourly_rate)}</p>
-                      <p className="text-[#5A5865] text-xs">{h.toFixed(1)}h × RM{s.hourly_rate}/hr</p>
-                    </div>
+          {kioskStaff.length === 0 ? (
+            <div className="card text-center py-10 space-y-2">
+              <p className="text-[#F0EEF6] font-medium">No staff set up yet</p>
+              <p className="text-[#5A5865] text-sm">Go to Team Access and set a Kiosk Clock-in PIN for each staff member.</p>
+            </div>
+          ) : (
+            <div className="grid grid-cols-2 sm:grid-cols-3 md:grid-cols-4 gap-3">
+              {kioskStaff.map(s => (
+                <button
+                  key={s.id}
+                  onClick={() => { setKioskActive(s); setKioskPin('') }}
+                  className={`rounded-2xl border p-5 flex flex-col items-center gap-3 transition-all active:scale-95 ${
+                    s.clocked_in
+                      ? 'bg-emerald-500/4 border-emerald-500/20 hover:border-emerald-500/30'
+                      : 'bg-[#14141C] border-[#22222C] hover:border-[#2E2E3A]'
+                  }`}
+                >
+                  <div className={`w-14 h-14 rounded-full flex items-center justify-center text-xl font-bold relative ${
+                    s.clocked_in ? 'bg-emerald-500/10 border-2 border-emerald-500/25 text-emerald-400' : 'bg-[#8B5CF6]/10 border-2 border-[#8B5CF6]/20 text-[#A78BFA]'
+                  }`}>
+                    {initials(s.full_name)}
+                    <span className={`absolute bottom-0.5 right-0.5 w-3 h-3 rounded-full border-2 border-[#14141C] ${s.clocked_in ? 'bg-emerald-400' : 'bg-[#2E2E3A]'}`} />
                   </div>
-                )
-              })}
+                  <div className="text-center">
+                    <p className="text-[#F0EEF6] text-sm font-semibold leading-tight">{s.full_name}</p>
+                    <p className={`text-xs mt-1 font-medium ${s.clocked_in ? 'text-emerald-400' : 'text-[#5A5868]'}`}>
+                      {s.clocked_in ? `● On Shift${s.clock_in_time ? ` · ${formatTime(s.clock_in_time)}` : ''}` : '○ Not In'}
+                    </p>
+                  </div>
+                </button>
+              ))}
             </div>
           )}
+
+          {/* PIN modal */}
+          {kioskActive && (
+            <div
+              className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+              onClick={e => { if (e.target === e.currentTarget) { setKioskActive(null); setKioskPin('') } }}
+            >
+              <div
+                className="bg-[#0F0F14] border border-[#2E2E3A] rounded-3xl p-8 w-[300px] flex flex-col items-center shadow-2xl"
+                style={{ animation: kioskShake ? 'kiosk-shake 0.35s ease' : undefined }}
+              >
+                <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${
+                  kioskActive.clocked_in ? 'bg-emerald-500/10 border-2 border-emerald-500/25 text-emerald-400' : 'bg-[#8B5CF6]/10 border-2 border-[#8B5CF6]/20 text-[#A78BFA]'
+                }`}>
+                  {initials(kioskActive.full_name)}
+                </div>
+                <p className="text-[#F0EEF6] text-lg font-bold mb-1">{kioskActive.full_name}</p>
+                <p className="text-[#5A5868] text-sm mb-6">
+                  Enter PIN to{' '}
+                  <span className={kioskActive.clocked_in ? 'text-rose-400 font-semibold' : 'text-emerald-400 font-semibold'}>
+                    {kioskActive.clocked_in ? 'clock out' : 'clock in'}
+                  </span>
+                </p>
+
+                {/* PIN dots */}
+                <div className="flex gap-3 mb-6">
+                  {[0,1,2,3].map(i => (
+                    <div key={i} className={`w-3.5 h-3.5 rounded-full border-2 transition-all ${i < kioskPin.length ? 'bg-[#8B5CF6] border-[#8B5CF6]' : 'border-[#2E2E3A]'}`} />
+                  ))}
+                </div>
+
+                {/* Numpad */}
+                <div className="grid grid-cols-3 gap-2.5 w-full mb-4">
+                  {['1','2','3','4','5','6','7','8','9','','0','⌫'].map((n, i) => (
+                    <button
+                      key={i}
+                      onClick={() => n === '⌫' ? kioskPressBack() : n ? kioskPressNum(n) : undefined}
+                      className={`h-14 rounded-xl text-xl font-medium transition-all active:scale-90 ${
+                        n ? 'bg-[#14141C] border border-[#22222C] text-[#F0EEF6] hover:border-[#3A3A45]' : 'pointer-events-none'
+                      } ${n === '⌫' ? 'text-base text-[#9896A4]' : ''}`}
+                    >
+                      {n}
+                    </button>
+                  ))}
+                </div>
+
+                <button
+                  onClick={kioskConfirm}
+                  disabled={kioskPin.length < 4 || kioskLoading}
+                  className={`w-full h-13 py-3.5 rounded-xl font-bold text-base transition-all disabled:opacity-40 disabled:cursor-default ${
+                    kioskActive.clocked_in
+                      ? 'bg-rose-500 hover:bg-rose-600 text-white'
+                      : 'bg-[#8B5CF6] hover:bg-[#7C3AED] text-white'
+                  }`}
+                >
+                  {kioskLoading ? 'Please wait…' : kioskActive.clocked_in ? 'Clock Out' : 'Clock In'}
+                </button>
+                <button onClick={() => { setKioskActive(null); setKioskPin('') }} className="mt-3 text-[#5A5868] text-sm hover:text-[#9896A4] transition-colors">
+                  Cancel
+                </button>
+              </div>
+            </div>
+          )}
+
+          {/* Success flash */}
+          {kioskFlash && (
+            <div className="fixed inset-0 z-50 flex flex-col items-center justify-center gap-4 bg-emerald-500/8 pointer-events-none">
+              <div className="w-20 h-20 rounded-full bg-emerald-500/10 border-2 border-emerald-500/25 flex items-center justify-center text-4xl">✓</div>
+              <p className="text-emerald-400 text-2xl font-bold">{kioskFlash.action === 'clock_in' ? 'Clocked In!' : 'Clocked Out!'}</p>
+              <p className="text-[#9896A4] text-sm">
+                {kioskFlash.action === 'clock_in' ? `Welcome, ${kioskFlash.name.split(' ')[0]}!` : `See you, ${kioskFlash.name.split(' ')[0]}!`}
+              </p>
+            </div>
+          )}
+
+          <style>{`
+            @keyframes kiosk-shake {
+              0%,100%{transform:translateX(0)} 20%{transform:translateX(-8px)} 40%{transform:translateX(8px)} 60%{transform:translateX(-6px)} 80%{transform:translateX(6px)}
+            }
+          `}</style>
         </div>
       )}
 
