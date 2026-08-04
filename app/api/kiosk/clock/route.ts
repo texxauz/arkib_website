@@ -48,14 +48,24 @@ export async function POST(req: NextRequest) {
   const now = new Date().toISOString()
 
   if (activeShift) {
-    // Clock out
+    // Clock out — only update if shift is still open (guards against concurrent requests)
     const { error } = await adminClient
       .from('staff_shifts')
       .update({ clock_out: now })
       .eq('id', activeShift.id)
+      .is('clock_out', null)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ action: 'clock_out', name: user.full_name, time: now })
   } else {
+    // Re-check for active shift right before inserting to reduce race window
+    const { data: recheck } = await adminClient
+      .from('staff_shifts')
+      .select('id')
+      .eq('user_id', userId)
+      .is('clock_out', null)
+      .maybeSingle()
+    if (recheck) return NextResponse.json({ error: 'Already clocked in' }, { status: 409 })
+
     // Clock in — fetch hourly rate from employees table
     const { data: emp } = await adminClient
       .from('employees')

@@ -12,15 +12,24 @@ export async function PATCH(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { id, ...fields } = await request.json()
+  const body = await request.json()
+  const { id } = body
   if (!id) return NextResponse.json({ error: 'Missing id' }, { status: 400 })
 
-  const adminClient = createAdminClient(
+  // Allowlist accepted columns — prevent arbitrary column injection
+  const ALLOWED = ['activity_type', 'product', 'qty', 'vol_ml', 'notes', 'spirit_1', 'vol_1', 'spirit_2', 'vol_2', 'spirit_3', 'vol_3', 'logged_at'] as const
+  const fields: Record<string, unknown> = {}
+  for (const key of ALLOWED) if (key in body) fields[key] = body[key]
+
+  const admin = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
 
-  const { data, error } = await adminClient
+  // Fetch the old record so we can compute inventory deltas
+  const { data: old } = await admin.from('bar_activity_log').select('*').eq('id', id).single()
+
+  const { data, error } = await admin
     .from('bar_activity_log')
     .update(fields)
     .eq('id', id)
@@ -28,6 +37,44 @@ export async function PATCH(request: NextRequest) {
     .single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+
+  // Apply server-side inventory corrections for Infusion Made
+  if (old?.activity_type === 'Infusion Made' && 'vol_ml' in fields) {
+    const oldVol = old.vol_ml ?? 0
+    const newVol = (fields.vol_ml as number) ?? 0
+    const delta = newVol - oldVol
+    if (delta !== 0) {
+      const { data: inf } = await admin.from('bar_infusions').select('id, produced_ml').ilike('name', old.product).single()
+      if (inf) await admin.from('bar_infusions').update({ produced_ml: Math.max(0, inf.produced_ml + delta) }).eq('id', inf.id)
+    }
+  }
+
+  // Apply spirit deduction delta for Infusion Made and Premix Made edits
+  if (old?.activity_type === 'Infusion Made' || old?.activity_type === 'Premix Made') {
+    const oldQty = old.qty ?? 1
+    const newQty = (fields.qty as number) ?? oldQty
+    const isInfusion = old.activity_type === 'Infusion Made'
+    const spiritPairs: [string, string][] = [['spirit_1', 'vol_1'], ['spirit_2', 'vol_2'], ['spirit_3', 'vol_3']]
+    for (const [sKey, vKey] of spiritPairs) {
+      const oldName = old[sKey] as string | null
+      const newName = (fields[sKey] ?? oldName) as string | null
+      const oldVol = (old[vKey] as number | null) ?? 0
+      const newVol = ((fields[vKey] ?? oldVol) as number) ?? 0
+      const oldDeducted = isInfusion ? oldVol : oldVol * oldQty
+      const newDeducted = isInfusion ? newVol : newVol * newQty
+      // Remove old spirit deduction
+      if (oldName && oldDeducted) {
+        const { data: sp } = await admin.from('bar_spirits').select('id, used_classics_ml').ilike('name', oldName).single()
+        if (sp) await admin.from('bar_spirits').update({ used_classics_ml: Math.max(0, sp.used_classics_ml - oldDeducted) }).eq('id', sp.id)
+      }
+      // Apply new spirit deduction
+      if (newName && newDeducted) {
+        const { data: sp } = await admin.from('bar_spirits').select('id, used_classics_ml').ilike('name', newName).single()
+        if (sp) await admin.from('bar_spirits').update({ used_classics_ml: sp.used_classics_ml + newDeducted }).eq('id', sp.id)
+      }
+    }
+  }
+
   return NextResponse.json({ data })
 }
 

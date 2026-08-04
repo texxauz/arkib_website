@@ -97,7 +97,7 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
     if (res.ok) setKioskStaff(await res.json())
   }
 
-  const kioskPressNum = (n: string) => { if (kioskPin.length < 4) setKioskPin(p => p + n) }
+  const kioskPressNum = (n: string) => { setKioskPin(p => p.length < 4 ? p + n : p) }
   const kioskPressBack = () => setKioskPin(p => p.slice(0, -1))
 
   const kioskConfirm = async () => {

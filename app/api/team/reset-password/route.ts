@@ -16,18 +16,21 @@ export async function POST(request: NextRequest) {
   if (!userId || !password) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
   if (password.length < 6) return NextResponse.json({ error: 'Password must be at least 6 characters' }, { status: 400 })
 
-  // Managers cannot reset owner passwords
-  if (profile.role === 'manager') {
-    const { data: target } = await supabase.from('users').select('role').eq('id', userId).single()
-    if (target?.role === 'owner') {
-      return NextResponse.json({ error: 'Managers cannot reset an owner password' }, { status: 403 })
-    }
-  }
-
   const adminClient = createAdminClient(
     process.env.NEXT_PUBLIC_SUPABASE_URL!,
     process.env.SUPABASE_SERVICE_ROLE_KEY!,
   )
+
+  // Managers cannot reset owner passwords — use admin client so RLS never blocks this check
+  if (profile.role === 'manager') {
+    const { data: target } = await adminClient.from('users').select('role').eq('id', userId).single()
+    if (!target || target.role === 'owner') {
+      return NextResponse.json({ error: 'Managers cannot reset an owner password' }, { status: 403 })
+    }
+    if (target.role === 'manager') {
+      return NextResponse.json({ error: 'Managers cannot reset another manager\'s password' }, { status: 403 })
+    }
+  }
 
   const { error } = await adminClient.auth.admin.updateUserById(userId, { password })
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
