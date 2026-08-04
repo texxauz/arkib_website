@@ -783,17 +783,24 @@ export function BarInventoryClient({
     setLoading(true)
     try {
       const newQty = parseInt(logForm.qty) || 1
-      const { data, error } = await supabase.from('bar_activity_log').update({
-        activity_type: logForm.activity_type,
-        product: logForm.product,
-        qty: newQty,
-        vol_ml: parseInt(logForm.vol_ml) || null,
-        notes: logForm.notes || null,
-        spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
-        spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
-        spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
-      }).eq('id', editActivityId).select().single()
-      if (error) throw error
+      const res = await fetch('/api/bar/activity', {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          id: editActivityId,
+          activity_type: logForm.activity_type,
+          product: logForm.product,
+          qty: newQty,
+          vol_ml: parseInt(logForm.vol_ml) || null,
+          notes: logForm.notes || null,
+          spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
+          spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
+          spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Update failed')
+      const data = json.data
 
       // Recalculate spirit inventory delta for Infusion Made and Premix Made activities
       if (logForm.activity_type === 'Infusion Made' || logForm.activity_type === 'Premix Made') {
@@ -1242,8 +1249,8 @@ export function BarInventoryClient({
                           <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
                           <button onClick={async () => {
                             if (!confirm(`Delete "${a.product}" activity? This will restore any spirit inventory that was deducted.`)) return
-                            const { error } = await supabase.from('bar_activity_log').delete().eq('id', a.id)
-                            if (error) { toast(error.message, 'error'); return }
+                            const delRes = await fetch('/api/bar/activity', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: a.id }) })
+                            if (!delRes.ok) { const j = await delRes.json(); toast(j.error ?? 'Delete failed', 'error'); return }
                             const qty = a.qty
                             // Restore spirits used (Classic, Infusion Made, Premix Made)
                             const spiritUsage: { name: string; vol: number }[] = [
