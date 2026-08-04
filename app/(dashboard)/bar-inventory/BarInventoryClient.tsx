@@ -646,9 +646,10 @@ export function BarInventoryClient({
       const qty = parseInt(logForm.qty) || 1
       const volMl = parseInt(logForm.vol_ml) || null
 
-      const { data: newActivity, error: insertError } = await supabase
-        .from('bar_activity_log')
-        .insert({
+      const res = await fetch('/api/bar/log-activity', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
           logged_at: loggedAt.toISOString(),
           week_number: wk,
           activity_type: logForm.activity_type,
@@ -656,98 +657,58 @@ export function BarInventoryClient({
           qty,
           vol_ml: volMl,
           notes: logForm.notes || null,
-          spirit_1: logForm.spirit_1 || null,
-          vol_1: parseInt(logForm.vol_1) || null,
-          spirit_2: logForm.spirit_2 || null,
-          vol_2: parseInt(logForm.vol_2) || null,
-          spirit_3: logForm.spirit_3 || null,
-          vol_3: parseInt(logForm.vol_3) || null,
-        })
-        .select()
-        .single()
+          spirit_1: logForm.spirit_1 || null, vol_1: parseInt(logForm.vol_1) || null,
+          spirit_2: logForm.spirit_2 || null, vol_2: parseInt(logForm.vol_2) || null,
+          spirit_3: logForm.spirit_3 || null, vol_3: parseInt(logForm.vol_3) || null,
+        }),
+      })
+      const json = await res.json()
+      if (!res.ok) throw new Error(json.error ?? 'Failed to log activity')
 
-      if (insertError) throw insertError
+      const { activity: newActivity, effects } = json
 
-      // Update inventory based on activity type
+      // Update local state to reflect DB changes
       if (logForm.activity_type === 'Infusion Made' && volMl) {
-        const infusion = infusions.find(i => i.name.toLowerCase() === logForm.product.toLowerCase())
-        if (infusion) {
-          const { error: infErr } = await supabase.from('bar_infusions')
-            .update({ produced_ml: infusion.produced_ml + volMl })
-            .eq('id', infusion.id)
-          if (infErr) throw new Error(`Infusion update failed: ${infErr.message}`)
-          setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: i.produced_ml + volMl } : i))
-        }
-        // Deduct spirits used to make this infusion
-        const infusionSpiritUpdates: { name: string; vol: number }[] = []
-        if (logForm.spirit_1 && logForm.vol_1) infusionSpiritUpdates.push({ name: logForm.spirit_1, vol: parseInt(logForm.vol_1) })
-        if (logForm.spirit_2 && logForm.vol_2) infusionSpiritUpdates.push({ name: logForm.spirit_2, vol: parseInt(logForm.vol_2) })
-        if (logForm.spirit_3 && logForm.vol_3) infusionSpiritUpdates.push({ name: logForm.spirit_3, vol: parseInt(logForm.vol_3) })
-        for (const u of infusionSpiritUpdates) {
-          const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
-          if (spirit) {
-            const { error: spErr } = await supabase.from('bar_spirits')
-              .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
-              .eq('id', spirit.id)
-            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
-            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
-          }
-        }
+        setInfusions(prev => prev.map(i =>
+          i.name.toLowerCase() === logForm.product.toLowerCase()
+            ? { ...i, produced_ml: i.produced_ml + volMl }
+            : i
+        ))
+        const updates: Record<string, number> = {}
+        if (logForm.spirit_1 && logForm.vol_1) updates[logForm.spirit_1.toLowerCase()] = parseInt(logForm.vol_1)
+        if (logForm.spirit_2 && logForm.vol_2) updates[logForm.spirit_2.toLowerCase()] = parseInt(logForm.vol_2)
+        if (logForm.spirit_3 && logForm.vol_3) updates[logForm.spirit_3.toLowerCase()] = parseInt(logForm.vol_3)
+        setSpirits(prev => prev.map(s => {
+          const delta = updates[s.name.toLowerCase()]
+          return delta ? { ...s, used_classics_ml: s.used_classics_ml + delta } : s
+        }))
       } else if (logForm.activity_type === 'Premix Made') {
-        const premix = premixes.find(p => p.name.toLowerCase() === logForm.product.toLowerCase())
-        if (premix) {
-          const { error: pmErr } = await supabase.from('bar_premixes')
-            .update({ produced_serves: premix.produced_serves + qty })
-            .eq('id', premix.id)
-          if (pmErr) throw new Error(`Premix update failed: ${pmErr.message}`)
-          setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: p.produced_serves + qty } : p))
-        }
-
-        // Auto-deduct ingredients based on recipe
+        setPremixes(prev => prev.map(p =>
+          p.name.toLowerCase() === logForm.product.toLowerCase()
+            ? { ...p, produced_serves: p.produced_serves + qty }
+            : p
+        ))
         const premixRecipes = recipes.filter(r => r.premix_name.toLowerCase() === logForm.product.toLowerCase())
-        const deductionSummary: string[] = []
+        const infusionDeltas: Record<string, number> = {}
+        const spiritDeltas: Record<string, number> = {}
         for (const r of premixRecipes) {
           const totalMl = r.ml_per_serve * qty
-          if (r.ingredient_type === 'infusion') {
-            const infusion = infusions.find(i => i.name.toLowerCase() === r.ingredient_name.toLowerCase())
-            if (infusion) {
-              const { error: infErr } = await supabase.from('bar_infusions')
-                .update({ used_premix_ml: infusion.used_premix_ml + totalMl })
-                .eq('id', infusion.id)
-              if (infErr) throw new Error(`Infusion deduction failed (${r.ingredient_name}): ${infErr.message}`)
-              setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, used_premix_ml: i.used_premix_ml + totalMl } : i))
-              deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
-            }
-          } else if (r.ingredient_type === 'spirit') {
-            const spirit = spirits.find(s => s.name.toLowerCase() === r.ingredient_name.toLowerCase())
-            if (spirit) {
-              const { error: spErr } = await supabase.from('bar_spirits')
-                .update({ used_classics_ml: spirit.used_classics_ml + totalMl })
-                .eq('id', spirit.id)
-              if (spErr) throw new Error(`Spirit deduction failed (${r.ingredient_name}): ${spErr.message}`)
-              setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + totalMl } : s))
-              deductionSummary.push(`${r.ingredient_name} −${totalMl}ml`)
-            }
-          }
+          if (r.ingredient_type === 'infusion') infusionDeltas[r.ingredient_name.toLowerCase()] = (infusionDeltas[r.ingredient_name.toLowerCase()] ?? 0) + totalMl
+          else if (r.ingredient_type === 'spirit') spiritDeltas[r.ingredient_name.toLowerCase()] = (spiritDeltas[r.ingredient_name.toLowerCase()] ?? 0) + totalMl
         }
-        // Also deduct any manually specified raw spirits
-        const rawSpiritUpdates: { name: string; vol: number }[] = []
-        if (logForm.spirit_1 && logForm.vol_1) rawSpiritUpdates.push({ name: logForm.spirit_1, vol: parseInt(logForm.vol_1) * qty })
-        if (logForm.spirit_2 && logForm.vol_2) rawSpiritUpdates.push({ name: logForm.spirit_2, vol: parseInt(logForm.vol_2) * qty })
-        if (logForm.spirit_3 && logForm.vol_3) rawSpiritUpdates.push({ name: logForm.spirit_3, vol: parseInt(logForm.vol_3) * qty })
-        for (const u of rawSpiritUpdates) {
-          const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
-          if (spirit) {
-            const { error: spErr } = await supabase.from('bar_spirits')
-              .update({ used_classics_ml: spirit.used_classics_ml + u.vol })
-              .eq('id', spirit.id)
-            if (spErr) throw new Error(`Spirit deduction failed (${u.name}): ${spErr.message}`)
-            setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: s.used_classics_ml + u.vol } : s))
-            deductionSummary.push(`${u.name} −${u.vol}ml`)
-          }
-        }
-        if (deductionSummary.length > 0) {
-          toast(`Deducted: ${deductionSummary.slice(0, 3).join(', ')}${deductionSummary.length > 3 ? ` +${deductionSummary.length - 3} more` : ''}`, 'info')
+        if (logForm.spirit_1 && logForm.vol_1) spiritDeltas[logForm.spirit_1.toLowerCase()] = (spiritDeltas[logForm.spirit_1.toLowerCase()] ?? 0) + parseInt(logForm.vol_1) * qty
+        if (logForm.spirit_2 && logForm.vol_2) spiritDeltas[logForm.spirit_2.toLowerCase()] = (spiritDeltas[logForm.spirit_2.toLowerCase()] ?? 0) + parseInt(logForm.vol_2) * qty
+        if (logForm.spirit_3 && logForm.vol_3) spiritDeltas[logForm.spirit_3.toLowerCase()] = (spiritDeltas[logForm.spirit_3.toLowerCase()] ?? 0) + parseInt(logForm.vol_3) * qty
+        setInfusions(prev => prev.map(i => {
+          const delta = infusionDeltas[i.name.toLowerCase()]
+          return delta ? { ...i, used_premix_ml: i.used_premix_ml + delta } : i
+        }))
+        setSpirits(prev => prev.map(s => {
+          const delta = spiritDeltas[s.name.toLowerCase()]
+          return delta ? { ...s, used_classics_ml: s.used_classics_ml + delta } : s
+        }))
+        if (effects?.length > 0) {
+          toast(`Deducted: ${effects.slice(0, 3).join(', ')}${effects.length > 3 ? ` +${effects.length - 3} more` : ''}`, 'info')
         }
       }
 
