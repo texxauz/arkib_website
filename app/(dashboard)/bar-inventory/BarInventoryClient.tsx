@@ -1209,7 +1209,7 @@ export function BarInventoryClient({
       {tab === 'activity' && (
         <div className="space-y-4">
           <div className="overflow-x-auto rounded-xl border border-[#2A2A30]">
-            <table className="w-full text-sm">
+            <table className="w-full text-sm" style={{ minWidth: isAdmin ? 900 : 800 }}>
               <thead>
                 <tr className="border-b border-[#2A2A30] bg-[#0D0D0F]">
                   {['Date & Time', 'Week', 'Type', 'Product', 'Qty', 'Vol (ml)', 'Notes', 'Spirits Used', ...(isAdmin ? [''] : [])].map(h => (
@@ -1244,7 +1244,7 @@ export function BarInventoryClient({
                       {[a.spirit_1 && `${a.spirit_1} ${a.vol_1}ml`, a.spirit_2 && `${a.spirit_2} ${a.vol_2}ml`, a.spirit_3 && `${a.spirit_3} ${a.vol_3}ml`].filter(Boolean).join(' · ') || '—'}
                     </td>
                     {isAdmin && (
-                      <td className="px-3 py-2.5">
+                      <td className="px-3 py-2.5 w-20 whitespace-nowrap">
                         <div className="flex gap-2">
                           <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
                           <button onClick={async () => {
