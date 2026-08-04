@@ -17,7 +17,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { userId, full_name, role, tab_permissions, pos_permissions, is_active, manager_pin } = await request.json()
+  const { userId, full_name, role, tab_permissions, pos_permissions, is_active, manager_pin, clock_pin } = await request.json()
   if (!userId) return NextResponse.json({ error: 'Missing userId' }, { status: 400 })
 
   // Fix: prevent privilege escalation — managers cannot grant owner role
@@ -41,6 +41,7 @@ export async function POST(request: NextRequest) {
   const updatePayload: Record<string, unknown> = { full_name, role, tab_permissions, pos_permissions, is_active }
   // manager_pin: null clears it, a string sets it, undefined means no change
   if (manager_pin !== undefined) updatePayload.manager_pin = manager_pin || null
+  if (clock_pin !== undefined) updatePayload.clock_pin = clock_pin || null
 
   const { error } = await adminClient.from('users').update(updatePayload).eq('id', userId)
 

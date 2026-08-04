@@ -10,6 +10,7 @@ type UserProfile = Database['public']['Tables']['users']['Row'] & {
   tab_permissions?: Record<string, string> | null
   pos_permissions?: Record<string, boolean> | null
   manager_pin?: string | null
+  clock_pin?: string | null
 }
 
 const POS_ACTION_PERMS = [
@@ -109,6 +110,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   const [loading, setLoading] = useState(false)
   const [editManagerPin, setEditManagerPin] = useState<string | null>(null)
   const [pinEnabled, setPinEnabled] = useState(false)
+  const [editClockPin, setEditClockPin] = useState('')
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserProfile | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [pwLoading, setPwLoading] = useState(false)
@@ -135,6 +137,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     const hasPinSet = !!m.manager_pin
     setPinEnabled(hasPinSet)
     setEditManagerPin(hasPinSet ? m.manager_pin! : '')
+    setEditClockPin(m.clock_pin ?? '')
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -182,7 +185,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     const res = await fetch('/api/team/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms, manager_pin }),
+      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms, manager_pin, clock_pin: editClockPin || null }),
     })
     const data = await res.json()
     setLoading(false)
@@ -273,6 +276,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
                     ${m.role === 'owner' ? 'bg-amber-500/10 text-amber-400 border-amber-500/20' : 'bg-[#1A1A1E] text-[#9896A4] border-[#2A2A30]'}`}>
                     {m.role === 'staff' ? 'Bartender' : m.role === 'full_timer' ? 'Full Timer' : m.role === 'part_timer' ? 'Part Timer' : m.role === 'accountant' ? 'Accountant' : m.role}
                   </span>
+                  {m.clock_pin && <span className="text-[9px] bg-emerald-500/10 text-emerald-400 border border-emerald-500/20 px-2 py-0.5 rounded-full flex items-center gap-1"><KeyRound size={9} /> Kiosk</span>}
                   {m.manager_pin && <span className="text-[9px] bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20 px-2 py-0.5 rounded-full flex items-center gap-1"><ShieldCheck size={9} /> PIN</span>}
                   {!m.is_active && <span className="text-[9px] bg-rose-500/10 text-rose-400 border border-rose-500/20 px-2 py-0.5 rounded-full">Suspended</span>}
                 </div>
@@ -407,6 +411,24 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
               </div>
             </div>
           )}
+
+          {/* Clock-in PIN */}
+          <div className="rounded-xl border border-[#2A2A30] bg-[#0D0D10] p-4 space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <KeyRound size={14} className="text-[#A78BFA]" />
+              <p className="text-[#F0EEF6] text-sm font-medium">Kiosk Clock-in PIN</p>
+            </div>
+            <p className="text-[#5A5865] text-xs">Used on the kiosk screen at <span className="text-[#9896A4]">/kiosk</span> to clock in and out. Leave blank to hide from kiosk.</p>
+            <input
+              className="input mt-1"
+              type="text"
+              inputMode="numeric"
+              maxLength={8}
+              placeholder="4-digit PIN e.g. 1234"
+              value={editClockPin}
+              onChange={e => setEditClockPin(e.target.value.replace(/\D/g, ''))}
+            />
+          </div>
 
           {/* Manager PIN */}
           {!['owner', 'manager'].includes(editRole) && (
