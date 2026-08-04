@@ -1209,46 +1209,28 @@ export function BarInventoryClient({
                         <div className="flex gap-2">
                           <button onClick={() => openEditActivity(a)} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
                           <button onClick={async () => {
-                            if (!confirm(`Delete "${a.product}" activity? This will restore any spirit inventory that was deducted.`)) return
+                            if (!confirm(`Delete "${a.product}" activity? This will restore any inventory that was deducted.`)) return
                             const delRes = await fetch('/api/bar/activity', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id: a.id }) })
                             if (!delRes.ok) { const j = await delRes.json(); toast(j.error ?? 'Delete failed', 'error'); return }
+                            // Update local state to reflect server-side reversals
                             const qty = a.qty
-                            // Restore spirits used (Classic, Infusion Made, Premix Made)
-                            const spiritUsage: { name: string; vol: number }[] = [
-                              a.spirit_1 && a.vol_1 ? { name: a.spirit_1, vol: a.activity_type === 'Infusion Made' ? a.vol_1 : a.vol_1 * qty } : null,
-                              a.spirit_2 && a.vol_2 ? { name: a.spirit_2, vol: a.activity_type === 'Infusion Made' ? a.vol_2 : a.vol_2 * qty } : null,
-                              a.spirit_3 && a.vol_3 ? { name: a.spirit_3, vol: a.activity_type === 'Infusion Made' ? a.vol_3 : a.vol_3 * qty } : null,
-                            ].filter(Boolean) as { name: string; vol: number }[]
-                            for (const u of spiritUsage) {
-                              const spirit = spirits.find(s => s.name.toLowerCase() === u.name.toLowerCase())
-                              if (spirit) {
-                                const restored = Math.max(0, spirit.used_classics_ml - u.vol)
-                                await supabase.from('bar_spirits').update({ used_classics_ml: restored }).eq('id', spirit.id)
-                                setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, used_classics_ml: restored } : s))
+                            const spiritEntries: [string | null, number | null][] = [[a.spirit_1, a.vol_1], [a.spirit_2, a.vol_2], [a.spirit_3, a.vol_3]]
+                            setSpirits(prev => prev.map(s => {
+                              for (const [name, vol] of spiritEntries) {
+                                if (!name || !vol) continue
+                                if (s.name.toLowerCase() === name.toLowerCase()) {
+                                  const deducted = a.activity_type === 'Infusion Made' ? vol : vol * qty
+                                  return { ...s, used_classics_ml: Math.max(0, s.used_classics_ml - deducted) }
+                                }
                               }
-                            }
-                            // Restore premix/infusion stock
-                            if (a.activity_type === 'Premix Made') {
-                              const premix = premixes.find(p => p.name.toLowerCase() === a.product.toLowerCase() || p.cocktail_name?.toLowerCase() === a.product.toLowerCase())
-                              if (premix) {
-                                await supabase.from('bar_premixes').update({ produced_serves: Math.max(0, premix.produced_serves - qty) }).eq('id', premix.id)
-                                setPremixes(prev => prev.map(p => p.id === premix.id ? { ...p, produced_serves: Math.max(0, p.produced_serves - qty) } : p))
-                              }
-                            }
-                            if (a.activity_type === 'Infusion Made' && a.vol_ml) {
-                              const infusion = infusions.find(i => i.name.toLowerCase() === a.product.toLowerCase())
-                              if (infusion) {
-                                await supabase.from('bar_infusions').update({ produced_ml: Math.max(0, infusion.produced_ml - (a.vol_ml ?? 0)) }).eq('id', infusion.id)
-                                setInfusions(prev => prev.map(i => i.id === infusion.id ? { ...i, produced_ml: Math.max(0, i.produced_ml - (a.vol_ml ?? 0)) } : i))
-                              }
-                            }
-                            if (a.activity_type === 'Stock Received') {
-                              const spirit = spirits.find(s => s.name.toLowerCase() === a.product.toLowerCase())
-                              if (spirit) {
-                                await supabase.from('bar_spirits').update({ full_bottles: Math.max(0, spirit.full_bottles - qty) }).eq('id', spirit.id)
-                                setSpirits(prev => prev.map(s => s.id === spirit.id ? { ...s, full_bottles: Math.max(0, s.full_bottles - qty) } : s))
-                              }
-                            }
+                              if (a.activity_type === 'Stock Received' && s.name.toLowerCase() === a.product.toLowerCase())
+                                return { ...s, full_bottles: Math.max(0, s.full_bottles - qty) }
+                              return s
+                            }))
+                            if (a.activity_type === 'Infusion Made' && a.vol_ml)
+                              setInfusions(prev => prev.map(i => i.name.toLowerCase() === a.product.toLowerCase() ? { ...i, produced_ml: Math.max(0, i.produced_ml - (a.vol_ml ?? 0)) } : i))
+                            if (a.activity_type === 'Premix Made')
+                              setPremixes(prev => prev.map(p => p.name.toLowerCase() === a.product.toLowerCase() ? { ...p, produced_serves: Math.max(0, p.produced_serves - qty) } : p))
                             setActivities(prev => prev.filter(x => x.id !== a.id))
                             toast('Activity deleted and inventory restored', 'success')
                           }} className="text-[#5A5865] hover:text-red-400 text-xs">Delete</button>
