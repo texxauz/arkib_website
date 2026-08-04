@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
+import { Clock, LogIn, LogOut, Users, Calendar, Download, Plus, Edit2, Trash2, CheckCircle2, ChevronLeft, ChevronRight, MonitorSmartphone } from 'lucide-react'
 
 type Shift = {
   id: string
@@ -224,11 +224,21 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
         title="Shifts"
         subtitle="Staff clock in/out and payroll"
         actions={
-          isAdmin && activeTab !== 'clock' ? (
-            <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
-              <Plus size={14} /> Add Shift
-            </button>
-          ) : undefined
+          <div className="flex items-center gap-2">
+            <a
+              href="/kiosk"
+              target="_blank"
+              rel="noopener noreferrer"
+              className="btn-secondary flex items-center gap-2 text-sm"
+            >
+              <MonitorSmartphone size={14} /> Open Kiosk
+            </a>
+            {isAdmin && activeTab !== 'clock' && (
+              <button onClick={openAddModal} className="btn-primary flex items-center gap-2">
+                <Plus size={14} /> Add Shift
+              </button>
+            )}
+          </div>
         }
       />
 
