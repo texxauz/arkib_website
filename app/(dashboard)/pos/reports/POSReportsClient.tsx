@@ -12,8 +12,11 @@ import {
   PieChart,
   Pie,
   Cell,
+  LineChart,
+  Line,
+  Legend,
 } from 'recharts'
-import { Search, AlertTriangle } from 'lucide-react'
+import { Search, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
 type Order = {
   id: string
@@ -66,6 +69,20 @@ type MenuItem = {
   category: string
 }
 
+type AllTimeItem = {
+  item_name: string
+  category: string | null
+  quantity: number
+  unit_price: number
+  created_at: string
+}
+
+type CocktailCost = {
+  name: string
+  selling_price: number
+  total_cost: number
+}
+
 interface Props {
   orders: Order[]
   items: Item[]
@@ -73,10 +90,12 @@ interface Props {
   voids: VoidedItem[]
   discountLogs: DiscountLog[]
   allMenuItems: MenuItem[]
+  allTimeItems: AllTimeItem[]
+  cocktailCosts: CocktailCost[]
   isAdmin: boolean
 }
 
-type Tab = 'overview' | 'items' | 'payments' | 'staff' | 'operational' | 'voids'
+type Tab = 'overview' | 'items' | 'payments' | 'staff' | 'operational' | 'cocktails' | 'voids'
 
 function fmtRM(n: number) {
   return `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
@@ -138,7 +157,7 @@ function CountTooltip({ active, payload, label }: any) {
   )
 }
 
-export function POSReportsClient({ orders, items, payments, voids, discountLogs, allMenuItems, isAdmin }: Props) {
+export function POSReportsClient({ orders, items, payments, voids, discountLogs, allMenuItems, allTimeItems, cocktailCosts, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
@@ -327,12 +346,122 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       .sort((a, b) => b.voidValue + b.discountValue - (a.voidValue + a.discountValue))
   }, [voids, discountLogs])
 
+  // ── Cocktail analytics ───────────────────────────────────────────────────────
+  // All-time top cocktails by qty
+  const allTimeCocktailRankings = useMemo(() => {
+    const map: Record<string, { qty: number; revenue: number }> = {}
+    for (const it of allTimeItems) {
+      if (!map[it.item_name]) map[it.item_name] = { qty: 0, revenue: 0 }
+      map[it.item_name].qty += it.quantity
+      map[it.item_name].revenue += it.quantity * it.unit_price
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.qty - a.qty)
+  }, [allTimeItems])
+
+  // Monthly breakdown: { month: 'Aug 2026', topCocktail: string, topQty: number, totalQty: number, revenue: number }
+  const monthlyBreakdown = useMemo(() => {
+    const map: Record<string, Record<string, { qty: number; revenue: number }>> = {}
+    for (const it of allTimeItems) {
+      const d = new Date(it.created_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      if (!map[key]) map[key] = {}
+      if (!map[key][it.item_name]) map[key][it.item_name] = { qty: 0, revenue: 0 }
+      map[key][it.item_name].qty += it.quantity
+      map[key][it.item_name].revenue += it.quantity * it.unit_price
+    }
+    return Object.entries(map)
+      .sort((a, b) => b[0].localeCompare(a[0]))
+      .map(([key, cocktails]) => {
+        const entries = Object.entries(cocktails).sort((a, b) => b[1].qty - a[1].qty)
+        const totalQty = entries.reduce((s, [, v]) => s + v.qty, 0)
+        const totalRev = entries.reduce((s, [, v]) => s + v.revenue, 0)
+        const [y, m] = key.split('-')
+        const label = new Date(Number(y), Number(m) - 1).toLocaleDateString('en-MY', { month: 'short', year: 'numeric' })
+        return { key, label, topCocktail: entries[0]?.[0] ?? '—', topQty: entries[0]?.[1]?.qty ?? 0, totalQty, totalRev, entries }
+      })
+  }, [allTimeItems])
+
+  // Weekly pattern: revenue and orders by day-of-week
+  const weeklyPattern = useMemo(() => {
+    const DAYS = ['Sun', 'Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat']
+    const data = DAYS.map(d => ({ day: d, revenue: 0, orders: 0 }))
+    for (const o of orders) {
+      const dow = new Date(o.opened_at).getDay()
+      data[dow].revenue += o.total
+      data[dow].orders++
+    }
+    return data
+  }, [orders])
+
+  // Cocktail profitability: qty sold × margin per cocktail
+  const cocktailProfitability = useMemo(() => {
+    const soldMap: Record<string, number> = {}
+    for (const it of allTimeItems) {
+      soldMap[it.item_name] = (soldMap[it.item_name] ?? 0) + it.quantity
+    }
+    return cocktailCosts
+      .map(c => {
+        const qtySold = soldMap[c.name] ?? 0
+        const margin = c.selling_price - c.total_cost
+        const totalProfit = qtySold * margin
+        const marginPct = c.selling_price > 0 ? (margin / c.selling_price) * 100 : 0
+        return { name: c.name, qtySold, sellingPrice: c.selling_price, cost: c.total_cost, margin, marginPct, totalProfit }
+      })
+      .filter(c => c.qtySold > 0)
+      .sort((a, b) => b.totalProfit - a.totalProfit)
+  }, [allTimeItems, cocktailCosts])
+
+  // Month-on-month revenue comparison (last 6 months vs same month prior year)
+  const momComparison = useMemo(() => {
+    const revenueByMonth: Record<string, number> = {}
+    for (const o of orders.concat([] as typeof orders)) {
+      const d = new Date(o.opened_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      revenueByMonth[key] = (revenueByMonth[key] ?? 0) + o.total
+    }
+    // Use allTimeItems to get monthly revenue from all orders (fallback: use orders only)
+    // Build from allTimeItems revenue
+    const allMonthRev: Record<string, number> = {}
+    for (const it of allTimeItems) {
+      const d = new Date(it.created_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      allMonthRev[key] = (allMonthRev[key] ?? 0) + it.quantity * it.unit_price
+    }
+    // Also pull from orders for non-cocktail revenue
+    for (const o of orders) {
+      const d = new Date(o.opened_at)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      revenueByMonth[key] = (revenueByMonth[key] ?? 0) + o.total
+    }
+    const now = new Date()
+    return Array.from({ length: 6 }, (_, i) => {
+      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
+      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const prevKey = `${d.getFullYear() - 1}-${String(d.getMonth() + 1).padStart(2, '0')}`
+      const thisRev = revenueByMonth[key] ?? 0
+      const prevRev = revenueByMonth[prevKey] ?? 0
+      const pct = prevRev > 0 ? ((thisRev - prevRev) / prevRev) * 100 : null
+      const label = d.toLocaleDateString('en-MY', { month: 'short', year: 'numeric' })
+      return { label, key, thisRev, prevRev, pct }
+    })
+  }, [orders, allTimeItems])
+
+  // Selected month for cocktail drilldown
+  const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
+  const drilldownMonth = useMemo(() =>
+    monthlyBreakdown.find(m => m.key === selectedMonth) ?? monthlyBreakdown[0] ?? null,
+    [monthlyBreakdown, selectedMonth]
+  )
+
   const tabs: { id: Tab; label: string }[] = [
     { id: 'overview', label: 'Overview' },
     { id: 'items', label: 'Items Sold' },
     { id: 'payments', label: 'Payments' },
     { id: 'staff', label: 'Staff' },
     { id: 'operational', label: 'Operational' },
+    { id: 'cocktails', label: 'Cocktails' },
     ...(isAdmin ? [{ id: 'voids' as Tab, label: 'Voids & Discounts' }] : []),
   ]
 
@@ -865,6 +994,209 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
               </div>
             )}
           </div>
+        </div>
+      )}
+
+      {/* ── COCKTAILS TAB ───────────────────────────────────────────────────── */}
+      {activeTab === 'cocktails' && (
+        <div className="space-y-6">
+
+          {/* All-time top cocktails */}
+          <div className="card">
+            <p className="section-title mb-4">All-Time Top Cocktails</p>
+            {allTimeCocktailRankings.length === 0 ? (
+              <p className="text-[#5A5865] text-sm">No cocktail data yet</p>
+            ) : (
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 w-8">#</th>
+                      <th className="text-left py-2 pr-4">Cocktail</th>
+                      <th className="text-right py-2 px-4">Total Sold</th>
+                      <th className="text-right py-2 pl-4">Revenue</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {allTimeCocktailRankings.slice(0, 15).map((c, i) => (
+                      <tr key={c.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 text-[#5A5865] text-xs tabular-nums">{i + 1}</td>
+                        <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">
+                          {i === 0 && <span className="text-amber-400 mr-1.5">★</span>}
+                          {c.name}
+                        </td>
+                        <td className="py-2.5 px-4 text-right tabular-nums text-[#A78BFA] font-semibold">{c.qty}</td>
+                        <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400 font-medium">{fmtRM(c.revenue)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            )}
+          </div>
+
+          {/* Monthly drilldown */}
+          <div className="card">
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <p className="section-title">Monthly Cocktail Breakdown</p>
+              <select
+                className="input text-sm py-1.5 w-auto"
+                value={selectedMonth ?? monthlyBreakdown[0]?.key ?? ''}
+                onChange={e => setSelectedMonth(e.target.value)}
+              >
+                {monthlyBreakdown.map(m => (
+                  <option key={m.key} value={m.key}>{m.label}</option>
+                ))}
+              </select>
+            </div>
+            {drilldownMonth ? (
+              <>
+                <div className="flex gap-4 mb-4 flex-wrap">
+                  <div>
+                    <p className="text-[#5A5865] text-xs">Total Cocktails Sold</p>
+                    <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">{drilldownMonth.totalQty}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#5A5865] text-xs">Cocktail Revenue</p>
+                    <p className="text-emerald-400 font-bold text-xl tabular-nums">{fmtRM(drilldownMonth.totalRev)}</p>
+                  </div>
+                  <div>
+                    <p className="text-[#5A5865] text-xs">Top Seller</p>
+                    <p className="text-amber-400 font-bold text-base">★ {drilldownMonth.topCocktail} ({drilldownMonth.topQty})</p>
+                  </div>
+                </div>
+                <div className="overflow-x-auto">
+                  <table className="w-full text-sm">
+                    <thead>
+                      <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                        <th className="text-left py-2 w-8">#</th>
+                        <th className="text-left py-2 pr-4">Cocktail</th>
+                        <th className="text-right py-2 px-4">Qty</th>
+                        <th className="text-right py-2 px-4">% of Month</th>
+                        <th className="text-right py-2 pl-4">Revenue</th>
+                      </tr>
+                    </thead>
+                    <tbody>
+                      {drilldownMonth.entries.map(([name, v], i) => (
+                        <tr key={name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                          <td className="py-2.5 text-[#5A5865] text-xs tabular-nums">{i + 1}</td>
+                          <td className="py-2.5 pr-4 text-[#F0EEF6]">{name}</td>
+                          <td className="py-2.5 px-4 text-right tabular-nums text-[#A78BFA] font-semibold">{v.qty}</td>
+                          <td className="py-2.5 px-4 text-right tabular-nums text-[#9896A4]">
+                            {drilldownMonth.totalQty > 0 ? ((v.qty / drilldownMonth.totalQty) * 100).toFixed(1) : '0'}%
+                          </td>
+                          <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400">{fmtRM(v.revenue)}</td>
+                        </tr>
+                      ))}
+                    </tbody>
+                  </table>
+                </div>
+              </>
+            ) : (
+              <p className="text-[#5A5865] text-sm">No data available</p>
+            )}
+          </div>
+
+          {/* Weekly pattern */}
+          <div className="card">
+            <p className="section-title mb-4">Revenue by Day of Week (Last 30 Days)</p>
+            <ResponsiveContainer width="100%" height={200}>
+              <BarChart data={weeklyPattern} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                <XAxis dataKey="day" tick={{ fill: '#9896A4', fontSize: 12 }} axisLine={false} tickLine={false} />
+                <YAxis tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} tickFormatter={v => `RM${(v / 1000).toFixed(0)}k`} width={52} />
+                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#8B5CF6', opacity: 0.08 }} />
+                <Bar dataKey="revenue" radius={[4, 4, 0, 0]}>
+                  {weeklyPattern.map((entry, i) => (
+                    <Cell key={i} fill={entry.revenue === Math.max(...weeklyPattern.map(d => d.revenue)) ? '#F59E0B' : '#8B5CF6'} />
+                  ))}
+                </Bar>
+              </BarChart>
+            </ResponsiveContainer>
+            <p className="text-[#5A5865] text-xs mt-2 text-center">Gold bar = highest revenue day</p>
+          </div>
+
+          {/* Cocktail profitability */}
+          {cocktailProfitability.length > 0 && (
+            <div className="card">
+              <p className="section-title mb-1">Cocktail Profitability (All-Time)</p>
+              <p className="text-[#5A5865] text-xs mb-4">Total profit = units sold × (selling price − cost). Sorted by total profit generated.</p>
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: 600 }}>
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4">Cocktail</th>
+                      <th className="text-right py-2 px-3">Sold</th>
+                      <th className="text-right py-2 px-3">Price</th>
+                      <th className="text-right py-2 px-3">Cost</th>
+                      <th className="text-right py-2 px-3">Margin</th>
+                      <th className="text-right py-2 pl-4">Total Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {cocktailProfitability.map((c, i) => (
+                      <tr key={c.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">{c.name}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">{c.qtySold}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">{fmtRM(c.sellingPrice)}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums text-rose-400">{fmtRM(c.cost)}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">
+                          <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${c.marginPct >= 60 ? 'bg-emerald-500/10 text-emerald-400' : c.marginPct >= 40 ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                            {c.marginPct.toFixed(0)}%
+                          </span>
+                        </td>
+                        <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.totalProfit)}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Month-on-month comparison */}
+          <div className="card">
+            <p className="section-title mb-1">Month-on-Month Revenue</p>
+            <p className="text-[#5A5865] text-xs mb-4">Compares each month's revenue to the same month last year.</p>
+            <div className="overflow-x-auto">
+              <table className="w-full text-sm">
+                <thead>
+                  <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                    <th className="text-left py-2 pr-4">Month</th>
+                    <th className="text-right py-2 px-4">This Year</th>
+                    <th className="text-right py-2 px-4">Last Year</th>
+                    <th className="text-right py-2 pl-4">Change</th>
+                  </tr>
+                </thead>
+                <tbody>
+                  {momComparison.map(m => (
+                    <tr key={m.key} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                      <td className="py-2.5 pr-4 text-[#F0EEF6]">{m.label}</td>
+                      <td className="py-2.5 px-4 text-right tabular-nums text-[#F0EEF6] font-semibold">{fmtRM(m.thisRev)}</td>
+                      <td className="py-2.5 px-4 text-right tabular-nums text-[#5A5865]">{m.prevRev > 0 ? fmtRM(m.prevRev) : '—'}</td>
+                      <td className="py-2.5 pl-4 text-right">
+                        {m.pct === null ? (
+                          <span className="text-[#5A5865] text-xs">No prior data</span>
+                        ) : m.pct > 0 ? (
+                          <span className="text-emerald-400 font-medium text-xs flex items-center justify-end gap-1">
+                            <TrendingUp size={12} />+{m.pct.toFixed(1)}%
+                          </span>
+                        ) : m.pct < 0 ? (
+                          <span className="text-rose-400 font-medium text-xs flex items-center justify-end gap-1">
+                            <TrendingDown size={12} />{m.pct.toFixed(1)}%
+                          </span>
+                        ) : (
+                          <span className="text-[#9896A4] text-xs flex items-center justify-end gap-1">
+                            <Minus size={12} />0%
+                          </span>
+                        )}
+                      </td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          </div>
+
         </div>
       )}
 

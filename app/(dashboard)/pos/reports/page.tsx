@@ -15,8 +15,10 @@ export default async function POSReportsPage() {
 
   // Last 30 days
   const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
+  // All-time: 2 years back for cocktail trend/MoM analysis
+  const allTimeFrom = new Date(Date.now() - 730 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
 
-  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }] = await Promise.all([
+  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: allTimeItems }, { data: cocktails }] = await Promise.all([
     supabase.from('pos_orders')
       .select('id, table_name, covers, opened_at, closed_at, total, discount_amount, service_charge, status, server_name')
       .gte('opened_at', from + 'T00:00:00')
@@ -40,6 +42,17 @@ export default async function POSReportsPage() {
     supabase.from('menu_items')
       .select('id, name, category')
       .eq('is_active', true),
+    // All-time items for cocktail analytics (qty + date, no price needed)
+    supabase.from('pos_order_items')
+      .select('item_name, category, quantity, unit_price, created_at')
+      .gte('created_at', allTimeFrom + 'T00:00:00')
+      .is('voided_at', null)
+      .in('category', ['Cocktail', 'cocktail', 'House Cocktail', 'house_cocktail', 'Classic', 'classic', 'Classics']),
+    // Cocktail cost data for profitability
+    supabase.from('cocktails')
+      .select('name, selling_price, total_cost')
+      .eq('is_on_menu', true)
+      .is('deleted_at', null),
   ])
 
   // Build server_name lookup from orders (order_id → server_name)
@@ -59,6 +72,8 @@ export default async function POSReportsPage() {
       voids={voidsWithServer}
       discountLogs={discountLogs ?? []}
       allMenuItems={allMenuItems ?? []}
+      allTimeItems={allTimeItems ?? []}
+      cocktailCosts={cocktails ?? []}
       isAdmin={isAdmin ?? false}
     />
   )
