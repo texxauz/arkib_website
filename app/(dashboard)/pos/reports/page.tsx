@@ -1,6 +1,7 @@
 export const revalidate = 30
 
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { POSReportsClient } from './POSReportsClient'
 import { redirect } from 'next/navigation'
 
@@ -12,6 +13,11 @@ export default async function POSReportsPage() {
   const { data: userProfile } = await supabase
     .from('users').select('role').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
+
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
 
   const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }, { data: cocktailSales }] = await Promise.all([
     // Fetch all-time orders — client filters by selected period
@@ -48,8 +54,8 @@ export default async function POSReportsPage() {
       .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue')
       .is('deleted_at', null)
       .order('date', { ascending: true }),
-    // Per-cocktail quantities from EON submissions (goes back to June)
-    supabase.from('cocktail_sales')
+    // Per-cocktail quantities from EON submissions — use admin client to bypass RLS
+    admin.from('cocktail_sales')
       .select('date, cocktail_name, quantity, unit_price, category')
       .order('date', { ascending: true }),
   ])
