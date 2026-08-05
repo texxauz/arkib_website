@@ -123,23 +123,92 @@ type CocktailSaleRow = {
   category: string | null
 }
 
-type Period = '30d' | '90d' | '6m' | '1y' | 'all'
+type Period = 'today' | 'yesterday' | '7d' | '30d' | '90d' | '6m' | 'mtd' | 'ytd' | 'all'
 
 const PERIOD_LABELS: Record<Period, string> = {
-  '30d': 'Last 30 days',
-  '90d': 'Last 90 days',
-  '6m': 'Last 6 months',
-  '1y': 'This year',
-  'all': 'All time',
+  today: 'Today',
+  yesterday: 'Yesterday',
+  '7d': 'Last 7 Days',
+  '30d': 'Last 30 Days',
+  '90d': 'Last 90 Days',
+  '6m': 'Last 6 Months',
+  mtd: 'Month to Date',
+  ytd: 'Year to Date',
+  all: 'All Time',
 }
 
-function periodCutoff(period: Period): Date | null {
-  const now = new Date()
-  if (period === '30d') return new Date(now.getTime() - 30 * 86400000)
-  if (period === '90d') return new Date(now.getTime() - 90 * 86400000)
-  if (period === '6m') return new Date(now.getTime() - 182 * 86400000)
-  if (period === '1y') return new Date(now.getFullYear(), 0, 1)
-  return null // all
+const PERIOD_SHORT: Record<Period, string> = {
+  today: 'Today', yesterday: 'Yesterday', '7d': '7D', '30d': '30D',
+  '90d': '90D', '6m': '6M', mtd: 'MTD', ytd: 'YTD', all: 'All',
+}
+
+interface PeriodRange {
+  start: Date | null
+  end: Date | null       // exclusive upper bound (null = open)
+  prevStart: Date | null
+  prevEnd: Date | null   // exclusive
+  compLabel: string      // e.g. "vs Yesterday"
+}
+
+function localDateStr(d: Date): string {
+  return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
+}
+
+function getPeriodRange(period: Period, now: Date): PeriodRange {
+  const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
+  const today = sod(now)
+  const tomorrow = new Date(today.getTime() + 86400000)
+  const yesterday = new Date(today.getTime() - 86400000)
+  const D = 86400000
+
+  switch (period) {
+    case 'today':
+      return { start: today, end: tomorrow, prevStart: yesterday, prevEnd: today, compLabel: 'vs Yesterday' }
+    case 'yesterday':
+      return { start: yesterday, end: today, prevStart: new Date(yesterday.getTime() - D), prevEnd: yesterday, compLabel: 'vs Day Before' }
+    case '7d': {
+      const s = new Date(now.getTime() - 7 * D)
+      return { start: s, end: null, prevStart: new Date(now.getTime() - 14 * D), prevEnd: s, compLabel: 'vs Prior 7D' }
+    }
+    case '30d': {
+      const s = new Date(now.getTime() - 30 * D)
+      return { start: s, end: null, prevStart: new Date(now.getTime() - 60 * D), prevEnd: s, compLabel: 'vs Prior 30D' }
+    }
+    case '90d': {
+      const s = new Date(now.getTime() - 90 * D)
+      return { start: s, end: null, prevStart: new Date(now.getTime() - 180 * D), prevEnd: s, compLabel: 'vs Prior 90D' }
+    }
+    case '6m': {
+      const s = new Date(now.getTime() - 182 * D)
+      return { start: s, end: null, prevStart: new Date(now.getTime() - 364 * D), prevEnd: s, compLabel: 'vs Prior 6M' }
+    }
+    case 'mtd': {
+      const s = new Date(today.getFullYear(), today.getMonth(), 1)
+      const elapsedMs = today.getTime() - s.getTime()
+      const prevMonthStart = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+      return { start: s, end: null, prevStart: prevMonthStart, prevEnd: new Date(prevMonthStart.getTime() + elapsedMs), compLabel: 'vs Prev MTD' }
+    }
+    case 'ytd': {
+      const s = new Date(today.getFullYear(), 0, 1)
+      const elapsedMs = today.getTime() - s.getTime()
+      const prevYearStart = new Date(today.getFullYear() - 1, 0, 1)
+      return { start: s, end: null, prevStart: prevYearStart, prevEnd: new Date(prevYearStart.getTime() + elapsedMs), compLabel: 'vs Prev YTD' }
+    }
+    case 'all':
+      return { start: null, end: null, prevStart: null, prevEnd: null, compLabel: '' }
+  }
+}
+
+function inRange(date: Date, start: Date | null, end: Date | null): boolean {
+  if (start && date < start) return false
+  if (end && date >= end) return false
+  return true
+}
+
+function calcDelta(curr: number, prev: number): { pct: number; dir: 'up' | 'down' | 'flat' } | null {
+  if (prev === 0) return null
+  const pct = ((curr - prev) / prev) * 100
+  return { pct, dir: pct > 1 ? 'up' : pct < -1 ? 'down' : 'flat' }
 }
 
 interface Props {
@@ -206,34 +275,46 @@ function CustomTooltip({ active, payload, label }: any) {
   )
 }
 
-// eslint-disable-next-line @typescript-eslint/no-explicit-any
-function CountTooltip({ active, payload, label }: any) {
-  if (!active || !payload?.length) return null
-  return (
-    <div className="bg-[#1A1A1E] border border-[#2A2A30] rounded-lg px-3 py-2 text-xs shadow-xl">
-      <p className="text-[#9896A4] mb-1">{label}</p>
-      <p className="text-[#F0EEF6] font-semibold">{payload[0].value} orders</p>
-    </div>
-  )
-}
 
 export function POSReportsClient({ orders: allOrders, items: allItems, payments: allPayments, voids: allVoids, discountLogs: allDiscountLogs, allMenuItems, cocktailCosts, dailySales, cocktailSales: allCocktailSales, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
   const [period, setPeriod] = useState<Period>('30d')
+  const [chartMetric, setChartMetric] = useState<'revenue' | 'orders' | 'covers' | 'avgSpend'>('revenue')
+  const [heatmapMetric, setHeatmapMetric] = useState<'revenue' | 'orders' | 'covers' | 'revPerCover'>('revenue')
 
-  // ── Period filtering ─────────────────────────────────────────────────────────
-  const cutoff = useMemo(() => periodCutoff(period), [period])
-  const orders = useMemo(() => cutoff ? allOrders.filter(o => new Date(o.opened_at) >= cutoff) : allOrders, [allOrders, cutoff])
-  const items = useMemo(() => cutoff ? allItems.filter(i => new Date(i.created_at) >= cutoff) : allItems, [allItems, cutoff])
-  const payments = useMemo(() => cutoff ? allPayments.filter(p => new Date(p.captured_at) >= cutoff) : allPayments, [allPayments, cutoff])
-  const voids = useMemo(() => cutoff ? allVoids.filter(v => new Date(v.created_at) >= cutoff) : allVoids, [allVoids, cutoff])
-  const discountLogs = useMemo(() => cutoff ? allDiscountLogs.filter(d => new Date(d.created_at) >= cutoff) : allDiscountLogs, [allDiscountLogs, cutoff])
-  // daily_sales filtered by period — used for revenue chart & stats (has full history from June)
-  const filteredDailySales = useMemo(() => cutoff ? dailySales.filter(s => new Date(s.date) >= cutoff) : dailySales, [dailySales, cutoff])
-  // cocktail_sales filtered by period — EON per-cocktail quantities going back to June
-  const cocktailSales = useMemo(() => cutoff ? allCocktailSales.filter(s => new Date(s.date) >= cutoff) : allCocktailSales, [allCocktailSales, cutoff])
+  // ── Period range ─────────────────────────────────────────────────────────────
+  // eslint-disable-next-line react-hooks/exhaustive-deps
+  const now = useMemo(() => new Date(), [period])
+  const range = useMemo(() => getPeriodRange(period, now), [period, now])
+
+  // ── Current period filtering ─────────────────────────────────────────────────
+  const orders = useMemo(() => allOrders.filter(o => inRange(new Date(o.opened_at), range.start, range.end)), [allOrders, range])
+  const items = useMemo(() => allItems.filter(i => inRange(new Date(i.created_at), range.start, range.end)), [allItems, range])
+  const payments = useMemo(() => allPayments.filter(p => inRange(new Date(p.captured_at), range.start, range.end)), [allPayments, range])
+  const voids = useMemo(() => allVoids.filter(v => inRange(new Date(v.created_at), range.start, range.end)), [allVoids, range])
+  const discountLogs = useMemo(() => allDiscountLogs.filter(d => inRange(new Date(d.created_at), range.start, range.end)), [allDiscountLogs, range])
+  const filteredDailySales = useMemo(() => {
+    const s = range.start ? localDateStr(range.start) : null
+    const e = range.end ? localDateStr(range.end) : null
+    return dailySales.filter(d => (!s || d.date >= s) && (!e || d.date < e))
+  }, [dailySales, range])
+  const cocktailSales = useMemo(() => {
+    const s = range.start ? localDateStr(range.start) : null
+    const e = range.end ? localDateStr(range.end) : null
+    return allCocktailSales.filter(d => (!s || d.date >= s) && (!e || d.date < e))
+  }, [allCocktailSales, range])
+
+  // ── Previous period filtering (for KPI comparison) ───────────────────────────
+  const prevOrders = useMemo(() => allOrders.filter(o => inRange(new Date(o.opened_at), range.prevStart, range.prevEnd)), [allOrders, range])
+  const prevDailySales = useMemo(() => {
+    const s = range.prevStart ? localDateStr(range.prevStart) : null
+    const e = range.prevEnd ? localDateStr(range.prevEnd) : null
+    return dailySales.filter(d => (!s || d.date >= s) && (!e || d.date < e))
+  }, [dailySales, range])
+  const prevVoids = useMemo(() => allVoids.filter(v => inRange(new Date(v.created_at), range.prevStart, range.prevEnd)), [allVoids, range])
+  const prevDiscountLogs = useMemo(() => allDiscountLogs.filter(d => inRange(new Date(d.created_at), range.prevStart, range.prevEnd)), [allDiscountLogs, range])
   // POS started July 11 2026 — EON cocktail_sales used only for pre-POS dates to avoid double-counting
   const POS_START = '2026-07-11'
 
@@ -282,12 +363,44 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     return { totalRevenue, totalOrders, totalCovers, grossSales, totalDiscounts, netSales, totalServiceCharge, avgSpend, revenuePerCover }
   }, [filteredDailySales, orders])
 
-  // ── Daily revenue — from daily_sales (full EON history) ─────────────────────
-  const dailyRevenue = useMemo(() => {
-    return [...filteredDailySales]
-      .sort((a, b) => a.date.localeCompare(b.date))
-      .map(s => ({ date: fmtDate(s.date), revenue: s.total_revenue }))
-  }, [filteredDailySales])
+  // ── Previous period stats (for KPI deltas) ───────────────────────────────────
+  const prevStats = useMemo(() => {
+    if (!range.prevStart) return null
+    const totalRevenue = prevDailySales.reduce((s, d) => s + d.total_revenue, 0)
+    const totalOrders = prevOrders.length
+    const totalCovers = prevOrders.reduce((s, o) => s + o.covers, 0)
+    const grossSales = prevOrders.reduce((s, o) => s + (o.subtotal ?? o.total), 0)
+    const totalDiscounts = prevOrders.reduce((s, o) => s + o.discount_amount, 0)
+    const netSales = grossSales - totalDiscounts
+    const avgSpend = totalOrders > 0 ? prevOrders.reduce((s, o) => s + o.total, 0) / totalOrders : 0
+    const revenuePerCover = totalCovers > 0 ? prevOrders.reduce((s, o) => s + o.total, 0) / totalCovers : 0
+    return { totalRevenue, totalOrders, totalCovers, grossSales, netSales, avgSpend, revenuePerCover }
+  }, [prevOrders, prevDailySales, range])
+
+  // ── Daily performance chart data ──────────────────────────────────────────────
+  const dailyPerfData = useMemo(() => {
+    if (chartMetric === 'revenue') {
+      return [...filteredDailySales]
+        .sort((a, b) => a.date.localeCompare(b.date))
+        .map(s => ({ date: fmtDate(s.date), value: s.total_revenue }))
+    }
+    const byDate: Record<string, { orders: number; covers: number; revenue: number }> = {}
+    for (const o of orders) {
+      const d = localDateStr(new Date(o.opened_at))
+      if (!byDate[d]) byDate[d] = { orders: 0, covers: 0, revenue: 0 }
+      byDate[d].orders++
+      byDate[d].covers += o.covers
+      byDate[d].revenue += o.total
+    }
+    return Object.entries(byDate)
+      .sort((a, b) => a[0].localeCompare(b[0]))
+      .map(([date, v]) => ({
+        date: fmtDate(date),
+        value: chartMetric === 'orders' ? v.orders
+          : chartMetric === 'covers' ? v.covers
+          : v.orders > 0 ? v.revenue / v.orders : 0,
+      }))
+  }, [filteredDailySales, orders, chartMetric])
 
   // ── Merged item sales: pos_order_items (Jul 11+) + cocktail_sales pre-POS (Jun) ──
   const mergedItemMap = useMemo(() => {
@@ -316,14 +429,20 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       .map(([name, v]) => ({ name, qty: v.qty, revenue: v.revenue }))
   }, [mergedItemMap])
 
-  // ── Hourly breakdown ─────────────────────────────────────────────────────────
-  const hourlyData = useMemo(() => {
-    const counts = Array.from({ length: 24 }, (_, h) => ({ hour: `${String(h).padStart(2, '0')}:00`, count: 0 }))
+  // ── Day×Hour heatmap data (Mon=0 … Sun=6) ────────────────────────────────────
+  const heatmapData = useMemo(() => {
+    const grid = Array.from({ length: 7 }, () =>
+      Array.from({ length: 24 }, () => ({ revenue: 0, orders: 0, covers: 0 }))
+    )
     for (const o of orders) {
-      const h = new Date(o.opened_at).getHours()
-      counts[h].count++
+      const d = new Date(o.opened_at)
+      const dow = (d.getDay() + 6) % 7  // JS Sun=0 → Mon=0
+      const h = d.getHours()
+      grid[dow][h].revenue += o.total
+      grid[dow][h].orders++
+      grid[dow][h].covers += o.covers
     }
-    return counts
+    return grid
   }, [orders])
 
   // ── Items tab ────────────────────────────────────────────────────────────────
@@ -385,16 +504,14 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       .sort((a, b) => b.revenue - a.revenue)
   }, [orders])
 
-  // ── Operational: peak hours heatmap (revenue by hour) ────────────────────────
-  const hourlyRevenue = useMemo(() => {
-    const data = Array.from({ length: 24 }, (_, h) => ({ hour: `${String(h).padStart(2, '0')}:00`, revenue: 0, orders: 0 }))
-    for (const o of orders) {
-      const h = new Date(o.opened_at).getHours()
-      data[h].revenue += o.total
-      data[h].orders++
+  // ── Operational: operating hours (hours with at least 1 order) ───────────────
+  const operatingHours = useMemo(() => {
+    const hours: number[] = []
+    for (let h = 0; h < 24; h++) {
+      if (heatmapData.some(row => row[h].orders > 0)) hours.push(h)
     }
-    return data
-  }, [orders])
+    return hours
+  }, [heatmapData])
 
   // ── Operational: table turnover (avg minutes open per table) ─────────────────
   const tableTurnover = useMemo(() => {
@@ -521,6 +638,73 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       .sort((a, b) => b.totalProfit - a.totalProfit)
   }, [periodCocktailItems, cocktailCosts])
 
+  // ── Menu Engineering: Popularity × Contribution Margin quadrant ──────────────
+  const menuEngineering = useMemo(() => {
+    if (cocktailProfitability.length < 2) return []
+    const qtys = [...cocktailProfitability].map(c => c.qtySold).sort((a, b) => a - b)
+    const margins = [...cocktailProfitability].map(c => c.margin).sort((a, b) => a - b)
+    const medQty = qtys[Math.floor(qtys.length / 2)]
+    const medMargin = margins[Math.floor(margins.length / 2)]
+    return cocktailProfitability.map(c => {
+      const highQty = c.qtySold >= medQty
+      const highMargin = c.margin >= medMargin
+      const cls: 'Star' | 'Workhorse' | 'Puzzle' | 'Dog' =
+        highQty && highMargin ? 'Star' :
+        highQty ? 'Workhorse' :
+        highMargin ? 'Puzzle' : 'Dog'
+      return { ...c, cls, medQty, medMargin }
+    })
+  }, [cocktailProfitability])
+
+  // ── Things to Review: deterministic observations ──────────────────────────────
+  const thingsToReview = useMemo(() => {
+    const obs: { severity: 'warning' | 'info' | 'positive'; text: string }[] = []
+    const MIN = 5
+    const hasComp = !!prevStats && orders.length >= MIN && prevOrders.length >= MIN
+
+    if (hasComp && prevStats) {
+      // Revenue change
+      const revDelta = calcDelta(stats.totalRevenue, prevStats.totalRevenue)
+      if (revDelta && Math.abs(revDelta.pct) >= 10) {
+        obs.push({
+          severity: revDelta.dir === 'up' ? 'positive' : 'warning',
+          text: `Revenue ${revDelta.dir === 'up' ? 'up' : 'down'} ${Math.abs(revDelta.pct).toFixed(0)}% ${range.compLabel.toLowerCase()} — ${fmtRM(stats.totalRevenue)} vs ${fmtRM(prevStats.totalRevenue)}`,
+        })
+      }
+      // Rev/cover change
+      if (stats.totalCovers >= MIN && prevStats.totalCovers >= MIN) {
+        const rpcDelta = calcDelta(stats.revenuePerCover, prevStats.revenuePerCover)
+        if (rpcDelta && rpcDelta.dir === 'down' && rpcDelta.pct <= -10) {
+          obs.push({ severity: 'warning', text: `Revenue per cover down ${Math.abs(rpcDelta.pct).toFixed(0)}% ${range.compLabel.toLowerCase()} — check upselling (${fmtRM(stats.revenuePerCover)} vs ${fmtRM(prevStats.revenuePerCover)})` })
+        }
+      }
+      // Order count change
+      const ordDelta = calcDelta(stats.totalOrders, prevStats.totalOrders)
+      if (ordDelta && ordDelta.dir === 'down' && ordDelta.pct <= -20) {
+        obs.push({ severity: 'warning', text: `Order count down ${Math.abs(ordDelta.pct).toFixed(0)}% ${range.compLabel.toLowerCase()} (${stats.totalOrders} vs ${prevStats.totalOrders} orders)` })
+      }
+    }
+
+    // Void rate (absolute, no prev period needed)
+    if (orders.length >= 10) {
+      const voidRate = voids.length / orders.length
+      if (voidRate > 0.10) {
+        obs.push({ severity: 'warning', text: `${(voidRate * 100).toFixed(0)}% of orders had void items (${voids.length} incidents) — review with staff` })
+      }
+    }
+
+    // Discount rate
+    if (orders.length >= 10 && discountLogs.length > 0) {
+      const discountRate = discountLogs.length / orders.length
+      if (discountRate > 0.20) {
+        obs.push({ severity: 'info', text: `Discounts on ${(discountRate * 100).toFixed(0)}% of orders this period (${discountLogs.length} events)` })
+      }
+    }
+
+    const order = { warning: 0, info: 1, positive: 2 } as const
+    return obs.sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 5)
+  }, [orders, prevOrders, voids, discountLogs, stats, prevStats, range])
+
   // Month-on-month revenue comparison — uses daily_sales which has full history back to June
   const momComparison = useMemo(() => {
     const revenueByMonth: Record<string, { total: number; cocktails: number; beer: number; wine: number; food: number; others: number }> = {}
@@ -569,18 +753,18 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
         title="POS Reports"
         subtitle={PERIOD_LABELS[period]}
         actions={
-          <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1">
-            {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
+          <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1 flex-wrap">
+            {(Object.keys(PERIOD_SHORT) as Period[]).map(p => (
               <button
                 key={p}
                 onClick={() => setPeriod(p)}
-                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
                   period === p
                     ? 'bg-[#8B5CF6] text-white'
                     : 'text-[#9896A4] hover:text-[#F0EEF6]'
                 }`}
               >
-                {p === 'all' ? 'All' : p === '1y' ? 'YTD' : p.toUpperCase()}
+                {PERIOD_SHORT[p]}
               </button>
             ))}
           </div>
@@ -607,45 +791,135 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       {/* ── OVERVIEW TAB ─────────────────────────────────────────────────────── */}
       {activeTab === 'overview' && (
         <div className="space-y-6">
-          {/* Stats row */}
+
+          {/* Things to Review */}
+          {thingsToReview.length > 0 && (
+            <div className="card space-y-2">
+              <p className="section-title mb-3">Things to Review</p>
+              {thingsToReview.map((obs, i) => {
+                const colors = {
+                  warning: { bg: 'bg-rose-500/8 border-rose-500/20', dot: 'bg-rose-400', text: 'text-rose-200' },
+                  info: { bg: 'bg-amber-500/8 border-amber-500/20', dot: 'bg-amber-400', text: 'text-amber-200' },
+                  positive: { bg: 'bg-emerald-500/8 border-emerald-500/20', dot: 'bg-emerald-400', text: 'text-emerald-200' },
+                }
+                const c = colors[obs.severity]
+                return (
+                  <div key={i} className={`flex items-start gap-3 rounded-lg border px-3 py-2.5 ${c.bg}`}>
+                    <span className={`w-2 h-2 rounded-full mt-1 shrink-0 ${c.dot}`} />
+                    <p className={`text-sm ${c.text}`}>{obs.text}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+
+          {/* KPI row — P1.2 */}
           <div className="grid grid-cols-2 sm:grid-cols-4 gap-3">
             {[
-              { label: 'Total Revenue', value: fmtRM(stats.totalRevenue), color: 'text-emerald-400' },
-              { label: 'Orders Closed', value: stats.totalOrders.toString(), color: 'text-[#F0EEF6]' },
-              { label: 'Avg Spend / Order', value: fmtRM(stats.avgSpend), color: 'text-[#A78BFA]' },
-              { label: 'Total Covers', value: stats.totalCovers.toString(), color: 'text-sky-400' },
-            ].map(card => (
-              <div key={card.label} className="card">
-                <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">{card.label}</p>
-                <p className={`font-bold text-xl tabular-nums ${card.color}`}>{card.value}</p>
-              </div>
-            ))}
+              {
+                label: 'Revenue',
+                value: fmtRM(stats.totalRevenue),
+                prev: prevStats?.totalRevenue,
+                curr: stats.totalRevenue,
+                color: 'text-emerald-400',
+              },
+              {
+                label: 'Orders',
+                value: stats.totalOrders.toString(),
+                prev: prevStats?.totalOrders,
+                curr: stats.totalOrders,
+                color: 'text-[#F0EEF6]',
+              },
+              {
+                label: 'Covers',
+                value: stats.totalCovers.toString(),
+                prev: prevStats?.totalCovers,
+                curr: stats.totalCovers,
+                color: 'text-sky-400',
+              },
+              {
+                label: 'Rev / Cover',
+                value: stats.revenuePerCover > 0 ? fmtRM(stats.revenuePerCover) : '—',
+                prev: prevStats?.revenuePerCover,
+                curr: stats.revenuePerCover,
+                color: 'text-[#A78BFA]',
+              },
+            ].map(card => {
+              const delta = card.prev != null ? calcDelta(card.curr, card.prev) : null
+              return (
+                <div key={card.label} className="card">
+                  <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">{card.label}</p>
+                  <p className={`font-bold text-xl tabular-nums ${card.color}`}>{card.value}</p>
+                  {delta && (
+                    <p className={`text-xs mt-1.5 flex items-center gap-1 tabular-nums ${
+                      delta.dir === 'up' ? 'text-emerald-400' : delta.dir === 'down' ? 'text-rose-400' : 'text-[#5A5865]'
+                    }`}>
+                      {delta.dir === 'up' ? <TrendingUp size={11} /> : delta.dir === 'down' ? <TrendingDown size={11} /> : <Minus size={11} />}
+                      {delta.dir !== 'flat' ? `${delta.dir === 'up' ? '+' : ''}${delta.pct.toFixed(1)}%` : '—'}
+                      <span className="text-[#5A5865]">{range.compLabel}</span>
+                    </p>
+                  )}
+                  {!delta && range.compLabel && (
+                    <p className="text-[#5A5865] text-xs mt-1.5">No prior data</p>
+                  )}
+                </div>
+              )
+            })}
           </div>
 
-          {/* Daily revenue bar chart */}
+          {/* Daily Performance chart — P1.3 */}
           <div className="card">
-            <p className="section-title mb-4">Daily Revenue</p>
-            {dailyRevenue.length === 0 ? (
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <p className="section-title">Daily Performance</p>
+              <div className="flex gap-1">
+                {([
+                  { key: 'revenue', label: 'Revenue' },
+                  { key: 'orders', label: 'Orders' },
+                  { key: 'covers', label: 'Covers' },
+                  { key: 'avgSpend', label: 'Avg Spend' },
+                ] as const).map(m => (
+                  <button
+                    key={m.key}
+                    onClick={() => setChartMetric(m.key)}
+                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-all ${
+                      chartMetric === m.key
+                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
+                        : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
+            </div>
+            {dailyPerfData.length === 0 ? (
               <p className="text-[#5A5865] text-sm text-center py-8">No data</p>
             ) : (
               <ResponsiveContainer width="100%" height={200}>
-                <BarChart data={dailyRevenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                  <XAxis
-                    dataKey="date"
-                    tick={{ fill: '#9896A4', fontSize: 11 }}
-                    axisLine={false}
-                    tickLine={false}
-                    interval="preserveStartEnd"
-                  />
+                <BarChart data={dailyPerfData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
+                  <XAxis dataKey="date" tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} interval="preserveStartEnd" />
                   <YAxis
                     tick={{ fill: '#9896A4', fontSize: 11 }}
                     axisLine={false}
                     tickLine={false}
-                    tickFormatter={v => `RM ${(v / 1000).toFixed(0)}k`}
-                    width={52}
+                    width={chartMetric === 'revenue' || chartMetric === 'avgSpend' ? 56 : 32}
+                    tickFormatter={v =>
+                      chartMetric === 'revenue' ? `RM${(v / 1000).toFixed(0)}k`
+                      : chartMetric === 'avgSpend' ? `RM${v.toFixed(0)}`
+                      : String(v)
+                    }
+                    allowDecimals={false}
                   />
-                  <Tooltip content={<CustomTooltip />} cursor={{ fill: '#8B5CF6', opacity: 0.08 }} />
-                  <Bar dataKey="revenue" fill="#8B5CF6" radius={[3, 3, 0, 0]} />
+                  <Tooltip
+                    formatter={(v: unknown) =>
+                      chartMetric === 'revenue' || chartMetric === 'avgSpend' ? fmtRM(Number(v)) : String(v)
+                    }
+                    contentStyle={{ background: '#1A1A1E', border: '1px solid #2A2A30', borderRadius: 8, fontSize: 12 }}
+                    itemStyle={{ color: '#F0EEF6' }}
+                    labelStyle={{ color: '#9896A4' }}
+                    cursor={{ fill: '#8B5CF6', opacity: 0.08 }}
+                  />
+                  <Bar dataKey="value" fill="#8B5CF6" radius={[3, 3, 0, 0]} />
                 </BarChart>
               </ResponsiveContainer>
             )}
@@ -680,31 +954,6 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                 </table>
               </div>
             )}
-          </div>
-
-          {/* Hourly heatmap */}
-          <div className="card">
-            <p className="section-title mb-4">Orders by Hour</p>
-            <ResponsiveContainer width="100%" height={160}>
-              <BarChart data={hourlyData} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <XAxis
-                  dataKey="hour"
-                  tick={{ fill: '#9896A4', fontSize: 10 }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={2}
-                />
-                <YAxis
-                  tick={{ fill: '#9896A4', fontSize: 11 }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                  width={28}
-                />
-                <Tooltip content={<CountTooltip />} cursor={{ fill: '#F59E0B', opacity: 0.08 }} />
-                <Bar dataKey="count" fill="#F59E0B" radius={[3, 3, 0, 0]} />
-              </BarChart>
-            </ResponsiveContainer>
           </div>
         </div>
       )}
@@ -1004,33 +1253,102 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       {/* ── OPERATIONAL TAB ──────────────────────────────────────────────────── */}
       {activeTab === 'operational' && (
         <div className="space-y-6">
-          {/* Peak hours — revenue heatmap */}
+          {/* Day × Hour Trading Heatmap — P1.4 */}
           <div className="card">
-            <p className="section-title mb-1">Peak Hours — Revenue by Hour</p>
-            <p className="text-[#5A5865] text-xs mb-4">When your bar makes the most money</p>
-            <ResponsiveContainer width="100%" height={200}>
-              <BarChart data={hourlyRevenue} margin={{ top: 4, right: 4, left: 0, bottom: 0 }}>
-                <XAxis dataKey="hour" tick={{ fill: '#9896A4', fontSize: 10 }} axisLine={false} tickLine={false} interval={2} />
-                <YAxis tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} width={52} tickFormatter={v => v > 0 ? `${(v / 1000).toFixed(0)}k` : '0'} />
-                <Tooltip content={<CustomTooltip />} cursor={{ fill: '#8B5CF6', opacity: 0.08 }} />
-                <Bar dataKey="revenue" radius={[3, 3, 0, 0]}>
-                  {hourlyRevenue.map((entry, i) => {
-                    const max = Math.max(...hourlyRevenue.map(h => h.revenue))
-                    const pct = max > 0 ? entry.revenue / max : 0
-                    const fill = pct > 0.7 ? '#a78bfa' : pct > 0.4 ? '#7c3aed' : pct > 0.1 ? '#4c1d95' : '#2A2A30'
-                    return <Cell key={i} fill={fill} />
-                  })}
-                </Bar>
-              </BarChart>
-            </ResponsiveContainer>
-            <div className="flex items-center gap-4 mt-3 justify-end">
-              {[['#a78bfa', 'Peak'], ['#7c3aed', 'Busy'], ['#4c1d95', 'Slow'], ['#2A2A30', 'Quiet']].map(([color, label]) => (
-                <div key={label} className="flex items-center gap-1.5">
-                  <span className="w-3 h-3 rounded-sm" style={{ background: color }} />
-                  <span className="text-[#5A5865] text-xs">{label}</span>
-                </div>
-              ))}
+            <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
+              <div>
+                <p className="section-title">Trading Heatmap</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">Day × hour activity ({PERIOD_LABELS[period]})</p>
+              </div>
+              <div className="flex gap-1">
+                {([
+                  { key: 'revenue', label: 'Revenue' },
+                  { key: 'orders', label: 'Orders' },
+                  { key: 'covers', label: 'Covers' },
+                  { key: 'revPerCover', label: 'Rev/Cover' },
+                ] as const).map(m => (
+                  <button
+                    key={m.key}
+                    onClick={() => setHeatmapMetric(m.key)}
+                    className={`px-2.5 py-1 rounded text-xs font-medium border transition-all ${
+                      heatmapMetric === m.key
+                        ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/40 text-[#A78BFA]'
+                        : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6]'
+                    }`}
+                  >
+                    {m.label}
+                  </button>
+                ))}
+              </div>
             </div>
+            {orders.length === 0 ? (
+              <p className="text-[#5A5865] text-sm text-center py-8">No orders in this period</p>
+            ) : (() => {
+              const DOW_LABELS = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+              // compute max for colour scaling
+              let max = 0
+              for (let dow = 0; dow < 7; dow++) {
+                for (const h of operatingHours) {
+                  const cell = heatmapData[dow][h]
+                  const v = heatmapMetric === 'revenue' ? cell.revenue
+                    : heatmapMetric === 'orders' ? cell.orders
+                    : heatmapMetric === 'covers' ? cell.covers
+                    : cell.covers > 0 ? cell.revenue / cell.covers : 0
+                  if (v > max) max = v
+                }
+              }
+              return (
+                <div className="overflow-x-auto">
+                  <div style={{ display: 'grid', gridTemplateColumns: `40px repeat(${operatingHours.length}, minmax(28px, 1fr))`, gap: 3 }}>
+                    {/* Hour labels */}
+                    <div />
+                    {operatingHours.map(h => (
+                      <div key={h} className="text-center text-[#5A5865] text-[10px] pb-1">
+                        {String(h).padStart(2, '0')}
+                      </div>
+                    ))}
+                    {/* Rows */}
+                    {DOW_LABELS.map((day, dow) => (
+                      <>
+                        <div key={day} className="text-[#9896A4] text-xs flex items-center pr-1">{day}</div>
+                        {operatingHours.map(h => {
+                          const cell = heatmapData[dow][h]
+                          const v = heatmapMetric === 'revenue' ? cell.revenue
+                            : heatmapMetric === 'orders' ? cell.orders
+                            : heatmapMetric === 'covers' ? cell.covers
+                            : cell.covers > 0 ? cell.revenue / cell.covers : 0
+                          const intensity = max > 0 ? v / max : 0
+                          const bg = intensity === 0 ? '#141417'
+                            : intensity > 0.75 ? '#7c3aed'
+                            : intensity > 0.5 ? '#5b21b6'
+                            : intensity > 0.25 ? '#3b1a7a'
+                            : '#241650'
+                          const tipVal = v > 0
+                            ? (heatmapMetric === 'revenue' || heatmapMetric === 'revPerCover' ? fmtRM(v) : String(Math.round(v)))
+                            : ''
+                          return (
+                            <div
+                              key={h}
+                              className="rounded-sm"
+                              style={{ background: bg, height: 26 }}
+                              title={tipVal ? `${day} ${String(h).padStart(2, '0')}:00 — ${tipVal}` : `${day} ${String(h).padStart(2, '0')}:00`}
+                            />
+                          )
+                        })}
+                      </>
+                    ))}
+                  </div>
+                  <div className="flex items-center gap-4 mt-3 justify-end">
+                    {([['#7c3aed', 'Peak'], ['#5b21b6', 'Busy'], ['#3b1a7a', 'Slow'], ['#141417', 'None']] as const).map(([color, label]) => (
+                      <div key={label} className="flex items-center gap-1.5">
+                        <span className="w-3 h-3 rounded-sm border border-[#2A2A30]" style={{ background: color }} />
+                        <span className="text-[#5A5865] text-xs">{label}</span>
+                      </div>
+                    ))}
+                  </div>
+                </div>
+              )
+            })()}
           </div>
 
           {/* Table turnover */}
@@ -1262,6 +1580,96 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                         <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.totalProfit)}</td>
                       </tr>
                     ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
+          {/* Menu Engineering — P1.5 */}
+          {menuEngineering.length >= 2 && (
+            <div className="card">
+              <p className="section-title mb-1">Menu Engineering — {PERIOD_LABELS[period]}</p>
+              <p className="text-[#5A5865] text-xs mb-4">
+                Thresholds: median qty sold = {menuEngineering[0]?.medQty ?? 0}, median margin = {fmtRM(menuEngineering[0]?.medMargin ?? 0)}.
+                Stars have high popularity AND high margin — promote these. Dogs have neither — review or retire.
+              </p>
+
+              {/* 2×2 quadrant grid */}
+              {(() => {
+                const stars = menuEngineering.filter(c => c.cls === 'Star')
+                const workhorses = menuEngineering.filter(c => c.cls === 'Workhorse')
+                const puzzles = menuEngineering.filter(c => c.cls === 'Puzzle')
+                const dogs = menuEngineering.filter(c => c.cls === 'Dog')
+                const quad = [
+                  { label: 'Star', sub: 'High qty · High margin', items: stars, color: 'text-amber-400', bg: 'bg-amber-500/8 border-amber-500/20' },
+                  { label: 'Workhorse', sub: 'High qty · Low margin', items: workhorses, color: 'text-sky-400', bg: 'bg-sky-500/8 border-sky-500/20' },
+                  { label: 'Puzzle', sub: 'Low qty · High margin', items: puzzles, color: 'text-violet-400', bg: 'bg-violet-500/8 border-violet-500/20' },
+                  { label: 'Dog', sub: 'Low qty · Low margin', items: dogs, color: 'text-[#5A5865]', bg: 'bg-[#1A1A1E] border-[#2A2A30]' },
+                ]
+                return (
+                  <div className="grid grid-cols-2 gap-3 mb-5">
+                    {quad.map(q => (
+                      <div key={q.label} className={`rounded-xl border p-3 ${q.bg}`}>
+                        <p className={`text-xs font-semibold uppercase tracking-wider mb-0.5 ${q.color}`}>{q.label}</p>
+                        <p className="text-[#5A5865] text-[10px] mb-2">{q.sub}</p>
+                        {q.items.length === 0 ? (
+                          <p className="text-[#5A5865] text-xs italic">None</p>
+                        ) : (
+                          <div className="space-y-0.5">
+                            {q.items.map(c => (
+                              <p key={c.name} className="text-[#F0EEF6] text-xs truncate">{c.name}</p>
+                            ))}
+                          </div>
+                        )}
+                      </div>
+                    ))}
+                  </div>
+                )
+              })()}
+
+              {/* Management table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: 640 }}>
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-3">Cocktail</th>
+                      <th className="text-center py-2 px-2">Class</th>
+                      <th className="text-right py-2 px-2">Qty</th>
+                      <th className="text-right py-2 px-2">Revenue</th>
+                      <th className="text-right py-2 px-2">Cost</th>
+                      <th className="text-right py-2 px-2">COGS%</th>
+                      <th className="text-right py-2 px-2">Margin</th>
+                      <th className="text-right py-2 pl-3">Total Profit</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {menuEngineering.map(c => {
+                      const clsColors: Record<string, string> = {
+                        Star: 'bg-amber-500/10 text-amber-400 border-amber-500/20',
+                        Workhorse: 'bg-sky-500/10 text-sky-400 border-sky-500/20',
+                        Puzzle: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
+                        Dog: 'bg-[#1A1A1E] text-[#5A5865] border-[#2A2A30]',
+                      }
+                      return (
+                        <tr key={c.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                          <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{c.name}</td>
+                          <td className="py-2.5 px-2 text-center">
+                            <span className={`inline-flex px-1.5 py-0.5 rounded border text-[10px] font-semibold ${clsColors[c.cls]}`}>{c.cls}</span>
+                          </td>
+                          <td className="py-2.5 px-2 text-right tabular-nums text-[#9896A4]">{c.qtySold}</td>
+                          <td className="py-2.5 px-2 text-right tabular-nums text-emerald-400">{fmtRM(c.qtySold * c.sellingPrice)}</td>
+                          <td className="py-2.5 px-2 text-right tabular-nums text-rose-400">{fmtRM(c.cost)}</td>
+                          <td className="py-2.5 px-2 text-right tabular-nums text-[#9896A4]">{c.cogsPercent.toFixed(0)}%</td>
+                          <td className="py-2.5 px-2 text-right tabular-nums">
+                            <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${c.marginPct >= 60 ? 'bg-emerald-500/10 text-emerald-400' : c.marginPct >= 40 ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'}`}>
+                              {c.marginPct.toFixed(0)}%
+                            </span>
+                          </td>
+                          <td className="py-2.5 pl-3 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.totalProfit)}</td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
