@@ -13,7 +13,7 @@ export default async function POSReportsPage() {
     .from('users').select('role').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
 
-  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }] = await Promise.all([
+  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }, { data: cocktailSales }] = await Promise.all([
     // Fetch all-time orders — client filters by selected period
     supabase.from('pos_orders')
       .select('id, table_name, covers, opened_at, closed_at, total, discount_amount, service_charge, status, server_name')
@@ -48,6 +48,10 @@ export default async function POSReportsPage() {
       .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue')
       .is('deleted_at', null)
       .order('date', { ascending: true }),
+    // Per-cocktail quantities from EON submissions (goes back to June)
+    supabase.from('cocktail_sales')
+      .select('date, cocktail_name, quantity, unit_price, category')
+      .order('date', { ascending: true }),
   ])
 
   // Build server_name lookup from orders (order_id → server_name)
@@ -69,6 +73,7 @@ export default async function POSReportsPage() {
       allMenuItems={allMenuItems ?? []}
       cocktailCosts={cocktails ?? []}
       dailySales={dailySales ?? []}
+      cocktailSales={cocktailSales ?? []}
       isAdmin={isAdmin ?? false}
     />
   )
