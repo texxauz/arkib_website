@@ -232,9 +232,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
 
   // ── Daily revenue — from daily_sales (full EON history) ─────────────────────
   const dailyRevenue = useMemo(() => {
-    return filteredDailySales
-      .map(s => ({ date: fmtDate(s.date), revenue: s.total_revenue }))
+    return [...filteredDailySales]
       .sort((a, b) => a.date.localeCompare(b.date))
+      .map(s => ({ date: fmtDate(s.date), revenue: s.total_revenue }))
   }, [filteredDailySales])
 
   // ── Merged item sales: pos_order_items + cocktail_sales (EON) ──────────────
