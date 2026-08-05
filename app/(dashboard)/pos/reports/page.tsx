@@ -22,12 +22,12 @@ export default async function POSReportsPage() {
   const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }, { data: cocktailSales }] = await Promise.all([
     // Fetch all-time orders — client filters by selected period
     supabase.from('pos_orders')
-      .select('id, table_name, covers, opened_at, closed_at, total, discount_amount, service_charge, status, server_name')
+      .select('id, table_name, covers, opened_at, closed_at, subtotal, total, discount_amount, service_charge, status, server_name')
       .eq('status', 'closed')
       .order('opened_at', { ascending: false })
       .limit(5000),
     supabase.from('pos_order_items')
-      .select('item_name, category, quantity, unit_price, voided_at, created_at, order_id, added_by')
+      .select('item_name, category, quantity, unit_price, discount, voided_at, created_at, order_id, added_by')
       .is('voided_at', null)
       .limit(20000),
     supabase.from('pos_payments')

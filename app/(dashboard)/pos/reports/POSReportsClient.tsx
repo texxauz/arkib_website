@@ -18,12 +18,42 @@ import {
 } from 'recharts'
 import { Search, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-react'
 
+// ─────────────────────────────────────────────────────────────────────────────
+// CANONICAL REPORTING DEFINITIONS
+//
+// Gross Sales      = SUM(pos_orders.subtotal)
+//                    subtotal is the pre-discount order total (item prices × qty,
+//                    minus any per-item discounts already applied at the item level)
+//
+// Discounts        = SUM(pos_orders.discount_amount)
+//                    order-level discounts only (Staff Discount, VIP, etc.)
+//
+// Net Sales        = Gross Sales − Discounts
+//                  = SUM(pos_orders.subtotal − pos_orders.discount_amount)
+//
+// Service Charge   = SUM(pos_orders.service_charge)
+//                    currently 0 (service_charge_enabled = false in pos_config)
+//
+// Revenue          = SUM(pos_orders.total)
+//                  = Net Sales + Service Charge + Tax
+//                    For pre-POS dates (before Jul 11 2026): daily_sales.total_revenue
+//
+// Voids            = SUM(voided_item.quantity × unit_price) for items where voided_at IS NOT NULL
+//
+// COGS (cocktails) = cocktails.total_cost × qty_sold
+//
+// Contribution     = Selling Price − COGS
+// Margin %         = Contribution / Selling Price × 100
+// Total Profit     = Contribution × qty_sold
+// ─────────────────────────────────────────────────────────────────────────────
+
 type Order = {
   id: string
   table_name: string | null
   covers: number
   opened_at: string
   closed_at: string | null
+  subtotal: number
   total: number
   discount_amount: number
   service_charge: number
@@ -206,7 +236,8 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   const cocktailSales = useMemo(() => cutoff ? allCocktailSales.filter(s => new Date(s.date) >= cutoff) : allCocktailSales, [allCocktailSales, cutoff])
   // POS started July 11 2026 — EON cocktail_sales used only for pre-POS dates to avoid double-counting
   const POS_START = '2026-07-11'
-  // Cocktail analytics: all-time, merging pos_order_items + cocktail_sales (no period filter)
+
+  // All-time cocktail items: used for all-time rankings and monthly breakdown (ignores period filter)
   const allTimeItems = useMemo(() => {
     const posItems = allItems
       .filter(i => ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics'].includes((i.category ?? '').toLowerCase()))
@@ -217,15 +248,38 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     return [...posItems, ...eonItems]
   }, [allItems, allCocktailSales])
 
-  // ── Core stats — use daily_sales for revenue (full history), pos_orders for order counts ──
+  // Period-filtered cocktail items: used for profitability (respects selected period)
+  const periodCocktailItems = useMemo(() => {
+    const cocktailCategories = ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics']
+    const posItems = items  // already period-filtered
+      .filter(i => cocktailCategories.includes((i.category ?? '').toLowerCase()))
+      .map(i => ({ item_name: i.item_name, quantity: i.quantity, unit_price: i.unit_price }))
+    const eonItems = cocktailSales  // already period-filtered
+      .filter(cs => cs.date < POS_START)
+      .map(cs => ({ item_name: cs.cocktail_name, quantity: cs.quantity, unit_price: cs.unit_price }))
+    return [...posItems, ...eonItems]
+  }, [items, cocktailSales])
+
+  // ── Core stats ───────────────────────────────────────────────────────────────
+  // Revenue (totalRevenue): daily_sales.total_revenue — covers full history including pre-POS
+  // Gross/Net Sales: pos_orders — POS-tracked orders only (Jul 11 2026+)
   const stats = useMemo(() => {
     const totalRevenue = filteredDailySales.reduce((s, d) => s + d.total_revenue, 0)
     const totalOrders = orders.length
     const totalCovers = orders.reduce((s, o) => s + o.covers, 0)
-    const avgSpend = totalOrders > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalOrders : 0
-    const avgCovers = totalOrders > 0 ? totalCovers / totalOrders : 0
+    // Gross Sales = subtotal (pre-order-discount; per-item discounts already reflected in subtotal)
+    const grossSales = orders.reduce((s, o) => s + (o.subtotal ?? o.total), 0)
+    // Discounts = order-level discount applied
     const totalDiscounts = orders.reduce((s, o) => s + o.discount_amount, 0)
-    return { totalRevenue, totalOrders, totalCovers, avgSpend, avgCovers, totalDiscounts }
+    // Net Sales = Gross Sales - Discounts
+    const netSales = grossSales - totalDiscounts
+    // Service charge (currently 0 — disabled in config)
+    const totalServiceCharge = orders.reduce((s, o) => s + (o.service_charge ?? 0), 0)
+    // Avg spend per order = what customer actually paid (pos_orders.total)
+    const avgSpend = totalOrders > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalOrders : 0
+    // Revenue per cover = total revenue (POS) / covers
+    const revenuePerCover = totalCovers > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalCovers : 0
+    return { totalRevenue, totalOrders, totalCovers, grossSales, totalDiscounts, netSales, totalServiceCharge, avgSpend, revenuePerCover }
   }, [filteredDailySales, orders])
 
   // ── Daily revenue — from daily_sales (full EON history) ─────────────────────
@@ -447,23 +501,25 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     return data
   }, [orders])
 
-  // Cocktail profitability: qty sold × margin per cocktail
+  // Cocktail profitability: uses period-filtered items so the table matches the selected period
   const cocktailProfitability = useMemo(() => {
     const soldMap: Record<string, number> = {}
-    for (const it of allTimeItems) {
+    for (const it of periodCocktailItems) {
       soldMap[it.item_name] = (soldMap[it.item_name] ?? 0) + it.quantity
     }
     return cocktailCosts
       .map(c => {
         const qtySold = soldMap[c.name] ?? 0
+        // Contribution Margin = Selling Price − Recipe Cost (canonical COGS definition)
         const margin = c.selling_price - c.total_cost
         const totalProfit = qtySold * margin
-        const marginPct = c.selling_price > 0 ? (margin / c.selling_price) * 100 : 0
-        return { name: c.name, qtySold, sellingPrice: c.selling_price, cost: c.total_cost, margin, marginPct, totalProfit }
+        const cogsPercent = c.selling_price > 0 ? (c.total_cost / c.selling_price) * 100 : 0
+        const marginPct = 100 - cogsPercent
+        return { name: c.name, qtySold, sellingPrice: c.selling_price, cost: c.total_cost, margin, cogsPercent, marginPct, totalProfit }
       })
       .filter(c => c.qtySold > 0)
       .sort((a, b) => b.totalProfit - a.totalProfit)
-  }, [allTimeItems, cocktailCosts])
+  }, [periodCocktailItems, cocktailCosts])
 
   // Month-on-month revenue comparison — uses daily_sales which has full history back to June
   const momComparison = useMemo(() => {
@@ -900,7 +956,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
 
               {/* Full table */}
               <div className="card overflow-x-auto">
-                <p className="section-title mb-4">Performance Breakdown — Last 30 Days</p>
+                <p className="section-title mb-4">Performance Breakdown — {PERIOD_LABELS[period]}</p>
                 <table className="w-full text-sm">
                   <thead>
                     <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
@@ -1020,7 +1076,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
           <div className="card">
             <div className="mb-4">
               <p className="section-title">Slow Movers</p>
-              <p className="text-[#5A5865] text-xs mt-0.5">Active menu items sold fewer than 3 times in the last 30 days — consider removing or promoting</p>
+              <p className="text-[#5A5865] text-xs mt-0.5">Active menu items sold fewer than 3 times ({PERIOD_LABELS[period].toLowerCase()}) — consider removing or promoting</p>
             </div>
             {slowMovers.length === 0 ? (
               <p className="text-emerald-400 text-sm text-center py-6">All menu items are selling well!</p>
@@ -1177,8 +1233,8 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
           {/* Cocktail profitability */}
           {cocktailProfitability.length > 0 && (
             <div className="card">
-              <p className="section-title mb-1">Cocktail Profitability (All-Time)</p>
-              <p className="text-[#5A5865] text-xs mb-4">Total profit = units sold × (selling price − cost). Sorted by total profit generated.</p>
+              <p className="section-title mb-1">Cocktail Profitability — {PERIOD_LABELS[period]}</p>
+              <p className="text-[#5A5865] text-xs mb-4">Contribution margin = selling price − recipe cost. Total contribution profit = margin × units sold in period.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ minWidth: 600 }}>
                   <thead>
@@ -1217,13 +1273,15 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
             <p className="section-title mb-1">Monthly Revenue History</p>
             <p className="text-[#5A5865] text-xs mb-4">From your End of Night submissions. % change vs same month last year.</p>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm" style={{ minWidth: 700 }}>
+              <table className="w-full text-sm" style={{ minWidth: 860 }}>
                 <thead>
                   <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
                     <th className="text-left py-2 pr-4">Month</th>
                     <th className="text-right py-2 px-3">Total</th>
                     <th className="text-right py-2 px-3">Cocktails</th>
+                    <th className="text-right py-2 px-3">Beer</th>
                     <th className="text-right py-2 px-3">Wine</th>
+                    <th className="text-right py-2 px-3">Food</th>
                     <th className="text-right py-2 px-3">Others</th>
                     <th className="text-right py-2 px-3">vs Last Year</th>
                     <th className="text-right py-2 pl-4">Change</th>
@@ -1235,7 +1293,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                       <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">{m.label}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(m.thisRev)}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-[#A78BFA]">{m.cocktails > 0 ? fmtRM(m.cocktails) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-amber-400">{m.beer > 0 ? fmtRM(m.beer) : '—'}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-sky-400">{m.wine > 0 ? fmtRM(m.wine) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-orange-400">{m.food > 0 ? fmtRM(m.food) : '—'}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">{m.others > 0 ? fmtRM(m.others) : '—'}</td>
                       <td className="py-2.5 px-3 text-right tabular-nums text-[#5A5865]">{m.prevRev > 0 ? fmtRM(m.prevRev) : '—'}</td>
                       <td className="py-2.5 pl-4 text-right">
@@ -1330,22 +1390,44 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
             <div className="card">
               <p className="section-title mb-4">Discount Events</p>
               <div className="overflow-x-auto">
-                <table className="w-full text-sm">
+                <table className="w-full text-sm" style={{ minWidth: 560 }}>
                   <thead>
                     <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
-                      <th className="text-left py-2 pr-4">Date</th>
-                      <th className="text-left py-2 pl-4">Details</th>
+                      <th className="text-left py-2 pr-4">Date / Time</th>
+                      <th className="text-left py-2 pr-4">Applied By</th>
+                      <th className="text-left py-2 pr-4">Discount</th>
+                      <th className="text-right py-2 pl-4">Amount</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {discountLogs.map((d, i) => (
-                      <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
-                        <td className="py-2.5 pr-4 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(d.created_at)}</td>
-                        <td className="py-2.5 pl-4 text-[#5A5865] text-xs font-mono">
-                          {d.payload ? JSON.stringify(d.payload) : '—'}
-                        </td>
-                      </tr>
-                    ))}
+                    {discountLogs.map((d, i) => {
+                      const p = d.payload ?? {}
+                      const discountName = typeof p.discount_name === 'string' ? p.discount_name : '—'
+                      const discountType = typeof p.discount_type === 'string' ? p.discount_type : null
+                      const discountValue = typeof p.discount_value === 'number' ? p.discount_value : null
+                      const amount = typeof p.discount_amount === 'number' ? p.discount_amount
+                        : typeof p.amount === 'number' ? p.amount : null
+                      const typeLabel = discountType === 'percent' && discountValue != null
+                        ? `${discountValue}% off`
+                        : discountType === 'flat' && discountValue != null
+                          ? `RM ${discountValue} off`
+                          : discountType ?? null
+                      return (
+                        <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                          <td className="py-2.5 pr-4 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(d.created_at)}</td>
+                          <td className="py-2.5 pr-4 text-[#F0EEF6] text-sm">{d.actor_name ?? '—'}</td>
+                          <td className="py-2.5 pr-4">
+                            <span className="text-[#F0EEF6] text-sm">{discountName}</span>
+                            {typeLabel && <span className="text-[#5A5865] text-xs ml-2">({typeLabel})</span>}
+                          </td>
+                          <td className="py-2.5 pl-4 text-right">
+                            {amount != null
+                              ? <span className="text-amber-400 font-semibold tabular-nums">{fmtRM(amount)}</span>
+                              : <span className="text-[#5A5865]">—</span>}
+                          </td>
+                        </tr>
+                      )
+                    })}
                   </tbody>
                 </table>
               </div>
