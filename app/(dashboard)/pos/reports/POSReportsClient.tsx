@@ -42,9 +42,10 @@ import { Search, AlertTriangle, TrendingUp, TrendingDown, Minus } from 'lucide-r
 //
 // COGS (cocktails) = cocktails.total_cost × qty_sold
 //
-// Contribution     = Selling Price − COGS
-// Margin %         = Contribution / Selling Price × 100
-// Total Profit     = Contribution × qty_sold
+// Contribution     = Selling Price − COGS (RM; used as profitability axis in menu engineering)
+// Margin %         = Contribution / Selling Price × 100 (supporting metric only)
+// Theoretical      = Contribution × qty_sold  (uses CURRENT recipe cost — not historical unit_cost)
+// Contribution       Historical actual contribution requires pos_order_items.unit_cost (handled separately)
 // ─────────────────────────────────────────────────────────────────────────────
 
 type Order = {
@@ -85,6 +86,7 @@ type VoidedItem = {
   void_reason: string | null
   created_at: string
   server_name?: string | null
+  order_id?: string | null  // present at runtime (joined from pos_order_items select); used for void incidence
 }
 
 type DiscountLog = {
@@ -315,6 +317,8 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   }, [dailySales, range])
   const prevVoids = useMemo(() => allVoids.filter(v => inRange(new Date(v.created_at), range.prevStart, range.prevEnd)), [allVoids, range])
   const prevDiscountLogs = useMemo(() => allDiscountLogs.filter(d => inRange(new Date(d.created_at), range.prevStart, range.prevEnd)), [allDiscountLogs, range])
+  // pos_order_items for the previous period — used for cocktail trend calculation
+  const prevPeriodItems = useMemo(() => allItems.filter(i => inRange(new Date(i.created_at), range.prevStart, range.prevEnd)), [allItems, range])
   // POS started July 11 2026 — EON cocktail_sales used only for pre-POS dates to avoid double-counting
   const POS_START = '2026-07-11'
 
@@ -358,7 +362,8 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     const totalServiceCharge = orders.reduce((s, o) => s + (o.service_charge ?? 0), 0)
     // Avg spend per order = what customer actually paid (pos_orders.total)
     const avgSpend = totalOrders > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalOrders : 0
-    // Revenue per cover = total revenue (POS) / covers
+    // Revenue per cover = pos_orders.total / pos_orders.covers (same source both sides — no daily_sales mixing)
+    // Only reflects POS-era nights (Jul 11+). Pre-POS nights have no cover data; they are simply absent.
     const revenuePerCover = totalCovers > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalCovers : 0
     return { totalRevenue, totalOrders, totalCovers, grossSales, totalDiscounts, netSales, totalServiceCharge, avgSpend, revenuePerCover }
   }, [filteredDailySales, orders])
@@ -378,6 +383,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   }, [prevOrders, prevDailySales, range])
 
   // ── Daily performance chart data ──────────────────────────────────────────────
+  // Revenue metric: daily_sales.total_revenue (canonical aggregate).
+  // Orders / Covers / Avg Spend metrics: pos_orders (transaction-level).
+  // Avg Spend = SUM(pos_orders.total) / COUNT(orders) per day — no daily_sales mixing.
   const dailyPerfData = useMemo(() => {
     if (chartMetric === 'revenue') {
       return [...filteredDailySales]
@@ -430,6 +438,10 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   }, [mergedItemMap])
 
   // ── Day×Hour heatmap data (Mon=0 … Sun=6) ────────────────────────────────────
+  // IMPORTANT: heatmap revenue = pos_orders.total attributed by order timestamp.
+  // This differs from the canonical daily Revenue KPI (daily_sales.total_revenue).
+  // If a manual EON correction is added to daily_sales, the heatmap total for that day
+  // will not match the canonical daily figure — that is expected and acceptable.
   const heatmapData = useMemo(() => {
     const grid = Array.from({ length: 7 }, () =>
       Array.from({ length: 24 }, () => ({ revenue: 0, orders: 0, covers: 0 }))
@@ -438,9 +450,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       const d = new Date(o.opened_at)
       const dow = (d.getDay() + 6) % 7  // JS Sun=0 → Mon=0
       const h = d.getHours()
-      grid[dow][h].revenue += o.total
+      grid[dow][h].revenue += o.total   // pos_orders.total (POS-era only)
       grid[dow][h].orders++
-      grid[dow][h].covers += o.covers
+      grid[dow][h].covers += o.covers   // pos_orders.covers
     }
     return grid
   }, [orders])
@@ -627,24 +639,49 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     return cocktailCosts
       .map(c => {
         const qtySold = soldMap[c.name] ?? 0
-        // Contribution Margin = Selling Price − Recipe Cost (canonical COGS definition)
+        // Contribution Margin RM = Selling Price − current recipe cost (cocktails.total_cost snapshot)
         const margin = c.selling_price - c.total_cost
-        const totalProfit = qtySold * margin
+        // Theoretical Contribution = margin × qty sold using CURRENT recipe cost.
+        // Not actual historical profit — actual profit would require pos_order_items.unit_cost.
+        const theoreticalContribution = qtySold * margin
         const cogsPercent = c.selling_price > 0 ? (c.total_cost / c.selling_price) * 100 : 0
         const marginPct = 100 - cogsPercent
-        return { name: c.name, qtySold, sellingPrice: c.selling_price, cost: c.total_cost, margin, cogsPercent, marginPct, totalProfit }
+        return { name: c.name, qtySold, sellingPrice: c.selling_price, cost: c.total_cost, margin, cogsPercent, marginPct, theoreticalContribution }
       })
       .filter(c => c.qtySold > 0)
-      .sort((a, b) => b.totalProfit - a.totalProfit)
+      .sort((a, b) => b.theoreticalContribution - a.theoreticalContribution)
   }, [periodCocktailItems, cocktailCosts])
 
   // ── Menu Engineering: Popularity × Contribution Margin quadrant ──────────────
+  // Profitability axis = RM contribution margin (selling price − current recipe cost)
+  // NOT margin % — a high-price cocktail contributing RM45 ranks above one contributing RM32
+  // even if the latter has a higher margin %.
   const menuEngineering = useMemo(() => {
     if (cocktailProfitability.length < 2) return []
+
+    // Previous period cocktail quantities (for Trend column)
+    const cocktailCategories = ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics']
+    const prevSoldMap: Record<string, number> = {}
+    for (const i of prevPeriodItems) {
+      if (!cocktailCategories.includes((i.category ?? '').toLowerCase())) continue
+      prevSoldMap[i.item_name] = (prevSoldMap[i.item_name] ?? 0) + i.quantity
+    }
+    // EON cocktail_sales for pre-POS dates in the prev window
+    if (range.prevStart) {
+      const ps = localDateStr(range.prevStart)
+      const pe = range.prevEnd ? localDateStr(range.prevEnd) : null
+      for (const cs of allCocktailSales) {
+        if (cs.date < POS_START && cs.date >= ps && (!pe || cs.date < pe)) {
+          prevSoldMap[cs.cocktail_name] = (prevSoldMap[cs.cocktail_name] ?? 0) + cs.quantity
+        }
+      }
+    }
+
     const qtys = [...cocktailProfitability].map(c => c.qtySold).sort((a, b) => a - b)
     const margins = [...cocktailProfitability].map(c => c.margin).sort((a, b) => a - b)
     const medQty = qtys[Math.floor(qtys.length / 2)]
     const medMargin = margins[Math.floor(margins.length / 2)]
+
     return cocktailProfitability.map(c => {
       const highQty = c.qtySold >= medQty
       const highMargin = c.margin >= medMargin
@@ -652,9 +689,24 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
         highQty && highMargin ? 'Star' :
         highQty ? 'Workhorse' :
         highMargin ? 'Puzzle' : 'Dog'
-      return { ...c, cls, medQty, medMargin }
+
+      // Trend vs previous period (by qty sold)
+      const prevQty = prevSoldMap[c.name] ?? 0
+      let trend: string
+      if (!range.prevStart) {
+        trend = '—'
+      } else if (prevQty === 0 && c.qtySold > 0) {
+        trend = 'New'
+      } else if (prevQty === 0) {
+        trend = '—'
+      } else {
+        const pct = ((c.qtySold - prevQty) / prevQty) * 100
+        trend = pct > 1 ? `↑ ${pct.toFixed(0)}%` : pct < -1 ? `↓ ${Math.abs(pct).toFixed(0)}%` : '—'
+      }
+
+      return { ...c, cls, medQty, medMargin, prevQty, trend }
     })
-  }, [cocktailProfitability])
+  }, [cocktailProfitability, prevPeriodItems, allCocktailSales, range])
 
   // ── Things to Review: deterministic observations ──────────────────────────────
   const thingsToReview = useMemo(() => {
@@ -685,19 +737,21 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       }
     }
 
-    // Void rate (absolute, no prev period needed)
+    // Void incidence = % of orders that contained at least one voided item (by unique order_id)
+    // Uses order_id present at runtime from pos_order_items select; typed optionally.
     if (orders.length >= 10) {
-      const voidRate = voids.length / orders.length
-      if (voidRate > 0.10) {
-        obs.push({ severity: 'warning', text: `${(voidRate * 100).toFixed(0)}% of orders had void items (${voids.length} incidents) — review with staff` })
+      const ordersWithVoids = new Set(voids.map(v => v.order_id).filter(Boolean))
+      const voidIncidence = ordersWithVoids.size / orders.length
+      if (voidIncidence > 0.10) {
+        obs.push({ severity: 'warning', text: `Void incidence: ${(voidIncidence * 100).toFixed(0)}% of orders had a voided item (${ordersWithVoids.size} orders, ${voids.length} void lines) — review with staff` })
       }
     }
 
-    // Discount rate
+    // Discount incidence = % of orders that received a discount event
     if (orders.length >= 10 && discountLogs.length > 0) {
-      const discountRate = discountLogs.length / orders.length
-      if (discountRate > 0.20) {
-        obs.push({ severity: 'info', text: `Discounts on ${(discountRate * 100).toFixed(0)}% of orders this period (${discountLogs.length} events)` })
+      const discountIncidence = discountLogs.length / orders.length
+      if (discountIncidence > 0.20) {
+        obs.push({ severity: 'info', text: `Discount incidence: discounts applied on ${(discountIncidence * 100).toFixed(0)}% of orders (${discountLogs.length} events)` })
       }
     }
 
@@ -1258,7 +1312,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
               <div>
                 <p className="section-title">Trading Heatmap</p>
-                <p className="text-[#5A5865] text-xs mt-0.5">Day × hour activity ({PERIOD_LABELS[period]})</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">Day × hour activity ({PERIOD_LABELS[period]}) · Revenue = POS order totals by timestamp — may differ from canonical daily revenue if manual corrections exist</p>
               </div>
               <div className="flex gap-1">
                 {([
@@ -1552,7 +1606,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
           {cocktailProfitability.length > 0 && (
             <div className="card">
               <p className="section-title mb-1">Cocktail Profitability — {PERIOD_LABELS[period]}</p>
-              <p className="text-[#5A5865] text-xs mb-4">Contribution margin = selling price − recipe cost. Total contribution profit = margin × units sold in period.</p>
+              <p className="text-[#5A5865] text-xs mb-4">Contribution margin = selling price − current recipe cost. Theoretical Contribution = margin × units sold. Uses current recipe cost — not historical cost at time of sale.</p>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm" style={{ minWidth: 600 }}>
                   <thead>
@@ -1562,7 +1616,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                       <th className="text-right py-2 px-3">Price</th>
                       <th className="text-right py-2 px-3">Cost</th>
                       <th className="text-right py-2 px-3">Margin</th>
-                      <th className="text-right py-2 pl-4">Total Profit</th>
+                      <th className="text-right py-2 pl-4">Theoretical Contribution</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1577,7 +1631,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                             {c.marginPct.toFixed(0)}%
                           </span>
                         </td>
-                        <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.totalProfit)}</td>
+                        <td className="py-2.5 pl-4 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.theoreticalContribution)}</td>
                       </tr>
                     ))}
                   </tbody>
@@ -1591,8 +1645,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
             <div className="card">
               <p className="section-title mb-1">Menu Engineering — {PERIOD_LABELS[period]}</p>
               <p className="text-[#5A5865] text-xs mb-4">
-                Thresholds: median qty sold = {menuEngineering[0]?.medQty ?? 0}, median margin = {fmtRM(menuEngineering[0]?.medMargin ?? 0)}.
-                Stars have high popularity AND high margin — promote these. Dogs have neither — review or retire.
+                Classification: Popularity (qty sold) × Contribution Margin RM (selling price − current recipe cost).
+                Thresholds: median qty = {menuEngineering[0]?.medQty ?? 0}, median contribution margin = {fmtRM(menuEngineering[0]?.medMargin ?? 0)}.
+                Theoretical Contribution uses current recipe cost — not historical cost at time of sale.
               </p>
 
               {/* 2×2 quadrant grid */}
@@ -1630,7 +1685,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
 
               {/* Management table */}
               <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ minWidth: 640 }}>
+                <table className="w-full text-sm" style={{ minWidth: 780 }}>
                   <thead>
                     <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
                       <th className="text-left py-2 pr-3">Cocktail</th>
@@ -1639,8 +1694,9 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                       <th className="text-right py-2 px-2">Revenue</th>
                       <th className="text-right py-2 px-2">Cost</th>
                       <th className="text-right py-2 px-2">COGS%</th>
-                      <th className="text-right py-2 px-2">Margin</th>
-                      <th className="text-right py-2 pl-3">Total Profit</th>
+                      <th className="text-right py-2 px-2">Margin RM</th>
+                      <th className="text-right py-2 px-2">Theoretical Contribution</th>
+                      <th className="text-right py-2 pl-3">Trend (Qty)</th>
                     </tr>
                   </thead>
                   <tbody>
@@ -1651,6 +1707,10 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                         Puzzle: 'bg-violet-500/10 text-violet-400 border-violet-500/20',
                         Dog: 'bg-[#1A1A1E] text-[#5A5865] border-[#2A2A30]',
                       }
+                      const trendColor = c.trend.startsWith('↑') ? 'text-emerald-400'
+                        : c.trend.startsWith('↓') ? 'text-rose-400'
+                        : c.trend === 'New' ? 'text-[#A78BFA]'
+                        : 'text-[#5A5865]'
                       return (
                         <tr key={c.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
                           <td className="py-2.5 pr-3 text-[#F0EEF6] font-medium">{c.name}</td>
@@ -1663,10 +1723,11 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                           <td className="py-2.5 px-2 text-right tabular-nums text-[#9896A4]">{c.cogsPercent.toFixed(0)}%</td>
                           <td className="py-2.5 px-2 text-right tabular-nums">
                             <span className={`text-xs font-medium px-1.5 py-0.5 rounded ${c.marginPct >= 60 ? 'bg-emerald-500/10 text-emerald-400' : c.marginPct >= 40 ? 'bg-amber-500/10 text-amber-400' : 'bg-rose-500/10 text-rose-400'}`}>
-                              {c.marginPct.toFixed(0)}%
+                              {fmtRM(c.margin)}
                             </span>
                           </td>
-                          <td className="py-2.5 pl-3 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.totalProfit)}</td>
+                          <td className="py-2.5 px-2 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(c.theoreticalContribution)}</td>
+                          <td className={`py-2.5 pl-3 text-right tabular-nums text-xs font-medium ${trendColor}`}>{c.trend}</td>
                         </tr>
                       )
                     })}
