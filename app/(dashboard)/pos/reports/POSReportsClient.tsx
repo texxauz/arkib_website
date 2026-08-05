@@ -191,37 +191,30 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   const payments = useMemo(() => cutoff ? allPayments.filter(p => new Date(p.captured_at) >= cutoff) : allPayments, [allPayments, cutoff])
   const voids = useMemo(() => cutoff ? allVoids.filter(v => new Date(v.created_at) >= cutoff) : allVoids, [allVoids, cutoff])
   const discountLogs = useMemo(() => cutoff ? allDiscountLogs.filter(d => new Date(d.created_at) >= cutoff) : allDiscountLogs, [allDiscountLogs, cutoff])
+  // daily_sales filtered by period — used for revenue chart & stats (has full history from June)
+  const filteredDailySales = useMemo(() => cutoff ? dailySales.filter(s => new Date(s.date) >= cutoff) : dailySales, [dailySales, cutoff])
   // Cocktail analytics always use all-time items regardless of period filter
   const allTimeItems = useMemo(() => allItems.filter(i =>
     ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics'].includes((i.category ?? '').toLowerCase())
   ), [allItems])
 
-  // ── Core stats ──────────────────────────────────────────────────────────────
+  // ── Core stats — use daily_sales for revenue (full history), pos_orders for order counts ──
   const stats = useMemo(() => {
-    const totalRevenue = orders.reduce((s, o) => s + o.total, 0)
+    const totalRevenue = filteredDailySales.reduce((s, d) => s + d.total_revenue, 0)
     const totalOrders = orders.length
     const totalCovers = orders.reduce((s, o) => s + o.covers, 0)
-    const avgSpend = totalOrders > 0 ? totalRevenue / totalOrders : 0
+    const avgSpend = totalOrders > 0 ? orders.reduce((s, o) => s + o.total, 0) / totalOrders : 0
     const avgCovers = totalOrders > 0 ? totalCovers / totalOrders : 0
     const totalDiscounts = orders.reduce((s, o) => s + o.discount_amount, 0)
     return { totalRevenue, totalOrders, totalCovers, avgSpend, avgCovers, totalDiscounts }
-  }, [orders])
+  }, [filteredDailySales, orders])
 
-  // ── Daily revenue ────────────────────────────────────────────────────────────
+  // ── Daily revenue — from daily_sales (full EON history) ─────────────────────
   const dailyRevenue = useMemo(() => {
-    const map: Record<string, number> = {}
-    for (const o of orders) {
-      // Use MYT (UTC+8) date to match business-date logic in daily_sales
-      const ts = o.opened_at ? new Date(o.opened_at) : null
-      if (!ts) continue
-      const myt = new Date(ts.getTime() + 8 * 60 * 60 * 1000)
-      const day = myt.toISOString().slice(0, 10)
-      map[day] = (map[day] ?? 0) + o.total
-    }
-    return Object.entries(map)
-      .sort((a, b) => a[0].localeCompare(b[0]))
-      .map(([date, revenue]) => ({ date: fmtDate(date), revenue }))
-  }, [orders])
+    return filteredDailySales
+      .map(s => ({ date: fmtDate(s.date), revenue: s.total_revenue }))
+      .sort((a, b) => a.date.localeCompare(b.date))
+  }, [filteredDailySales])
 
   // ── Top 10 items ────────────────────────────────────────────────────────────
   const topItems = useMemo(() => {
