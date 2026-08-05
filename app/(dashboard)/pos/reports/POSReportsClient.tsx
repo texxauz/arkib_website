@@ -69,18 +69,29 @@ type MenuItem = {
   category: string
 }
 
-type AllTimeItem = {
-  item_name: string
-  category: string | null
-  quantity: number
-  unit_price: number
-  created_at: string
-}
-
 type CocktailCost = {
   name: string
   selling_price: number
   total_cost: number
+}
+
+type Period = '30d' | '90d' | '6m' | '1y' | 'all'
+
+const PERIOD_LABELS: Record<Period, string> = {
+  '30d': 'Last 30 days',
+  '90d': 'Last 90 days',
+  '6m': 'Last 6 months',
+  '1y': 'This year',
+  'all': 'All time',
+}
+
+function periodCutoff(period: Period): Date | null {
+  const now = new Date()
+  if (period === '30d') return new Date(now.getTime() - 30 * 86400000)
+  if (period === '90d') return new Date(now.getTime() - 90 * 86400000)
+  if (period === '6m') return new Date(now.getTime() - 182 * 86400000)
+  if (period === '1y') return new Date(now.getFullYear(), 0, 1)
+  return null // all
 }
 
 interface Props {
@@ -90,7 +101,6 @@ interface Props {
   voids: VoidedItem[]
   discountLogs: DiscountLog[]
   allMenuItems: MenuItem[]
-  allTimeItems: AllTimeItem[]
   cocktailCosts: CocktailCost[]
   isAdmin: boolean
 }
@@ -157,10 +167,23 @@ function CountTooltip({ active, payload, label }: any) {
   )
 }
 
-export function POSReportsClient({ orders, items, payments, voids, discountLogs, allMenuItems, allTimeItems, cocktailCosts, isAdmin }: Props) {
+export function POSReportsClient({ orders: allOrders, items: allItems, payments: allPayments, voids: allVoids, discountLogs: allDiscountLogs, allMenuItems, cocktailCosts, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
+  const [period, setPeriod] = useState<Period>('30d')
+
+  // ── Period filtering ─────────────────────────────────────────────────────────
+  const cutoff = useMemo(() => periodCutoff(period), [period])
+  const orders = useMemo(() => cutoff ? allOrders.filter(o => new Date(o.opened_at) >= cutoff) : allOrders, [allOrders, cutoff])
+  const items = useMemo(() => cutoff ? allItems.filter(i => new Date(i.created_at) >= cutoff) : allItems, [allItems, cutoff])
+  const payments = useMemo(() => cutoff ? allPayments.filter(p => new Date(p.captured_at) >= cutoff) : allPayments, [allPayments, cutoff])
+  const voids = useMemo(() => cutoff ? allVoids.filter(v => new Date(v.created_at) >= cutoff) : allVoids, [allVoids, cutoff])
+  const discountLogs = useMemo(() => cutoff ? allDiscountLogs.filter(d => new Date(d.created_at) >= cutoff) : allDiscountLogs, [allDiscountLogs, cutoff])
+  // Cocktail analytics always use all-time items regardless of period filter
+  const allTimeItems = useMemo(() => allItems.filter(i =>
+    ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics'].includes((i.category ?? '').toLowerCase())
+  ), [allItems])
 
   // ── Core stats ──────────────────────────────────────────────────────────────
   const stats = useMemo(() => {
@@ -413,30 +436,16 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       .sort((a, b) => b.totalProfit - a.totalProfit)
   }, [allTimeItems, cocktailCosts])
 
-  // Month-on-month revenue comparison (last 6 months vs same month prior year)
+  // Month-on-month revenue comparison — always uses all-time orders regardless of period filter
   const momComparison = useMemo(() => {
     const revenueByMonth: Record<string, number> = {}
-    for (const o of orders.concat([] as typeof orders)) {
-      const d = new Date(o.opened_at)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      revenueByMonth[key] = (revenueByMonth[key] ?? 0) + o.total
-    }
-    // Use allTimeItems to get monthly revenue from all orders (fallback: use orders only)
-    // Build from allTimeItems revenue
-    const allMonthRev: Record<string, number> = {}
-    for (const it of allTimeItems) {
-      const d = new Date(it.created_at)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      allMonthRev[key] = (allMonthRev[key] ?? 0) + it.quantity * it.unit_price
-    }
-    // Also pull from orders for non-cocktail revenue
-    for (const o of orders) {
+    for (const o of allOrders) {
       const d = new Date(o.opened_at)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       revenueByMonth[key] = (revenueByMonth[key] ?? 0) + o.total
     }
     const now = new Date()
-    return Array.from({ length: 6 }, (_, i) => {
+    return Array.from({ length: 12 }, (_, i) => {
       const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
       const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
       const prevKey = `${d.getFullYear() - 1}-${String(d.getMonth() + 1).padStart(2, '0')}`
@@ -446,7 +455,7 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
       const label = d.toLocaleDateString('en-MY', { month: 'short', year: 'numeric' })
       return { label, key, thisRev, prevRev, pct }
     })
-  }, [orders, allTimeItems])
+  }, [allOrders])
 
   // Selected month for cocktail drilldown
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
@@ -469,7 +478,24 @@ export function POSReportsClient({ orders, items, payments, voids, discountLogs,
     <div className="space-y-6">
       <TopBar
         title="POS Reports"
-        subtitle="Last 30 days"
+        subtitle={PERIOD_LABELS[period]}
+        actions={
+          <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1">
+            {(Object.keys(PERIOD_LABELS) as Period[]).map(p => (
+              <button
+                key={p}
+                onClick={() => setPeriod(p)}
+                className={`px-3 py-1 rounded text-xs font-medium transition-all ${
+                  period === p
+                    ? 'bg-[#8B5CF6] text-white'
+                    : 'text-[#9896A4] hover:text-[#F0EEF6]'
+                }`}
+              >
+                {p === 'all' ? 'All' : p === '1y' ? 'YTD' : p.toUpperCase()}
+              </button>
+            ))}
+          </div>
+        }
       />
 
       {/* Tab bar */}
