@@ -206,15 +206,17 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   const cocktailSales = useMemo(() => cutoff ? allCocktailSales.filter(s => new Date(s.date) >= cutoff) : allCocktailSales, [allCocktailSales, cutoff])
   // Cocktail analytics: all-time, merging pos_order_items + cocktail_sales (no period filter)
   const allTimeItems = useMemo(() => {
-    const posItemDates = new Set(allItems.map(i => i.created_at.slice(0, 10)))
-    const posItems = allItems.filter(i =>
-      ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics'].includes((i.category ?? '').toLowerCase())
-    )
-    // EON cocktail_sales for dates not covered by POS
+    const posKeys = new Set<string>()
+    const posItems = allItems
+      .filter(i => ['cocktail', 'house_cocktail', 'house cocktail', 'classic', 'classics'].includes((i.category ?? '').toLowerCase()))
+      .map(i => {
+        posKeys.add(`${i.item_name}|${i.created_at.slice(0, 10)}`)
+        return { item_name: i.item_name, category: i.category, quantity: i.quantity, unit_price: i.unit_price, created_at: i.created_at }
+      })
     const eonItems = allCocktailSales
-      .filter(cs => !posItemDates.has(cs.date))
+      .filter(cs => !posKeys.has(`${cs.cocktail_name}|${cs.date}`))
       .map(cs => ({ item_name: cs.cocktail_name, category: cs.category, quantity: cs.quantity, unit_price: cs.unit_price, created_at: cs.date + 'T00:00:00' }))
-    return [...posItems.map(i => ({ item_name: i.item_name, category: i.category, quantity: i.quantity, unit_price: i.unit_price, created_at: i.created_at })), ...eonItems]
+    return [...posItems, ...eonItems]
   }, [allItems, allCocktailSales])
 
   // ── Core stats — use daily_sales for revenue (full history), pos_orders for order counts ──
@@ -235,31 +237,28 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       .sort((a, b) => a.date.localeCompare(b.date))
   }, [filteredDailySales])
 
-  // ── Merged item sales: pos_order_items + cocktail_sales (EON) — union by name ─
-  // cocktail_sales covers June onwards; pos_order_items from July 11.
-  // We sum both sources so counts are correct regardless of period selected.
+  // ── Merged item sales: pos_order_items + cocktail_sales (EON) ──────────────
+  // cocktail_sales covers June+; pos_order_items from July 11.
+  // Dedup per cocktail+date: if the same cocktail name appears in POS on a given
+  // date, skip the EON entry for that date only — never skip other cocktails.
   const mergedItemMap = useMemo(() => {
-    const map: Record<string, { category: string | null; qty: number; unit_price: number; revenue: number; source: 'pos' | 'eon' | 'both' }> = {}
-    // POS order items
+    const map: Record<string, { category: string | null; qty: number; unit_price: number; revenue: number }> = {}
+    // Build a set of "cocktail_name|date" pairs that already exist in POS items
+    const posKeys = new Set<string>()
     for (const item of items) {
       if (item.voided_at) continue
-      if (!map[item.item_name]) map[item.item_name] = { category: item.category, qty: 0, unit_price: item.unit_price, revenue: 0, source: 'pos' }
+      const date = item.created_at.slice(0, 10)
+      posKeys.add(`${item.item_name}|${date}`)
+      if (!map[item.item_name]) map[item.item_name] = { category: item.category, qty: 0, unit_price: item.unit_price, revenue: 0 }
       map[item.item_name].qty += item.quantity
       map[item.item_name].revenue += item.quantity * item.unit_price - (item.discount ?? 0)
     }
-    // EON cocktail_sales — add quantities not already counted by POS items for the same date
-    // To avoid double-counting: cocktail_sales records are the EON-submitted totals.
-    // Since EON entries predate the POS (June), and POS items start July 11, we include
-    // cocktail_sales only for dates where no pos_order_items exist for that cocktail name.
-    const posItemDates = new Set(items.map(i => i.created_at.slice(0, 10)))
+    // Add EON cocktail_sales — skip only if this exact cocktail was tracked via POS on that date
     for (const cs of cocktailSales) {
-      // Skip if this date has POS order items (POS is the source of truth for that day)
-      if (posItemDates.has(cs.date)) continue
-      const key = cs.cocktail_name
-      if (!map[key]) map[key] = { category: cs.category, qty: 0, unit_price: cs.unit_price, revenue: 0, source: 'eon' }
-      else if (map[key].source === 'pos') map[key].source = 'both'
-      map[key].qty += cs.quantity
-      map[key].revenue += cs.quantity * cs.unit_price
+      if (posKeys.has(`${cs.cocktail_name}|${cs.date}`)) continue
+      if (!map[cs.cocktail_name]) map[cs.cocktail_name] = { category: cs.category, qty: 0, unit_price: cs.unit_price, revenue: 0 }
+      map[cs.cocktail_name].qty += cs.quantity
+      map[cs.cocktail_name].revenue += cs.quantity * cs.unit_price
     }
     return map
   }, [items, cocktailSales])
