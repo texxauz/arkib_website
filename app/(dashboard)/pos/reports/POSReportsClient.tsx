@@ -57,6 +57,7 @@ type Order = {
   subtotal: number
   total: number
   discount_amount: number
+  discount_label: string | null
   service_charge: number
   status: string
   server_name: string | null
@@ -115,6 +116,10 @@ type DailySale = {
   wine_revenue: number | null
   food_revenue: number | null
   others_revenue: number | null
+  // P2.7 Report Health — added to page.tsx SELECT
+  is_balanced?: boolean | null
+  total_collected?: number | null
+  transaction_count?: number | null
 }
 
 type CocktailSaleRow = {
@@ -759,6 +764,297 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     return obs.sort((a, b) => order[a.severity] - order[b.severity]).slice(0, 5)
   }, [orders, prevOrders, voids, discountLogs, stats, prevStats, range])
 
+  // ── P2.1: Revenue driver interpretation ──────────────────────────────────────
+  const revenueDriver = useMemo(() => {
+    if (!prevStats || !range.prevStart) return null
+    const MIN = 5
+    if (orders.length < MIN || prevOrders.length < MIN) return null
+    const revDelta = calcDelta(stats.totalRevenue, prevStats.totalRevenue)
+    if (!revDelta || revDelta.dir === 'flat') return null
+    const enoughCovers = stats.totalCovers >= MIN && prevStats.totalCovers >= MIN
+    const coversDelta = enoughCovers ? calcDelta(stats.totalCovers, prevStats.totalCovers) : null
+    const rpcDelta = enoughCovers ? calcDelta(stats.revenuePerCover, prevStats.revenuePerCover) : null
+    const pct = Math.abs(revDelta.pct).toFixed(0)
+    const dir = revDelta.dir
+    if (!coversDelta || !rpcDelta) {
+      return { text: `Revenue ${dir === 'up' ? 'up' : 'down'} ${pct}% ${range.compLabel.toLowerCase()}.`, dir }
+    }
+    const coversUp = coversDelta.dir === 'up'
+    const rpcUp = rpcDelta.dir === 'up'
+    const cPct = Math.abs(coversDelta.pct).toFixed(0)
+    const rPct = Math.abs(rpcDelta.pct).toFixed(0)
+    let text = ''
+    if (dir === 'up') {
+      if (coversUp && rpcUp)
+        text = `Revenue ↑ ${pct}% — driven by both higher guest volume (+${cPct}%) and higher spend per guest (+${rPct}%).`
+      else if (coversUp)
+        text = `Revenue ↑ ${pct}% — guest volume up (+${cPct}%), but spend per guest down (−${rPct}%).`
+      else
+        text = `Revenue ↑ ${pct}% — spend per guest up (+${rPct}%) despite fewer covers (−${cPct}%).`
+    } else {
+      if (!coversUp && !rpcUp)
+        text = `Revenue ↓ ${pct}% — fewer covers (−${cPct}%) and lower spend per guest (−${rPct}%).`
+      else if (!coversUp)
+        text = `Revenue ↓ ${pct}% — fewer covers (−${cPct}%), partly offset by higher spend per guest (+${rPct}%).`
+      else
+        text = `Revenue ↓ ${pct}% — lower spend per guest (−${rPct}%) despite more covers (+${cPct}%).`
+    }
+    return { text, dir }
+  }, [stats, prevStats, orders, prevOrders, range])
+
+  // ── P2.2: Category performance ────────────────────────────────────────────────
+  const categoryStats = useMemo(() => {
+    const CATS = [
+      { key: 'cocktails_revenue' as const, label: 'Cocktails', color: '#A78BFA' },
+      { key: 'beer_revenue' as const, label: 'Beer', color: '#F59E0B' },
+      { key: 'wine_revenue' as const, label: 'Wine', color: '#38bdf8' },
+      { key: 'food_revenue' as const, label: 'Food', color: '#FB923C' },
+      { key: 'others_revenue' as const, label: 'Others', color: '#9896A4' },
+    ]
+    const sum = (arr: DailySale[], key: keyof DailySale) =>
+      arr.reduce((s, d) => s + (Number(d[key]) || 0), 0)
+    const total = sum(filteredDailySales, 'total_revenue')
+    const overallChange = stats.totalRevenue - (prevStats?.totalRevenue ?? 0)
+    return CATS.map(cat => {
+      const rev = sum(filteredDailySales, cat.key)
+      const prevRev = sum(prevDailySales, cat.key)
+      const mix = total > 0 ? (rev / total) * 100 : 0
+      const rmChange = rev - prevRev
+      const pctChange = prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null
+      const contribution = overallChange !== 0 ? (rmChange / Math.abs(overallChange)) * 100 : null
+      return { ...cat, rev, prevRev, mix, rmChange, pctChange, contribution }
+    }).sort((a, b) => b.rev - a.rev)
+  }, [filteredDailySales, prevDailySales, stats, prevStats])
+
+  // ── P2.3: Guest / cover behaviour ────────────────────────────────────────────
+  const guestBehavior = useMemo(() => {
+    if (orders.length === 0) return null
+    const singleCoverCount = orders.filter(o => o.covers === 1).length
+    const singleCoverPct = singleCoverCount / orders.length
+    const buckets = [
+      { label: '1', min: 1, max: 1 },
+      { label: '2', min: 2, max: 2 },
+      { label: '3–4', min: 3, max: 4 },
+      { label: '5–6', min: 5, max: 6 },
+      { label: '7+', min: 7, max: Infinity },
+    ]
+    const bucketData = buckets.map(b => {
+      const grp = orders.filter(o => o.covers >= b.min && o.covers <= b.max)
+      const rev = grp.reduce((s, o) => s + o.total, 0)
+      const covers = grp.reduce((s, o) => s + o.covers, 0)
+      return {
+        label: b.label,
+        count: grp.length,
+        pct: orders.length > 0 ? grp.length / orders.length : 0,
+        rev,
+        covers,
+        avgTableSpend: grp.length > 0 ? rev / grp.length : 0,
+        revPerCover: covers > 0 ? rev / covers : 0,
+      }
+    })
+    const totalCovers = orders.reduce((s, o) => s + o.covers, 0)
+    const avgPartySize = orders.length > 0 ? totalCovers / orders.length : 0
+    return { bucketData, avgPartySize, singleCoverPct, orderCount: orders.length }
+  }, [orders])
+
+  // ── P2.4: Staff efficiency (extended with void/discount incidence) ────────────
+  const staffEfficiency = useMemo(() => {
+    const staffOrderIds: Record<string, Set<string>> = {}
+    for (const o of orders) {
+      const name = o.server_name ?? 'Unknown'
+      if (!staffOrderIds[name]) staffOrderIds[name] = new Set()
+      staffOrderIds[name].add(o.id)
+    }
+    const staffVoidOrderIds: Record<string, Set<string>> = {}
+    for (const v of voids) {
+      const name = v.server_name ?? 'Unknown'
+      if (!staffVoidOrderIds[name]) staffVoidOrderIds[name] = new Set()
+      if (v.order_id) staffVoidOrderIds[name].add(v.order_id)
+    }
+    const staffDiscountEvents: Record<string, number> = {}
+    for (const d of discountLogs) {
+      const name = d.actor_name ?? 'Unknown'
+      staffDiscountEvents[name] = (staffDiscountEvents[name] ?? 0) + 1
+    }
+    return staffStats.map(s => {
+      const myOrders = staffOrderIds[s.name]?.size ?? 0
+      const voidOrders = staffVoidOrderIds[s.name]?.size ?? 0
+      const discEvents = staffDiscountEvents[s.name] ?? 0
+      return {
+        ...s,
+        voidOrders,
+        voidIncidence: myOrders > 0 ? voidOrders / myOrders : 0,
+        discountEvents: discEvents,
+        discountIncidence: myOrders > 0 ? discEvents / myOrders : 0,
+      }
+    })
+  }, [staffStats, voids, discountLogs, orders])
+
+  // ── P2.5: Void analysis ───────────────────────────────────────────────────────
+  const voidIncidenceStats = useMemo(() => {
+    const curr = new Set(voids.map(v => v.order_id).filter(Boolean))
+    const prev = new Set(prevVoids.map(v => v.order_id).filter(Boolean))
+    return {
+      curr: orders.length > 0 ? curr.size / orders.length : 0,
+      prev: prevOrders.length > 0 ? prev.size / prevOrders.length : null,
+      ordersWithVoids: curr.size,
+      totalOrders: orders.length,
+      totalVoidLines: voids.length,
+      totalVoidValue: voids.reduce((s, v) => s + v.quantity * v.unit_price, 0),
+    }
+  }, [voids, prevVoids, orders, prevOrders])
+
+  const voidsByStaff = useMemo(() => {
+    const map: Record<string, { ords: Set<string>; lines: number; value: number }> = {}
+    for (const v of voids) {
+      const name = v.server_name ?? 'Unknown'
+      if (!map[name]) map[name] = { ords: new Set(), lines: 0, value: 0 }
+      if (v.order_id) map[name].ords.add(v.order_id)
+      map[name].lines++
+      map[name].value += v.quantity * v.unit_price
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, uniqueOrders: v.ords.size, lines: v.lines, value: v.value }))
+      .sort((a, b) => b.value - a.value)
+  }, [voids])
+
+  const voidsByHour = useMemo(() => {
+    const map: Record<number, { count: number; value: number }> = {}
+    for (const v of voids) {
+      const h = new Date(v.created_at).getHours()
+      if (!map[h]) map[h] = { count: 0, value: 0 }
+      map[h].count++
+      map[h].value += v.quantity * v.unit_price
+    }
+    return Object.entries(map)
+      .map(([h, v]) => ({ hour: Number(h), ...v }))
+      .sort((a, b) => a.hour - b.hour)
+  }, [voids])
+
+  const voidReasonStats = useMemo(() => {
+    const map: Record<string, { count: number; value: number }> = {}
+    for (const v of voids) {
+      const r = v.void_reason?.trim() || 'No reason provided'
+      if (!map[r]) map[r] = { count: 0, value: 0 }
+      map[r].count++
+      map[r].value += v.quantity * v.unit_price
+    }
+    return Object.entries(map)
+      .map(([reason, v]) => ({ reason, ...v }))
+      .sort((a, b) => b.count - a.count)
+  }, [voids])
+
+  const topVoidedItems = useMemo(() => {
+    const map: Record<string, { count: number; value: number }> = {}
+    for (const v of voids) {
+      if (!map[v.item_name]) map[v.item_name] = { count: 0, value: 0 }
+      map[v.item_name].count += v.quantity
+      map[v.item_name].value += v.quantity * v.unit_price
+    }
+    return Object.entries(map)
+      .map(([name, v]) => ({ name, ...v }))
+      .sort((a, b) => b.count - a.count)
+      .slice(0, 10)
+  }, [voids])
+
+  // P2.5: Discount stats — settled pos_orders.discount_amount is the reliable source
+  // Use audit logs only for staff attribution (event frequency), not dollar amounts.
+  const discountOrderStats = useMemo(() => {
+    const ordersWithDiscount = orders.filter(o => o.discount_amount > 0)
+    const grossSales = orders.reduce((s, o) => s + (o.subtotal ?? o.total), 0)
+    const totalDiscountValue = ordersWithDiscount.reduce((s, o) => s + o.discount_amount, 0)
+    const byLabel: Record<string, { count: number; value: number }> = {}
+    for (const o of orders) {
+      if (o.discount_amount <= 0) continue
+      const label = o.discount_label?.trim() || 'Unknown'
+      if (!byLabel[label]) byLabel[label] = { count: 0, value: 0 }
+      byLabel[label].count++
+      byLabel[label].value += o.discount_amount
+    }
+    const byStaff: Record<string, { events: number }> = {}
+    for (const d of discountLogs) {
+      const name = d.actor_name ?? 'Unknown'
+      if (!byStaff[name]) byStaff[name] = { events: 0 }
+      byStaff[name].events++
+    }
+    return {
+      incidence: orders.length > 0 ? ordersWithDiscount.length / orders.length : 0,
+      ordersWithDiscount: ordersWithDiscount.length,
+      totalOrders: orders.length,
+      totalDiscountValue,
+      discountValueRate: grossSales > 0 ? totalDiscountValue / grossSales : 0,
+      byLabel: Object.entries(byLabel).map(([label, v]) => ({ label, ...v })).sort((a, b) => b.value - a.value),
+      byStaff: Object.entries(byStaff).map(([name, v]) => ({ name, ...v })).sort((a, b) => b.events - a.events),
+    }
+  }, [orders, discountLogs])
+
+  // ── P2.6: Management summary (deterministic, max 6 observations) ──────────────
+  const managementSummary = useMemo(() => {
+    const obs: string[] = []
+    const MIN = 5
+    // 1. Revenue driver
+    if (revenueDriver) obs.push(revenueDriver.text)
+    // 2. Category growth driver
+    if (prevStats && Math.abs(stats.totalRevenue - prevStats.totalRevenue) >= 100 && categoryStats.length > 0) {
+      const overallChange = stats.totalRevenue - prevStats.totalRevenue
+      const topCat = [...categoryStats].sort((a, b) => Math.abs(b.rmChange) - Math.abs(a.rmChange))[0]
+      if (topCat && Math.abs(topCat.rmChange) >= 50 && topCat.rev > 0) {
+        const verb = topCat.rmChange >= 0 ? 'contributed' : 'reduced revenue by'
+        const direction = overallChange >= 0 ? 'revenue increase' : 'revenue decline'
+        obs.push(`${topCat.label} ${verb} ${fmtRM(Math.abs(topCat.rmChange))} of the ${fmtRM(Math.abs(overallChange))} ${direction}.`)
+      }
+    }
+    // 3. Peak trading period
+    let peakDow = -1, peakHour = -1, peakVal = 0
+    const DOW = ['Mon', 'Tue', 'Wed', 'Thu', 'Fri', 'Sat', 'Sun']
+    for (let dow = 0; dow < 7; dow++) {
+      for (let h = 0; h < 24; h++) {
+        const v = heatmapData[dow][h].revenue
+        if (v > peakVal) { peakVal = v; peakDow = dow; peakHour = h }
+      }
+    }
+    if (peakDow >= 0 && peakVal > 0 && orders.length >= MIN) {
+      obs.push(`Strongest trading: ${DOW[peakDow]} ${String(peakHour).padStart(2, '0')}:00–${String(peakHour + 1).padStart(2, '0')}:00 (${fmtRM(peakVal)}).`)
+    }
+    // 4. Menu opportunity
+    const topStar = menuEngineering.find(c => c.cls === 'Star')
+    if (topStar) {
+      obs.push(`${topStar.name} is a Star — ${topStar.qtySold} sold, ${fmtRM(topStar.margin)} contribution margin.`)
+    }
+    // 5. Void issue
+    if (orders.length >= 10) {
+      const vi = voidIncidenceStats.curr
+      const prevVi = voidIncidenceStats.prev
+      if (vi > 0.08 && prevVi !== null && vi > prevVi * 1.2) {
+        obs.push(`Void incidence rose from ${(prevVi * 100).toFixed(0)}% to ${(vi * 100).toFixed(0)}%.`)
+      } else if (vi > 0.15) {
+        obs.push(`Void incidence at ${(vi * 100).toFixed(0)}% — ${voidIncidenceStats.ordersWithVoids} orders contained voided items.`)
+      }
+    }
+    return obs.slice(0, 6)
+  }, [revenueDriver, stats, prevStats, categoryStats, heatmapData, orders, menuEngineering, voidIncidenceStats])
+
+  // ── P2.7: Report health ───────────────────────────────────────────────────────
+  // Missing report = a date where POS orders exist but daily_sales row is absent.
+  // A day with no orders AND no daily_sales is not flagged — venue may be closed.
+  const reportHealth = useMemo(() => {
+    const posOrderDates = new Set(orders.map(o => localDateStr(new Date(o.opened_at))))
+    const dailySalesDates = new Set(filteredDailySales.map(d => d.date))
+    const missingReports = [...posOrderDates].filter(d => !dailySalesDates.has(d)).sort()
+    const totalDays = filteredDailySales.length
+    const unbalancedDays = filteredDailySales.filter(d => d.is_balanced === false).length
+    const hasBalanceData = filteredDailySales.some(d => d.is_balanced != null)
+    const totalRevenue = filteredDailySales.reduce((s, d) => s + d.total_revenue, 0)
+    const totalCollected = filteredDailySales.reduce((s, d) => s + (d.total_collected ?? 0), 0)
+    const hasCollectedData = filteredDailySales.some(d => d.total_collected != null && d.total_collected > 0)
+    const discrepancy = hasCollectedData && totalCollected > 0 ? Math.abs(totalRevenue - totalCollected) : null
+    const latestDate = filteredDailySales.length > 0
+      ? filteredDailySales.reduce((a, b) => a.date > b.date ? a : b).date
+      : null
+    const isHealthy = missingReports.length === 0 && unbalancedDays === 0
+    return { missingReports, totalDays, unbalancedDays, hasBalanceData, discrepancy, hasCollectedData, latestDate, isHealthy }
+  }, [orders, filteredDailySales])
+
   // Month-on-month revenue comparison — uses daily_sales which has full history back to June
   const momComparison = useMemo(() => {
     const revenueByMonth: Record<string, { total: number; cocktails: number; beer: number; wine: number; food: number; others: number }> = {}
@@ -846,6 +1142,53 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       {activeTab === 'overview' && (
         <div className="space-y-6">
 
+          {/* P2.7 Report Health — compact status indicator */}
+          {(reportHealth.missingReports.length > 0 || reportHealth.unbalancedDays > 0 || !reportHealth.isHealthy) && (
+            <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${
+              reportHealth.isHealthy
+                ? 'bg-emerald-500/8 border-emerald-500/20'
+                : 'bg-amber-500/8 border-amber-500/20'
+            }`}>
+              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${reportHealth.isHealthy ? 'bg-emerald-400' : 'bg-amber-400'}`} />
+              <div className="flex-1 min-w-0">
+                <p className={`text-xs font-semibold uppercase tracking-wider mb-1 ${reportHealth.isHealthy ? 'text-emerald-300' : 'text-amber-300'}`}>
+                  Data Quality
+                </p>
+                <div className="space-y-0.5">
+                  {reportHealth.missingReports.length > 0 && (
+                    <p className="text-amber-200 text-xs">
+                      {reportHealth.missingReports.length} trading day{reportHealth.missingReports.length > 1 ? 's' : ''} with POS orders but no EON report: {reportHealth.missingReports.slice(0, 3).join(', ')}{reportHealth.missingReports.length > 3 ? ` +${reportHealth.missingReports.length - 3} more` : ''}
+                    </p>
+                  )}
+                  {reportHealth.hasBalanceData && reportHealth.unbalancedDays > 0 && (
+                    <p className="text-amber-200 text-xs">{reportHealth.unbalancedDays} day{reportHealth.unbalancedDays > 1 ? 's' : ''} marked as unbalanced in EON submissions</p>
+                  )}
+                  {reportHealth.discrepancy != null && reportHealth.discrepancy > 50 && (
+                    <p className="text-amber-200 text-xs">Revenue vs collected discrepancy: {fmtRM(reportHealth.discrepancy)}</p>
+                  )}
+                  {reportHealth.latestDate && (
+                    <p className="text-[#9896A4] text-xs">Latest EON report: {reportHealth.latestDate}</p>
+                  )}
+                </div>
+              </div>
+            </div>
+          )}
+
+          {/* P2.6 Management Summary */}
+          {managementSummary.length > 0 && (
+            <div className="card">
+              <p className="section-title mb-3">Summary</p>
+              <div className="space-y-2">
+                {managementSummary.map((text, i) => (
+                  <div key={i} className="flex items-start gap-2.5">
+                    <span className="w-1.5 h-1.5 rounded-full bg-[#8B5CF6] mt-2 shrink-0" />
+                    <p className="text-sm text-[#D4D2DC]">{text}</p>
+                  </div>
+                ))}
+              </div>
+            </div>
+          )}
+
           {/* Things to Review */}
           {thingsToReview.length > 0 && (
             <div className="card space-y-2">
@@ -921,6 +1264,18 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
             })}
           </div>
 
+          {/* P2.1 Revenue Driver — compact interpretation below KPI cards */}
+          {revenueDriver && (
+            <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${
+              revenueDriver.dir === 'up'
+                ? 'bg-emerald-500/8 border-emerald-500/20'
+                : 'bg-rose-500/8 border-rose-500/20'
+            }`}>
+              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${revenueDriver.dir === 'up' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
+              <p className={`text-sm ${revenueDriver.dir === 'up' ? 'text-emerald-200' : 'text-rose-200'}`}>{revenueDriver.text}</p>
+            </div>
+          )}
+
           {/* Daily Performance chart — P1.3 */}
           <div className="card">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -978,6 +1333,112 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
               </ResponsiveContainer>
             )}
           </div>
+
+          {/* P2.2 Category Performance */}
+          {filteredDailySales.length > 0 && (
+            <div className="card">
+              <div className="mb-4">
+                <p className="section-title">Category Performance</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">From EON daily submissions · {PERIOD_LABELS[period]}</p>
+              </div>
+              {/* Category mix bar */}
+              {(() => {
+                const total = categoryStats.reduce((s, c) => s + c.rev, 0)
+                if (total === 0) return <p className="text-[#5A5865] text-sm">No category data</p>
+                return (
+                  <div className="mb-5">
+                    <div className="flex h-4 rounded-full overflow-hidden gap-px mb-2">
+                      {categoryStats.filter(c => c.rev > 0).map(c => (
+                        <div
+                          key={c.key}
+                          style={{ width: `${c.mix}%`, background: c.color }}
+                          title={`${c.label}: ${c.mix.toFixed(1)}%`}
+                        />
+                      ))}
+                    </div>
+                    <div className="flex flex-wrap gap-x-4 gap-y-1">
+                      {categoryStats.filter(c => c.rev > 0).map(c => (
+                        <div key={c.key} className="flex items-center gap-1.5">
+                          <span className="w-2.5 h-2.5 rounded-sm shrink-0" style={{ background: c.color }} />
+                          <span className="text-[#9896A4] text-xs">{c.label}</span>
+                          <span className="text-xs tabular-nums" style={{ color: c.color }}>{c.mix.toFixed(0)}%</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                )
+              })()}
+              {/* Management table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: 640 }}>
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4">Category</th>
+                      <th className="text-right py-2 px-3">Revenue</th>
+                      <th className="text-right py-2 px-3">Mix %</th>
+                      {range.prevStart && <th className="text-right py-2 px-3">Prev Period</th>}
+                      {range.prevStart && <th className="text-right py-2 px-3">RM Change</th>}
+                      {range.prevStart && <th className="text-right py-2 px-3">% Change</th>}
+                      {range.prevStart && <th className="text-right py-2 pl-3">Contrib to Growth</th>}
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {categoryStats.map(c => (
+                      <tr key={c.key} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 pr-4">
+                          <div className="flex items-center gap-2">
+                            <span className="w-2 h-2 rounded-sm shrink-0" style={{ background: c.color }} />
+                            <span className="text-[#F0EEF6]">{c.label}</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums font-medium" style={{ color: c.color }}>
+                          {c.rev > 0 ? fmtRM(c.rev) : <span className="text-[#5A5865]">—</span>}
+                        </td>
+                        <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">
+                          {c.mix > 0 ? `${c.mix.toFixed(1)}%` : '—'}
+                        </td>
+                        {range.prevStart && (
+                          <td className="py-2.5 px-3 text-right tabular-nums text-[#5A5865]">
+                            {c.prevRev > 0 ? fmtRM(c.prevRev) : '—'}
+                          </td>
+                        )}
+                        {range.prevStart && (
+                          <td className="py-2.5 px-3 text-right tabular-nums">
+                            {c.prevRev > 0 || c.rev > 0 ? (
+                              <span className={c.rmChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                {c.rmChange >= 0 ? '+' : ''}{fmtRM(c.rmChange)}
+                              </span>
+                            ) : <span className="text-[#5A5865]">—</span>}
+                          </td>
+                        )}
+                        {range.prevStart && (
+                          <td className="py-2.5 px-3 text-right tabular-nums">
+                            {c.pctChange !== null ? (
+                              <span className={c.pctChange >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                {c.pctChange >= 0 ? '+' : ''}{c.pctChange.toFixed(1)}%
+                              </span>
+                            ) : <span className="text-[#5A5865]">—</span>}
+                          </td>
+                        )}
+                        {range.prevStart && (
+                          <td className="py-2.5 pl-3 text-right tabular-nums">
+                            {c.contribution !== null ? (
+                              <span className={Math.abs(c.contribution) < 5 ? 'text-[#5A5865]' : c.contribution >= 0 ? 'text-emerald-400' : 'text-rose-400'}>
+                                {c.contribution >= 0 ? '+' : ''}{c.contribution.toFixed(0)}%
+                              </span>
+                            ) : <span className="text-[#5A5865]">—</span>}
+                          </td>
+                        )}
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+              {range.prevStart && (
+                <p className="text-[#5A5865] text-xs mt-3">Contribution to Growth = category RM change ÷ |overall revenue change|. Values may exceed ±100% if categories partially offset each other.</p>
+              )}
+            </div>
+          )}
 
           {/* Top 10 items */}
           <div className="card">
@@ -1257,21 +1718,26 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                 </div>
               )}
 
-              {/* Full table */}
+              {/* Full efficiency table — P2.4 */}
               <div className="card overflow-x-auto">
-                <p className="section-title mb-4">Performance Breakdown — {PERIOD_LABELS[period]}</p>
-                <table className="w-full text-sm">
+                <div className="mb-4">
+                  <p className="section-title">Staff Efficiency — {PERIOD_LABELS[period]}</p>
+                  <p className="text-[#5A5865] text-xs mt-0.5">Revenue Handled = attribution from order records, not causation. Void/discount incidence = % of that server's orders.</p>
+                </div>
+                <table className="w-full text-sm" style={{ minWidth: 700 }}>
                   <thead>
                     <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
                       <th className="text-left py-2 pr-4">Server</th>
-                      <th className="text-right py-2 px-4">Orders</th>
-                      <th className="text-right py-2 px-4">Covers</th>
-                      <th className="text-right py-2 px-4">Avg / Order</th>
-                      <th className="text-right py-2 pl-4">Total Revenue</th>
+                      <th className="text-right py-2 px-3">Orders</th>
+                      <th className="text-right py-2 px-3">Covers</th>
+                      <th className="text-right py-2 px-3">Avg Check</th>
+                      <th className="text-right py-2 px-3">Revenue Handled</th>
+                      <th className="text-right py-2 px-3">Void Incid.</th>
+                      <th className="text-right py-2 pl-3">Disc. Incid.</th>
                     </tr>
                   </thead>
                   <tbody>
-                    {staffStats.map((s, i) => (
+                    {staffEfficiency.map((s, i) => (
                       <tr key={s.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
                         <td className="py-2.5 pr-4">
                           <div className="flex items-center gap-2">
@@ -1281,20 +1747,32 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                             <span className="text-[#F0EEF6] font-medium">{s.name}</span>
                           </div>
                         </td>
-                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{s.orders}</td>
-                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{s.covers}</td>
-                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{fmtRM(s.avgSpend)}</td>
-                        <td className="py-2.5 pl-4 text-right text-emerald-400 font-semibold tabular-nums">{fmtRM(s.revenue)}</td>
+                        <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{s.orders}</td>
+                        <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{s.covers}</td>
+                        <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{fmtRM(s.avgSpend)}</td>
+                        <td className="py-2.5 px-3 text-right text-emerald-400 font-semibold tabular-nums">{fmtRM(s.revenue)}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">
+                          <span className={s.voidIncidence > 0.15 ? 'text-rose-400 font-semibold' : s.voidIncidence > 0.08 ? 'text-amber-400' : 'text-[#9896A4]'}>
+                            {s.voidOrders > 0 ? `${(s.voidIncidence * 100).toFixed(0)}%` : '—'}
+                          </span>
+                        </td>
+                        <td className="py-2.5 pl-3 text-right tabular-nums">
+                          <span className={s.discountIncidence > 0.30 ? 'text-amber-400 font-semibold' : 'text-[#9896A4]'}>
+                            {s.discountEvents > 0 ? `${(s.discountIncidence * 100).toFixed(0)}%` : '—'}
+                          </span>
+                        </td>
                       </tr>
                     ))}
                   </tbody>
                   <tfoot>
                     <tr className="border-t border-[#2A2A30]">
                       <td className="py-2.5 pr-4 text-[#9896A4] text-xs font-medium">Total</td>
-                      <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums text-xs">{staffStats.reduce((s, r) => s + r.orders, 0)}</td>
-                      <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums text-xs">{staffStats.reduce((s, r) => s + r.covers, 0)}</td>
-                      <td className="py-2.5 px-4" />
-                      <td className="py-2.5 pl-4 text-right text-emerald-400 font-bold tabular-nums text-xs">{fmtRM(staffStats.reduce((s, r) => s + r.revenue, 0))}</td>
+                      <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{staffEfficiency.reduce((s, r) => s + r.orders, 0)}</td>
+                      <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums text-xs">{staffEfficiency.reduce((s, r) => s + r.covers, 0)}</td>
+                      <td className="py-2.5 px-3" />
+                      <td className="py-2.5 px-3 text-right text-emerald-400 font-bold tabular-nums text-xs">{fmtRM(staffEfficiency.reduce((s, r) => s + r.revenue, 0))}</td>
+                      <td className="py-2.5 px-3" />
+                      <td className="py-2.5 pl-3" />
                     </tr>
                   </tfoot>
                 </table>
@@ -1307,6 +1785,74 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       {/* ── OPERATIONAL TAB ──────────────────────────────────────────────────── */}
       {activeTab === 'operational' && (
         <div className="space-y-6">
+
+          {/* P2.3 Guest / Cover Behaviour */}
+          {guestBehavior && (
+            <div className="card">
+              <div className="mb-4">
+                <p className="section-title">Guest &amp; Cover Behaviour</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">From POS orders (Jul 11 2026+) · {PERIOD_LABELS[period]}</p>
+              </div>
+              {/* Cover data quality note */}
+              {guestBehavior.singleCoverPct > 0.6 && (
+                <div className="rounded-lg border border-amber-500/20 bg-amber-500/8 px-3 py-2.5 mb-4">
+                  <p className="text-amber-200 text-xs">
+                    {(guestBehavior.singleCoverPct * 100).toFixed(0)}% of orders in this period have covers = 1. Cover analysis depends on covers being entered accurately at order creation.
+                  </p>
+                </div>
+              )}
+              {/* Summary stats */}
+              <div className="grid grid-cols-2 sm:grid-cols-3 gap-3 mb-5">
+                <div>
+                  <p className="text-[#5A5865] text-xs">Avg Party Size</p>
+                  <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">{guestBehavior.avgPartySize.toFixed(1)}</p>
+                </div>
+                <div>
+                  <p className="text-[#5A5865] text-xs">Orders Analysed</p>
+                  <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">{guestBehavior.orderCount}</p>
+                </div>
+                <div>
+                  <p className="text-[#5A5865] text-xs">Rev / Cover (overall)</p>
+                  <p className="text-[#A78BFA] font-bold text-xl tabular-nums">
+                    {stats.revenuePerCover > 0 ? fmtRM(stats.revenuePerCover) : '—'}
+                  </p>
+                </div>
+              </div>
+              {/* Party size breakdown table */}
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm" style={{ minWidth: 540 }}>
+                  <thead>
+                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                      <th className="text-left py-2 pr-4">Party Size</th>
+                      <th className="text-right py-2 px-3">Orders</th>
+                      <th className="text-right py-2 px-3">% of Orders</th>
+                      <th className="text-right py-2 px-3">Avg Table Spend</th>
+                      <th className="text-right py-2 pl-3">Rev / Cover</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {guestBehavior.bucketData.filter(b => b.count > 0).map(b => (
+                      <tr key={b.label} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                        <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">{b.label} guest{b.label === '1' ? '' : 's'}</td>
+                        <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{b.count}</td>
+                        <td className="py-2.5 px-3 text-right tabular-nums">
+                          <div className="flex items-center justify-end gap-2">
+                            <div className="w-16 h-1.5 bg-[#1A1A1E] rounded-full overflow-hidden">
+                              <div className="h-full rounded-full bg-[#8B5CF6]" style={{ width: `${b.pct * 100}%` }} />
+                            </div>
+                            <span className="text-[#9896A4] w-8 text-right">{(b.pct * 100).toFixed(0)}%</span>
+                          </div>
+                        </td>
+                        <td className="py-2.5 px-3 text-right text-emerald-400 tabular-nums">{fmtRM(b.avgTableSpend)}</td>
+                        <td className="py-2.5 pl-3 text-right text-[#A78BFA] tabular-nums">{b.revPerCover > 0 ? fmtRM(b.revPerCover) : '—'}</td>
+                      </tr>
+                    ))}
+                  </tbody>
+                </table>
+              </div>
+            </div>
+          )}
+
           {/* Day × Hour Trading Heatmap — P1.4 */}
           <div className="card">
             <div className="flex items-center justify-between mb-4 flex-wrap gap-3">
@@ -1794,114 +2340,320 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
         </div>
       )}
 
-      {/* ── VOIDS TAB (admin only) ────────────────────────────────────────────── */}
+      {/* ── VOIDS & DISCOUNTS TAB (admin only) — P2.5 expanded ───────────────── */}
       {activeTab === 'voids' && isAdmin && (
         <div className="space-y-6">
-          {/* Summary stats */}
-          <div className="grid grid-cols-1 sm:grid-cols-3 gap-3">
-            <div className="card">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Total Void Value</p>
-              <p className="text-rose-400 font-bold text-2xl tabular-nums">{fmtRM(totalVoidValue)}</p>
-            </div>
-            <div className="card">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Void Incidents</p>
-              <p className="text-[#F0EEF6] font-bold text-2xl tabular-nums">{voids.length}</p>
-            </div>
-            <div className="card">
-              <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Total Discounts Given</p>
-              <p className="text-amber-400 font-bold text-2xl tabular-nums">{fmtRM(stats.totalDiscounts)}</p>
-              <p className="text-[#5A5865] text-xs mt-1">{discountLogs.length} discount events</p>
-            </div>
-          </div>
 
-          {/* Voided items table */}
+          {/* ── VOID SECTION ── */}
           <div className="card">
             <div className="flex items-center gap-2 mb-4">
               <AlertTriangle size={14} className="text-rose-400" />
-              <p className="section-title">Voided Items</p>
+              <p className="section-title">Void Analysis — {PERIOD_LABELS[period]}</p>
             </div>
+
+            {/* Void KPI row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              <div>
+                <p className="text-[#5A5865] text-xs">Void Incidence</p>
+                <p className={`font-bold text-xl tabular-nums ${voidIncidenceStats.curr > 0.15 ? 'text-rose-400' : voidIncidenceStats.curr > 0.08 ? 'text-amber-400' : 'text-[#F0EEF6]'}`}>
+                  {voidIncidenceStats.totalOrders > 0 ? `${(voidIncidenceStats.curr * 100).toFixed(0)}%` : '—'}
+                </p>
+                <p className="text-[#5A5865] text-xs mt-0.5">{voidIncidenceStats.ordersWithVoids} of {voidIncidenceStats.totalOrders} orders</p>
+                {voidIncidenceStats.prev !== null && (
+                  <p className="text-[#5A5865] text-xs">Prev: {(voidIncidenceStats.prev * 100).toFixed(0)}%</p>
+                )}
+              </div>
+              <div>
+                <p className="text-[#5A5865] text-xs">Voided Line Items</p>
+                <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">{voidIncidenceStats.totalVoidLines}</p>
+              </div>
+              <div>
+                <p className="text-[#5A5865] text-xs">Total Void Value</p>
+                <p className="text-rose-400 font-bold text-xl tabular-nums">{fmtRM(voidIncidenceStats.totalVoidValue)}</p>
+              </div>
+              {(() => {
+                const noReasonCount = voids.filter(v => !v.void_reason?.trim()).length
+                const noReasonPct = voids.length > 0 ? noReasonCount / voids.length : 0
+                return (
+                  <div>
+                    <p className="text-[#5A5865] text-xs">No Reason Provided</p>
+                    <p className={`font-bold text-xl tabular-nums ${noReasonPct > 0.3 ? 'text-amber-400' : 'text-[#F0EEF6]'}`}>
+                      {voids.length > 0 ? `${(noReasonPct * 100).toFixed(0)}%` : '—'}
+                    </p>
+                    <p className="text-[#5A5865] text-xs mt-0.5">{noReasonCount} of {voids.length} void lines</p>
+                  </div>
+                )
+              })()}
+            </div>
+
             {voids.length === 0 ? (
-              <p className="text-[#5A5865] text-sm">No voided items in this period</p>
+              <p className="text-[#5A5865] text-sm text-center py-4">No voided items in this period</p>
             ) : (
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm">
-                  <thead>
-                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
-                      <th className="text-left py-2 pr-4">Item</th>
-                      <th className="text-right py-2 px-4">Qty</th>
-                      <th className="text-right py-2 px-4">Value</th>
-                      <th className="text-left py-2 px-4">Reason</th>
-                      <th className="text-right py-2 pl-4">Date</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {voids.map((v, i) => (
-                      <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
-                        <td className="py-2.5 pr-4 text-[#F0EEF6]">{v.item_name}</td>
-                        <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{v.quantity}</td>
-                        <td className="py-2.5 px-4 text-right text-rose-400 font-medium tabular-nums">{fmtRM(v.quantity * v.unit_price)}</td>
-                        <td className="py-2.5 px-4 text-[#9896A4] text-xs">
-                          {v.void_reason ?? <span className="text-[#5A5865]">—</span>}
-                        </td>
-                        <td className="py-2.5 pl-4 text-right text-[#5A5865] text-xs whitespace-nowrap">
-                          {fmtDate(v.created_at)}
-                        </td>
-                      </tr>
-                    ))}
-                  </tbody>
-                </table>
+              <div className="space-y-6">
+
+                {/* Top voided items + reasons side by side */}
+                <div className="grid grid-cols-1 sm:grid-cols-2 gap-4">
+                  {/* Most voided items */}
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Most Voided Items</p>
+                    <div className="space-y-1.5">
+                      {topVoidedItems.slice(0, 7).map(item => (
+                        <div key={item.name} className="flex items-center justify-between gap-2">
+                          <span className="text-[#F0EEF6] text-sm truncate flex-1">{item.name}</span>
+                          <span className="text-[#9896A4] text-xs tabular-nums shrink-0">{item.count}×</span>
+                          <span className="text-rose-400 text-xs tabular-nums shrink-0 w-20 text-right">{fmtRM(item.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                  </div>
+                  {/* Void reasons */}
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Void Reasons (as recorded)</p>
+                    <div className="space-y-1.5">
+                      {voidReasonStats.slice(0, 7).map(r => (
+                        <div key={r.reason} className="flex items-center justify-between gap-2">
+                          <span className={`text-sm truncate flex-1 ${r.reason === 'No reason provided' ? 'text-[#5A5865] italic' : 'text-[#F0EEF6]'}`}>{r.reason}</span>
+                          <span className="text-[#9896A4] text-xs tabular-nums shrink-0">{r.count}×</span>
+                          <span className="text-rose-400 text-xs tabular-nums shrink-0 w-20 text-right">{fmtRM(r.value)}</span>
+                        </div>
+                      ))}
+                    </div>
+                    {(() => {
+                      const noReasonCount = voids.filter(v => !v.void_reason?.trim()).length
+                      const noReasonPct = voids.length > 0 ? (noReasonCount / voids.length * 100).toFixed(0) : '0'
+                      return noReasonCount > 0 ? (
+                        <p className="text-[#5A5865] text-xs mt-2">{noReasonPct}% of voids have no recorded reason.</p>
+                      ) : null
+                    })()}
+                  </div>
+                </div>
+
+                {/* Voids by staff */}
+                {voidsByStaff.length > 0 && (
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Voids by Staff</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                            <th className="text-left py-2 pr-4">Staff</th>
+                            <th className="text-right py-2 px-3">Orders w/ Voids</th>
+                            <th className="text-right py-2 px-3">Void Lines</th>
+                            <th className="text-right py-2 pl-3">Void Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {voidsByStaff.map(s => (
+                            <tr key={s.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                              <td className="py-2.5 pr-4 text-[#F0EEF6]">{s.name}</td>
+                              <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{s.uniqueOrders}</td>
+                              <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{s.lines}</td>
+                              <td className="py-2.5 pl-3 text-right text-rose-400 tabular-nums">{fmtRM(s.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* Voids by hour */}
+                {voidsByHour.length > 0 && (
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Voids by Hour</p>
+                    <div className="flex items-end gap-1 h-16">
+                      {(() => {
+                        const maxCount = Math.max(...voidsByHour.map(v => v.count))
+                        return voidsByHour.map(v => (
+                          <div key={v.hour} className="flex flex-col items-center gap-0.5 flex-1" title={`${String(v.hour).padStart(2, '0')}:00 — ${v.count} voids, ${fmtRM(v.value)}`}>
+                            <div
+                              className="w-full rounded-sm bg-rose-500/60"
+                              style={{ height: `${maxCount > 0 ? (v.count / maxCount) * 52 : 4}px` }}
+                            />
+                            <span className="text-[#5A5865] text-[9px]">{v.hour}</span>
+                          </div>
+                        ))
+                      })()}
+                    </div>
+                  </div>
+                )}
+
+                {/* Detailed void list */}
+                <div>
+                  <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">All Voided Items</p>
+                  <div className="overflow-x-auto">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                          <th className="text-left py-2 pr-3">Item</th>
+                          <th className="text-right py-2 px-3">Qty</th>
+                          <th className="text-right py-2 px-3">Value</th>
+                          <th className="text-left py-2 px-3">Reason</th>
+                          <th className="text-left py-2 px-3">Staff</th>
+                          <th className="text-right py-2 pl-3">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {voids.map((v, i) => (
+                          <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                            <td className="py-2.5 pr-3 text-[#F0EEF6]">{v.item_name}</td>
+                            <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{v.quantity}</td>
+                            <td className="py-2.5 px-3 text-right text-rose-400 font-medium tabular-nums">{fmtRM(v.quantity * v.unit_price)}</td>
+                            <td className="py-2.5 px-3 text-[#9896A4] text-xs">
+                              {v.void_reason?.trim() ? v.void_reason : <span className="text-[#5A5865] italic">—</span>}
+                            </td>
+                            <td className="py-2.5 px-3 text-[#5A5865] text-xs">{v.server_name ?? '—'}</td>
+                            <td className="py-2.5 pl-3 text-right text-[#5A5865] text-xs whitespace-nowrap">{fmtDate(v.created_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
               </div>
             )}
           </div>
 
-          {/* Discount log */}
-          {discountLogs.length > 0 && (
-            <div className="card">
-              <p className="section-title mb-4">Discount Events</p>
-              <div className="overflow-x-auto">
-                <table className="w-full text-sm" style={{ minWidth: 560 }}>
-                  <thead>
-                    <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
-                      <th className="text-left py-2 pr-4">Date / Time</th>
-                      <th className="text-left py-2 pr-4">Applied By</th>
-                      <th className="text-left py-2 pr-4">Discount</th>
-                      <th className="text-right py-2 pl-4">Amount</th>
-                    </tr>
-                  </thead>
-                  <tbody>
-                    {discountLogs.map((d, i) => {
-                      const p = d.payload ?? {}
-                      const discountName = typeof p.discount_name === 'string' ? p.discount_name : '—'
-                      const discountType = typeof p.discount_type === 'string' ? p.discount_type : null
-                      const discountValue = typeof p.discount_value === 'number' ? p.discount_value : null
-                      const amount = typeof p.discount_amount === 'number' ? p.discount_amount
-                        : typeof p.amount === 'number' ? p.amount : null
-                      const typeLabel = discountType === 'percent' && discountValue != null
-                        ? `${discountValue}% off`
-                        : discountType === 'flat' && discountValue != null
-                          ? `RM ${discountValue} off`
-                          : discountType ?? null
-                      return (
-                        <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
-                          <td className="py-2.5 pr-4 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(d.created_at)}</td>
-                          <td className="py-2.5 pr-4 text-[#F0EEF6] text-sm">{d.actor_name ?? '—'}</td>
-                          <td className="py-2.5 pr-4">
-                            <span className="text-[#F0EEF6] text-sm">{discountName}</span>
-                            {typeLabel && <span className="text-[#5A5865] text-xs ml-2">({typeLabel})</span>}
-                          </td>
-                          <td className="py-2.5 pl-4 text-right">
-                            {amount != null
-                              ? <span className="text-amber-400 font-semibold tabular-nums">{fmtRM(amount)}</span>
-                              : <span className="text-[#5A5865]">—</span>}
-                          </td>
-                        </tr>
-                      )
-                    })}
-                  </tbody>
-                </table>
+          {/* ── DISCOUNT SECTION ── */}
+          <div className="card">
+            <p className="section-title mb-4">Discount Analysis — {PERIOD_LABELS[period]}</p>
+
+            {/* Discount KPI row */}
+            <div className="grid grid-cols-2 sm:grid-cols-4 gap-3 mb-5">
+              <div>
+                <p className="text-[#5A5865] text-xs">Discount Incidence</p>
+                <p className={`font-bold text-xl tabular-nums ${discountOrderStats.incidence > 0.3 ? 'text-amber-400' : 'text-[#F0EEF6]'}`}>
+                  {discountOrderStats.totalOrders > 0 ? `${(discountOrderStats.incidence * 100).toFixed(0)}%` : '—'}
+                </p>
+                <p className="text-[#5A5865] text-xs mt-0.5">{discountOrderStats.ordersWithDiscount} of {discountOrderStats.totalOrders} orders</p>
+              </div>
+              <div>
+                <p className="text-[#5A5865] text-xs">Discount Value</p>
+                <p className="text-amber-400 font-bold text-xl tabular-nums">{fmtRM(discountOrderStats.totalDiscountValue)}</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">settled from orders</p>
+              </div>
+              <div>
+                <p className="text-[#5A5865] text-xs">Discount Value Rate</p>
+                <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">
+                  {discountOrderStats.discountValueRate > 0 ? `${(discountOrderStats.discountValueRate * 100).toFixed(1)}%` : '—'}
+                </p>
+                <p className="text-[#5A5865] text-xs mt-0.5">of gross sales</p>
+              </div>
+              <div>
+                <p className="text-[#5A5865] text-xs">Audit Log Events</p>
+                <p className="text-[#F0EEF6] font-bold text-xl tabular-nums">{discountLogs.length}</p>
+                <p className="text-[#5A5865] text-xs mt-0.5">for staff attribution</p>
               </div>
             </div>
-          )}
+
+            {discountOrderStats.totalDiscountValue === 0 && discountLogs.length === 0 ? (
+              <p className="text-[#5A5865] text-sm">No discounts in this period</p>
+            ) : (
+              <div className="space-y-5">
+                {/* By discount type (from pos_orders settled values) */}
+                {discountOrderStats.byLabel.length > 0 && (
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">By Discount Type <span className="text-[#5A5865] normal-case">(settled order values)</span></p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                            <th className="text-left py-2 pr-4">Discount</th>
+                            <th className="text-right py-2 px-4">Orders</th>
+                            <th className="text-right py-2 pl-4">Value</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {discountOrderStats.byLabel.map(d => (
+                            <tr key={d.label} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                              <td className="py-2.5 pr-4 text-[#F0EEF6]">{d.label}</td>
+                              <td className="py-2.5 px-4 text-right text-[#9896A4] tabular-nums">{d.count}</td>
+                              <td className="py-2.5 pl-4 text-right text-amber-400 font-medium tabular-nums">{fmtRM(d.value)}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+
+                {/* By staff (audit log attribution — event frequency, not dollar amounts) */}
+                {discountOrderStats.byStaff.length > 0 && (
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">By Staff <span className="text-[#5A5865] normal-case">(audit log event count)</span></p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm">
+                        <thead>
+                          <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                            <th className="text-left py-2 pr-4">Staff</th>
+                            <th className="text-right py-2 pl-4">Discount Events</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {discountOrderStats.byStaff.map(s => (
+                            <tr key={s.name} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                              <td className="py-2.5 pr-4 text-[#F0EEF6]">{s.name}</td>
+                              <td className="py-2.5 pl-4 text-right text-[#9896A4] tabular-nums">{s.events}</td>
+                            </tr>
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                    <p className="text-[#5A5865] text-xs mt-2">Event count from audit log. Dollar amounts are settled order-level figures, not per-staff.</p>
+                  </div>
+                )}
+
+                {/* Discount log */}
+                {discountLogs.length > 0 && (
+                  <div>
+                    <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-2">Discount Events Log</p>
+                    <div className="overflow-x-auto">
+                      <table className="w-full text-sm" style={{ minWidth: 560 }}>
+                        <thead>
+                          <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                            <th className="text-left py-2 pr-4">Date / Time</th>
+                            <th className="text-left py-2 pr-4">Applied By</th>
+                            <th className="text-left py-2 pr-4">Discount</th>
+                            <th className="text-right py-2 pl-4">Amount (log)</th>
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {discountLogs.map((d, i) => {
+                            const p = d.payload ?? {}
+                            const discountName = typeof p.discount_name === 'string' ? p.discount_name : '—'
+                            const discountType = typeof p.discount_type === 'string' ? p.discount_type : null
+                            const discountValue = typeof p.discount_value === 'number' ? p.discount_value : null
+                            const amount = typeof p.discount_amount === 'number' ? p.discount_amount
+                              : typeof p.amount === 'number' ? p.amount : null
+                            const typeLabel = discountType === 'percent' && discountValue != null
+                              ? `${discountValue}% off`
+                              : discountType === 'flat' && discountValue != null
+                                ? `RM ${discountValue} off`
+                                : discountType ?? null
+                            return (
+                              <tr key={i} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
+                                <td className="py-2.5 pr-4 text-[#9896A4] text-xs whitespace-nowrap">{fmtDatetime(d.created_at)}</td>
+                                <td className="py-2.5 pr-4 text-[#F0EEF6] text-sm">{d.actor_name ?? '—'}</td>
+                                <td className="py-2.5 pr-4">
+                                  <span className="text-[#F0EEF6] text-sm">{discountName}</span>
+                                  {typeLabel && <span className="text-[#5A5865] text-xs ml-2">({typeLabel})</span>}
+                                </td>
+                                <td className="py-2.5 pl-4 text-right">
+                                  {amount != null
+                                    ? <span className="text-amber-400 font-semibold tabular-nums">{fmtRM(amount)}</span>
+                                    : <span className="text-[#5A5865]">—</span>}
+                                </td>
+                              </tr>
+                            )
+                          })}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                )}
+              </div>
+            )}
+          </div>
         </div>
       )}
     </div>

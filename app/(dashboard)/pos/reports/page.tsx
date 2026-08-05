@@ -22,7 +22,7 @@ export default async function POSReportsPage() {
   const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }, { data: cocktailSales }] = await Promise.all([
     // Fetch all-time orders — client filters by selected period
     supabase.from('pos_orders')
-      .select('id, table_name, covers, opened_at, closed_at, subtotal, total, discount_amount, service_charge, status, server_name')
+      .select('id, table_name, covers, opened_at, closed_at, subtotal, total, discount_amount, discount_label, service_charge, status, server_name')
       .eq('status', 'closed')
       .order('opened_at', { ascending: false })
       .limit(5000),
@@ -50,8 +50,9 @@ export default async function POSReportsPage() {
       .eq('is_on_menu', true)
       .is('deleted_at', null),
     // Full sales history from daily_sales (goes back to June and beyond)
+    // P2.7: is_balanced, total_collected, transaction_count added for Report Health
     supabase.from('daily_sales')
-      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue')
+      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, is_balanced, total_collected, transaction_count')
       .is('deleted_at', null)
       .order('date', { ascending: true }),
     // Per-cocktail quantities from EON submissions — use admin client to bypass RLS
