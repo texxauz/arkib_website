@@ -94,6 +94,7 @@ type DiscountLog = {
   payload: Record<string, unknown> | null
   created_at: string
   actor_name?: string | null
+  entity_id?: string | null  // orderId for discount.applied events — used for per-staff unique-order incidence
 }
 
 type MenuItem = {
@@ -119,7 +120,6 @@ type DailySale = {
   // P2.7 Report Health — added to page.tsx SELECT
   is_balanced?: boolean | null
   total_collected?: number | null
-  transaction_count?: number | null
 }
 
 type CocktailSaleRow = {
@@ -815,13 +815,20 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       arr.reduce((s, d) => s + (Number(d[key]) || 0), 0)
     const total = sum(filteredDailySales, 'total_revenue')
     const overallChange = stats.totalRevenue - (prevStats?.totalRevenue ?? 0)
+    // Contribution % is suppressed when overall revenue movement is too small to be meaningful.
+    // Threshold: the larger of RM 200 absolute or 2% of the previous period's revenue.
+    // This prevents e.g. ±RM 50 net movement producing 4000% category contributions.
+    const prevTotal = prevStats?.totalRevenue ?? 0
+    const minMeaningfulChange = Math.max(200, prevTotal * 0.02)
+    const showContributionPct = Math.abs(overallChange) >= minMeaningfulChange
     return CATS.map(cat => {
       const rev = sum(filteredDailySales, cat.key)
       const prevRev = sum(prevDailySales, cat.key)
       const mix = total > 0 ? (rev / total) * 100 : 0
       const rmChange = rev - prevRev
       const pctChange = prevRev > 0 ? ((rev - prevRev) / prevRev) * 100 : null
-      const contribution = overallChange !== 0 ? (rmChange / Math.abs(overallChange)) * 100 : null
+      const contribution = showContributionPct && overallChange !== 0
+        ? (rmChange / Math.abs(overallChange)) * 100 : null
       return { ...cat, rev, prevRev, mix, rmChange, pctChange, contribution }
     }).sort((a, b) => b.rev - a.rev)
   }, [filteredDailySales, prevDailySales, stats, prevStats])
@@ -871,21 +878,25 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       if (!staffVoidOrderIds[name]) staffVoidOrderIds[name] = new Set()
       if (v.order_id) staffVoidOrderIds[name].add(v.order_id)
     }
-    const staffDiscountEvents: Record<string, number> = {}
+    // Discount incidence per staff: unique orders with ≥1 discount / staff's total orders.
+    // entity_id = orderId for discount.applied events (set in apply-discount/route.ts).
+    // Using entity_id (not payload) because payload does not contain order_id.
+    const staffDiscountOrderIds: Record<string, Set<string>> = {}
     for (const d of discountLogs) {
       const name = d.actor_name ?? 'Unknown'
-      staffDiscountEvents[name] = (staffDiscountEvents[name] ?? 0) + 1
+      if (!staffDiscountOrderIds[name]) staffDiscountOrderIds[name] = new Set()
+      if (d.entity_id) staffDiscountOrderIds[name].add(d.entity_id)
     }
     return staffStats.map(s => {
       const myOrders = staffOrderIds[s.name]?.size ?? 0
       const voidOrders = staffVoidOrderIds[s.name]?.size ?? 0
-      const discEvents = staffDiscountEvents[s.name] ?? 0
+      const discountOrders = staffDiscountOrderIds[s.name]?.size ?? 0
       return {
         ...s,
         voidOrders,
         voidIncidence: myOrders > 0 ? voidOrders / myOrders : 0,
-        discountEvents: discEvents,
-        discountIncidence: myOrders > 0 ? discEvents / myOrders : 0,
+        discountOrders,
+        discountIncidence: myOrders > 0 ? discountOrders / myOrders : 0,
       }
     })
   }, [staffStats, voids, discountLogs, orders])
@@ -1263,18 +1274,6 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
               )
             })}
           </div>
-
-          {/* P2.1 Revenue Driver — compact interpretation below KPI cards */}
-          {revenueDriver && (
-            <div className={`rounded-xl border px-4 py-3 flex items-start gap-3 ${
-              revenueDriver.dir === 'up'
-                ? 'bg-emerald-500/8 border-emerald-500/20'
-                : 'bg-rose-500/8 border-rose-500/20'
-            }`}>
-              <span className={`w-2 h-2 rounded-full mt-1.5 shrink-0 ${revenueDriver.dir === 'up' ? 'bg-emerald-400' : 'bg-rose-400'}`} />
-              <p className={`text-sm ${revenueDriver.dir === 'up' ? 'text-emerald-200' : 'text-rose-200'}`}>{revenueDriver.text}</p>
-            </div>
-          )}
 
           {/* Daily Performance chart — P1.3 */}
           <div className="card">
@@ -1758,7 +1757,7 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
                         </td>
                         <td className="py-2.5 pl-3 text-right tabular-nums">
                           <span className={s.discountIncidence > 0.30 ? 'text-amber-400 font-semibold' : 'text-[#9896A4]'}>
-                            {s.discountEvents > 0 ? `${(s.discountIncidence * 100).toFixed(0)}%` : '—'}
+                            {s.discountOrders > 0 ? `${(s.discountIncidence * 100).toFixed(0)}%` : '—'}
                           </span>
                         </td>
                       </tr>

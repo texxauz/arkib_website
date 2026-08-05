@@ -37,8 +37,9 @@ export default async function POSReportsPage() {
       .select('item_name, quantity, unit_price, voided_at, void_reason, created_at, voided_by, order_id')
       .not('voided_at', 'is', null)
       .limit(2000),
+    // entity_id = orderId for discount.applied events — used for true per-staff discount incidence
     supabase.from('pos_audit_log')
-      .select('payload, created_at, actor_name')
+      .select('payload, created_at, actor_name, entity_id')
       .eq('event', 'discount.applied')
       .limit(2000),
     supabase.from('menu_items')
@@ -50,9 +51,10 @@ export default async function POSReportsPage() {
       .eq('is_on_menu', true)
       .is('deleted_at', null),
     // Full sales history from daily_sales (goes back to June and beyond)
-    // P2.7: is_balanced, total_collected, transaction_count added for Report Health
+    // P2.7: is_balanced, total_collected added for Report Health
+    // transaction_count removed — unused (no reliable POS baseline for pre-POS EON dates)
     supabase.from('daily_sales')
-      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, is_balanced, total_collected, transaction_count')
+      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, is_balanced, total_collected')
       .is('deleted_at', null)
       .order('date', { ascending: true }),
     // Per-cocktail quantities from EON submissions — use admin client to bypass RLS
