@@ -13,7 +13,7 @@ export default async function POSReportsPage() {
     .from('users').select('role').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
 
-  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }] = await Promise.all([
+  const [{ data: orders }, { data: items }, { data: payments }, { data: voids }, { data: discountLogs }, { data: allMenuItems }, { data: cocktails }, { data: dailySales }] = await Promise.all([
     // Fetch all-time orders — client filters by selected period
     supabase.from('pos_orders')
       .select('id, table_name, covers, opened_at, closed_at, total, discount_amount, service_charge, status, server_name')
@@ -43,6 +43,11 @@ export default async function POSReportsPage() {
       .select('name, selling_price, total_cost')
       .eq('is_on_menu', true)
       .is('deleted_at', null),
+    // Full sales history from daily_sales (goes back to June and beyond)
+    supabase.from('daily_sales')
+      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue')
+      .is('deleted_at', null)
+      .order('date', { ascending: true }),
   ])
 
   // Build server_name lookup from orders (order_id → server_name)
@@ -63,6 +68,7 @@ export default async function POSReportsPage() {
       discountLogs={discountLogs ?? []}
       allMenuItems={allMenuItems ?? []}
       cocktailCosts={cocktails ?? []}
+      dailySales={dailySales ?? []}
       isAdmin={isAdmin ?? false}
     />
   )

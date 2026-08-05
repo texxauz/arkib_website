@@ -75,6 +75,16 @@ type CocktailCost = {
   total_cost: number
 }
 
+type DailySale = {
+  date: string
+  total_revenue: number
+  cocktails_revenue: number | null
+  beer_revenue: number | null
+  wine_revenue: number | null
+  food_revenue: number | null
+  others_revenue: number | null
+}
+
 type Period = '30d' | '90d' | '6m' | '1y' | 'all'
 
 const PERIOD_LABELS: Record<Period, string> = {
@@ -102,6 +112,7 @@ interface Props {
   discountLogs: DiscountLog[]
   allMenuItems: MenuItem[]
   cocktailCosts: CocktailCost[]
+  dailySales: DailySale[]
   isAdmin: boolean
 }
 
@@ -167,7 +178,7 @@ function CountTooltip({ active, payload, label }: any) {
   )
 }
 
-export function POSReportsClient({ orders: allOrders, items: allItems, payments: allPayments, voids: allVoids, discountLogs: allDiscountLogs, allMenuItems, cocktailCosts, isAdmin }: Props) {
+export function POSReportsClient({ orders: allOrders, items: allItems, payments: allPayments, voids: allVoids, discountLogs: allDiscountLogs, allMenuItems, cocktailCosts, dailySales, isAdmin }: Props) {
   const [activeTab, setActiveTab] = useState<Tab>('overview')
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
@@ -436,26 +447,30 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
       .sort((a, b) => b.totalProfit - a.totalProfit)
   }, [allTimeItems, cocktailCosts])
 
-  // Month-on-month revenue comparison — always uses all-time orders regardless of period filter
+  // Month-on-month revenue comparison — uses daily_sales which has full history back to June
   const momComparison = useMemo(() => {
-    const revenueByMonth: Record<string, number> = {}
-    for (const o of allOrders) {
-      const d = new Date(o.opened_at)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      revenueByMonth[key] = (revenueByMonth[key] ?? 0) + o.total
+    const revenueByMonth: Record<string, { total: number; cocktails: number; beer: number; wine: number; food: number; others: number }> = {}
+    for (const s of dailySales) {
+      const key = s.date.slice(0, 7) // 'YYYY-MM'
+      if (!revenueByMonth[key]) revenueByMonth[key] = { total: 0, cocktails: 0, beer: 0, wine: 0, food: 0, others: 0 }
+      revenueByMonth[key].total += s.total_revenue
+      revenueByMonth[key].cocktails += s.cocktails_revenue ?? 0
+      revenueByMonth[key].beer += s.beer_revenue ?? 0
+      revenueByMonth[key].wine += s.wine_revenue ?? 0
+      revenueByMonth[key].food += s.food_revenue ?? 0
+      revenueByMonth[key].others += s.others_revenue ?? 0
     }
-    const now = new Date()
-    return Array.from({ length: 12 }, (_, i) => {
-      const d = new Date(now.getFullYear(), now.getMonth() - i, 1)
-      const key = `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const prevKey = `${d.getFullYear() - 1}-${String(d.getMonth() + 1).padStart(2, '0')}`
-      const thisRev = revenueByMonth[key] ?? 0
-      const prevRev = revenueByMonth[prevKey] ?? 0
-      const pct = prevRev > 0 ? ((thisRev - prevRev) / prevRev) * 100 : null
-      const label = d.toLocaleDateString('en-MY', { month: 'short', year: 'numeric' })
-      return { label, key, thisRev, prevRev, pct }
+    const months = Object.keys(revenueByMonth).sort().reverse()
+    return months.map(key => {
+      const [y, m] = key.split('-')
+      const prevKey = `${Number(y) - 1}-${m}`
+      const thisData = revenueByMonth[key]
+      const prevRev = revenueByMonth[prevKey]?.total ?? 0
+      const pct = prevRev > 0 ? ((thisData.total - prevRev) / prevRev) * 100 : null
+      const label = new Date(Number(y), Number(m) - 1).toLocaleDateString('en-MY', { month: 'short', year: 'numeric' })
+      return { label, key, thisRev: thisData.total, prevRev, pct, cocktails: thisData.cocktails, beer: thisData.beer, wine: thisData.wine, food: thisData.food, others: thisData.others }
     })
-  }, [allOrders])
+  }, [dailySales])
 
   // Selected month for cocktail drilldown
   const [selectedMonth, setSelectedMonth] = useState<string | null>(null)
@@ -1181,27 +1196,33 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
 
           {/* Month-on-month comparison */}
           <div className="card">
-            <p className="section-title mb-1">Month-on-Month Revenue</p>
-            <p className="text-[#5A5865] text-xs mb-4">Compares each month's revenue to the same month last year.</p>
+            <p className="section-title mb-1">Monthly Revenue History</p>
+            <p className="text-[#5A5865] text-xs mb-4">From your End of Night submissions. % change vs same month last year.</p>
             <div className="overflow-x-auto">
-              <table className="w-full text-sm">
+              <table className="w-full text-sm" style={{ minWidth: 700 }}>
                 <thead>
                   <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
                     <th className="text-left py-2 pr-4">Month</th>
-                    <th className="text-right py-2 px-4">This Year</th>
-                    <th className="text-right py-2 px-4">Last Year</th>
+                    <th className="text-right py-2 px-3">Total</th>
+                    <th className="text-right py-2 px-3">Cocktails</th>
+                    <th className="text-right py-2 px-3">Wine</th>
+                    <th className="text-right py-2 px-3">Others</th>
+                    <th className="text-right py-2 px-3">vs Last Year</th>
                     <th className="text-right py-2 pl-4">Change</th>
                   </tr>
                 </thead>
                 <tbody>
                   {momComparison.map(m => (
                     <tr key={m.key} className="border-b border-[#1A1A1E] hover:bg-[#1A1A1E] transition-colors">
-                      <td className="py-2.5 pr-4 text-[#F0EEF6]">{m.label}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums text-[#F0EEF6] font-semibold">{fmtRM(m.thisRev)}</td>
-                      <td className="py-2.5 px-4 text-right tabular-nums text-[#5A5865]">{m.prevRev > 0 ? fmtRM(m.prevRev) : '—'}</td>
+                      <td className="py-2.5 pr-4 text-[#F0EEF6] font-medium">{m.label}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-emerald-400 font-semibold">{fmtRM(m.thisRev)}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-[#A78BFA]">{m.cocktails > 0 ? fmtRM(m.cocktails) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-sky-400">{m.wine > 0 ? fmtRM(m.wine) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">{m.others > 0 ? fmtRM(m.others) : '—'}</td>
+                      <td className="py-2.5 px-3 text-right tabular-nums text-[#5A5865]">{m.prevRev > 0 ? fmtRM(m.prevRev) : '—'}</td>
                       <td className="py-2.5 pl-4 text-right">
                         {m.pct === null ? (
-                          <span className="text-[#5A5865] text-xs">No prior data</span>
+                          <span className="text-[#5A5865] text-xs">—</span>
                         ) : m.pct > 0 ? (
                           <span className="text-emerald-400 font-medium text-xs flex items-center justify-end gap-1">
                             <TrendingUp size={12} />+{m.pct.toFixed(1)}%
