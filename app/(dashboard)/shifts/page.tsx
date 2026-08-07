@@ -1,4 +1,5 @@
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { ShiftsClient } from './ShiftsClient'
 import { redirect } from 'next/navigation'
 
@@ -31,10 +32,16 @@ export default async function ShiftsPage() {
     ? await supabase.from('users').select('id, full_name, role').order('full_name')
     : { data: [] }
 
-  // Kiosk staff: all active users with a clock_pin set
+  // Kiosk staff: all active users with a clock_pin set.
+  // Use admin client to bypass RLS — staff can only see their own user row,
+  // but the kiosk must show all staff regardless of who is logged in.
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
   const [{ data: kioskUsers }, { data: activeShifts }] = await Promise.all([
-    supabase.from('users').select('id, full_name, role').eq('is_active', true).not('clock_pin', 'is', null).order('full_name'),
-    supabase.from('staff_shifts').select('user_id, clock_in').is('clock_out', null),
+    admin.from('users').select('id, full_name, role').eq('is_active', true).not('clock_pin', 'is', null).order('full_name'),
+    admin.from('staff_shifts').select('user_id, clock_in').is('clock_out', null),
   ])
   const clockedInMap: Record<string, string> = {}
   for (const s of activeShifts ?? []) clockedInMap[s.user_id] = s.clock_in
