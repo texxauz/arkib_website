@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert, FileText, Copy, Printer, Save } from 'lucide-react'
+import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert, FileText, Copy, Printer, Save, Receipt } from 'lucide-react'
 
 type PosShift = {
   id: string; opened_by: string; closed_by: string | null
@@ -29,6 +29,16 @@ type NightReport = {
   drinksSold: number; guestsTables: number; guestsPax: number
   notableGuests: string; incidentReport: string; breakage: string
   freeShots: string; discount: number; voidValue: number; voidCount: number
+}
+
+type SettlementData = {
+  shift: { opened_at: string; closed_at: string | null; opening_float: number; closing_cash: number | null; expected_cash: number | null; variance: number | null }
+  openedBy: string
+  closedBy: string | null
+  revenue: { gross: number; discount: number; serviceCharge: number; taxAmount: number; voidValue: number; voidCount: number; net: number }
+  payments: { cash: number; credit_card: number; qr_payment: number; online: number }
+  floor: { orders: number; covers: number; drinksSold: number; discountedOrders: number }
+  categories: { cocktails: number; beer: number; wine: number; food: number; others: number }
 }
 
 type Props = {
@@ -78,6 +88,9 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const { toast } = useToast()
 
   const [openModal, setOpenModal] = useState(false)
+  const [settlementModal, setSettlementModal] = useState(false)
+  const [settlementData, setSettlementData] = useState<SettlementData | null>(null)
+  const [settlementLoading, setSettlementLoading] = useState<string | null>(null)
   const [closeModal, setCloseModal] = useState(false)
   const [openFloat, setOpenFloat] = useState('0')
   const [openPassword, setOpenPassword] = useState('')
@@ -297,6 +310,83 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const paymentMethods = ['cash', 'credit_card', 'qr_payment']
   const methodLabels: Record<string, string> = { cash: 'Cash', credit_card: 'Card', qr_payment: 'QR' }
 
+  async function openSettlement(shiftId: string) {
+    setSettlementLoading(shiftId)
+    try {
+      const res = await fetch(`/api/pos/shift-settlement/${shiftId}`)
+      if (!res.ok) { toast('Failed to load settlement data', 'error'); return }
+      setSettlementData(await res.json())
+      setSettlementModal(true)
+    } catch {
+      toast('Failed to load settlement data', 'error')
+    } finally {
+      setSettlementLoading(null)
+    }
+  }
+
+  function printSettlement() {
+    if (!settlementData) return
+    const d = settlementData
+    const fmt = (n: number) => `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2, maximumFractionDigits: 2 })}`
+    const pad = (l: string, r: string, w = 32) => {
+      const gap = w - l.length - r.length
+      return l + ' '.repeat(Math.max(1, gap)) + r
+    }
+    const lines = [
+      '         ARKIB',
+      '   SETTLEMENT RECEIPT',
+      '--------------------------------',
+      pad('Date', new Date(d.shift.opened_at).toLocaleDateString('en-MY', { weekday: 'short', day: '2-digit', month: 'short', year: 'numeric' })),
+      pad('Shift', `${formatTime(d.shift.opened_at)} - ${d.shift.closed_at ? formatTime(d.shift.closed_at) : '--'}`),
+      pad('Opened by', d.openedBy),
+      pad('Closed by', d.closedBy ?? '—'),
+      '--------------------------------',
+      'SALES',
+      pad('Gross Sales', fmt(d.revenue.gross)),
+      pad('Discount', `- ${fmt(d.revenue.discount)}`),
+      ...(d.revenue.serviceCharge > 0 ? [pad('Service Charge', fmt(d.revenue.serviceCharge))] : []),
+      pad('Void Value', `- ${fmt(d.revenue.voidValue)}`),
+      '--------------------------------',
+      pad('TOTAL', fmt(d.revenue.net)),
+      '--------------------------------',
+      'PAYMENTS',
+      pad('Cash', fmt(d.payments.cash)),
+      pad('Card', fmt(d.payments.credit_card)),
+      pad('QR', fmt(d.payments.qr_payment)),
+      ...(d.payments.online > 0 ? [pad('Online', fmt(d.payments.online))] : []),
+      '--------------------------------',
+      'CASH RECONCILIATION',
+      pad('Opening Float', fmt(d.shift.opening_float)),
+      pad('Cash Sales', fmt(d.payments.cash)),
+      pad('Expected in Drawer', fmt(d.shift.opening_float + d.payments.cash)),
+      pad('Variance', fmt(d.shift.variance ?? 0)),
+      '--------------------------------',
+      'FLOOR',
+      pad('Orders', String(d.floor.orders)),
+      pad('Covers (pax)', String(d.floor.covers)),
+      pad('Drinks Sold', String(d.floor.drinksSold)),
+      pad('Discounted Orders', String(d.floor.discountedOrders)),
+      pad('Void Items', String(d.revenue.voidCount)),
+      '--------------------------------',
+      `Printed: ${new Date().toLocaleString('en-MY')}`,
+      '  ARKIB Bar Management System',
+    ].join('\n')
+
+    const win = window.open('', '_blank', 'width=400,height=750')
+    if (!win) { toast('Pop-up blocked — allow pop-ups and try again', 'error'); return }
+    win.document.write(`<!DOCTYPE html><html><head>
+      <title>Settlement Receipt</title>
+      <style>
+        @page { size: 80mm auto; margin: 4mm; }
+        body { font-family: 'Courier New', monospace; font-size: 11px; color: #000; background: #fff; white-space: pre; margin: 0; padding: 0; }
+        @media screen { body { background: #111; color: #eee; padding: 16px; } }
+      </style>
+      </head><body>${lines}</body></html>`)
+    win.document.close()
+    win.focus()
+    setTimeout(() => win.print(), 300)
+  }
+
   return (
     <div className="p-4 sm:p-6 max-w-5xl mx-auto">
       <TopBar
@@ -463,16 +553,24 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                         {shift.closed_at ? formatDuration(shift.opened_at, shift.closed_at) : '—'}
                       </td>
                       <td className="px-4 py-3">
-                        {shift.night_report ? (
+                        <div className="flex items-center gap-2">
+                          {shift.night_report && (
+                            <button
+                              onClick={() => { setViewReportData(shift.night_report!); setViewReportModal(true) }}
+                              className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
+                            >
+                              <FileText size={11} /> Report
+                            </button>
+                          )}
                           <button
-                            onClick={() => { setViewReportData(shift.night_report!); setViewReportModal(true) }}
-                            className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
+                            onClick={() => openSettlement(shift.id)}
+                            disabled={settlementLoading === shift.id}
+                            className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
                           >
-                            <FileText size={11} /> Report
+                            <Receipt size={11} />
+                            {settlementLoading === shift.id ? '…' : 'Settlement'}
                           </button>
-                        ) : (
-                          <span className="text-[#3A3A42] text-xs">—</span>
-                        )}
+                        </div>
                       </td>
                     </tr>
                   )
@@ -806,6 +904,200 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
             </button>
           </div>
         </div>
+      </Modal>
+
+      {/* ── Settlement Receipt Modal ───────────────────────────────────────── */}
+      <Modal isOpen={settlementModal} onClose={() => { setSettlementModal(false); setSettlementData(null) }} title="Settlement Receipt" size="lg">
+        {settlementData && (() => {
+          const d = settlementData
+          const fmt = (n: number) => n.toLocaleString('en-MY', { style: 'currency', currency: 'MYR' })
+          const total = d.payments.cash + d.payments.credit_card + d.payments.qr_payment + d.payments.online
+          const expectedCash = d.shift.opening_float + d.payments.cash
+          const variance = d.shift.variance ?? 0
+          const catTotal = d.categories.cocktails + d.categories.beer + d.categories.wine + d.categories.food + d.categories.others
+
+          return (
+            <div className="space-y-5">
+              {/* Shift info */}
+              <div className="grid grid-cols-3 gap-2">
+                {[
+                  { label: 'Opened by', value: d.openedBy, sub: formatTime(d.shift.opened_at) },
+                  { label: 'Closed by', value: d.closedBy ?? '—', sub: d.shift.closed_at ? formatTime(d.shift.closed_at) : '—' },
+                  { label: 'Opening Float', value: fmt(d.shift.opening_float), sub: d.shift.closed_at ? formatDuration(d.shift.opened_at, d.shift.closed_at) : '—' },
+                ].map(({ label, value, sub }) => (
+                  <div key={label} className="bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5">
+                    <p className="text-[#5A5865] text-xs mb-0.5">{label}</p>
+                    <p className="text-[#F0EEF6] text-sm font-semibold">{value}</p>
+                    <p className="text-[#5A5865] text-xs mt-0.5">{sub}</p>
+                  </div>
+                ))}
+              </div>
+
+              {/* Revenue */}
+              <div className="bg-[#0E0E11] border border-[#2A2A30] rounded-xl overflow-hidden">
+                <div className="flex items-center justify-between px-4 py-3 border-b border-[#1E1E24]">
+                  <span className="text-[#5A5865] text-xs font-semibold uppercase tracking-wider">Revenue</span>
+                  <span className="text-[#F0EEF6] text-xl font-bold tabular-nums">{fmt(d.revenue.net)}</span>
+                </div>
+                {[
+                  { label: 'Gross Sales', value: fmt(d.revenue.gross), red: false },
+                  { label: 'Discounts', value: `−${fmt(d.revenue.discount)}`, red: d.revenue.discount > 0 },
+                  ...(d.revenue.serviceCharge > 0 ? [{ label: 'Service Charge', value: fmt(d.revenue.serviceCharge), red: false }] : []),
+                  { label: `Voids (${d.revenue.voidCount} items)`, value: `−${fmt(d.revenue.voidValue)}`, red: d.revenue.voidValue > 0 },
+                ].map(({ label, value, red }) => (
+                  <div key={label} className="flex justify-between px-4 py-2 border-b border-[#1E1E24] last:border-0">
+                    <span className="text-[#9896A4] text-sm">{label}</span>
+                    <span className={`text-sm font-medium tabular-nums ${red ? 'text-rose-400' : 'text-[#F0EEF6]'}`}>{value}</span>
+                  </div>
+                ))}
+              </div>
+
+              {/* Payments */}
+              <div className="bg-[#0E0E11] border border-[#2A2A30] rounded-xl overflow-hidden">
+                <div className="px-4 py-2.5 border-b border-[#1E1E24]">
+                  <span className="text-[#5A5865] text-xs font-semibold uppercase tracking-wider">Payment Breakdown</span>
+                </div>
+                <div className="grid grid-cols-4 divide-x divide-[#1E1E24]">
+                  {[
+                    { method: 'Cash', amount: d.payments.cash },
+                    { method: 'Card', amount: d.payments.credit_card },
+                    { method: 'QR', amount: d.payments.qr_payment },
+                    { method: 'Online', amount: d.payments.online },
+                  ].map(({ method, amount }) => (
+                    <div key={method} className="px-3 py-3 text-center">
+                      <p className="text-[#5A5865] text-[10px] mb-1">{method}</p>
+                      <p className={`text-sm font-semibold tabular-nums ${amount > 0 ? 'text-[#F0EEF6]' : 'text-[#3A3A42]'}`}>
+                        {amount > 0 ? amount.toLocaleString('en-MY', { minimumFractionDigits: 0 }) : '—'}
+                      </p>
+                      {total > 0 && amount > 0 && (
+                        <p className="text-[#5A5865] text-[10px] mt-0.5">{Math.round(amount / total * 100)}%</p>
+                      )}
+                    </div>
+                  ))}
+                </div>
+                {/* Cash reconciliation */}
+                <div className="flex items-center gap-3 px-4 py-3 border-t border-[#1E1E24] flex-wrap">
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[#5A5865] text-[10px]">Float</span>
+                    <span className="text-[#F0EEF6] text-sm font-semibold tabular-nums">{fmt(d.shift.opening_float)}</span>
+                  </div>
+                  <span className="text-[#3A3A42] text-base">+</span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[#5A5865] text-[10px]">Cash Sales</span>
+                    <span className="text-[#F0EEF6] text-sm font-semibold tabular-nums">{fmt(d.payments.cash)}</span>
+                  </div>
+                  <span className="text-[#3A3A42] text-base">=</span>
+                  <div className="flex flex-col gap-0.5">
+                    <span className="text-[#5A5865] text-[10px]">Expected in Drawer</span>
+                    <span className="text-[#F0EEF6] text-sm font-semibold tabular-nums">{fmt(expectedCash)}</span>
+                  </div>
+                  <div className={`ml-auto flex items-center gap-1.5 px-2.5 py-1.5 rounded-lg text-xs font-semibold ${Math.abs(variance) < 0.01 ? 'bg-emerald-500/10 text-emerald-400 border border-emerald-500/20' : variance < 0 ? 'bg-rose-500/10 text-rose-400 border border-rose-500/20' : 'bg-amber-500/10 text-amber-400 border border-amber-500/20'}`}>
+                    {Math.abs(variance) < 0.01 ? '✓ Balanced' : variance < 0 ? `Short ${fmt(Math.abs(variance))}` : `Over ${fmt(variance)}`}
+                  </div>
+                </div>
+              </div>
+
+              {/* Floor + Categories */}
+              <div className="grid grid-cols-2 gap-3">
+                <div className="bg-[#0E0E11] border border-[#2A2A30] rounded-xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-[#1E1E24]">
+                    <span className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-wider">Floor</span>
+                  </div>
+                  {[
+                    { label: 'Orders', value: d.floor.orders },
+                    { label: 'Covers (pax)', value: d.floor.covers },
+                    { label: 'Drinks sold', value: d.floor.drinksSold },
+                    { label: 'Discounted orders', value: d.floor.discountedOrders },
+                    { label: 'Void items', value: d.revenue.voidCount },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between px-3 py-2 border-b border-[#1E1E24] last:border-0">
+                      <span className="text-[#9896A4] text-xs">{label}</span>
+                      <span className="text-[#F0EEF6] text-xs font-semibold tabular-nums">{value}</span>
+                    </div>
+                  ))}
+                </div>
+                <div className="bg-[#0E0E11] border border-[#2A2A30] rounded-xl overflow-hidden">
+                  <div className="px-3 py-2 border-b border-[#1E1E24]">
+                    <span className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-wider">Category Mix</span>
+                  </div>
+                  {[
+                    { label: 'Cocktails', value: d.categories.cocktails },
+                    { label: 'Beer', value: d.categories.beer },
+                    { label: 'Wine / Whisky', value: d.categories.wine },
+                    { label: 'Food', value: d.categories.food },
+                    { label: 'Others', value: d.categories.others },
+                  ].map(({ label, value }) => (
+                    <div key={label} className="flex justify-between items-center px-3 py-2 border-b border-[#1E1E24] last:border-0">
+                      <span className="text-[#9896A4] text-xs">{label}</span>
+                      <div className="text-right">
+                        <span className={`text-xs font-semibold tabular-nums ${value > 0 ? 'text-[#F0EEF6]' : 'text-[#3A3A42]'}`}>
+                          {value > 0 ? fmt(value) : '—'}
+                        </span>
+                        {catTotal > 0 && value > 0 && (
+                          <span className="text-[#5A5865] text-[10px] ml-1">({Math.round(value / catTotal * 100)}%)</span>
+                        )}
+                      </div>
+                    </div>
+                  ))}
+                </div>
+              </div>
+
+              {/* Actions */}
+              <div className="flex gap-2 pt-1 border-t border-[#2A2A30]">
+                <button
+                  onClick={printSettlement}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#7C3AED] hover:bg-[#6D28D9] text-white transition-colors"
+                >
+                  <Printer size={13} /> Print Receipt
+                </button>
+                <button
+                  onClick={async () => {
+                    const d2 = settlementData
+                    if (!d2) return
+                    const fmt2 = (n: number) => `RM ${n.toLocaleString('en-MY', { minimumFractionDigits: 2 })}`
+                    const text = [
+                      'SETTLEMENT RECEIPT — ARKIB BAR',
+                      '──────────────────────────────',
+                      `Date     : ${new Date(d2.shift.opened_at).toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'long', year: 'numeric' })}`,
+                      `Shift    : ${formatTime(d2.shift.opened_at)} – ${d2.shift.closed_at ? formatTime(d2.shift.closed_at) : '--'}`,
+                      `Opened by: ${d2.openedBy}`,
+                      `Closed by: ${d2.closedBy ?? '—'}`,
+                      '',
+                      '── REVENUE ───────────────────',
+                      `Gross Sales : ${fmt2(d2.revenue.gross)}`,
+                      `Discount    : −${fmt2(d2.revenue.discount)}`,
+                      `Voids       : −${fmt2(d2.revenue.voidValue)} (${d2.revenue.voidCount} items)`,
+                      `TOTAL       : ${fmt2(d2.revenue.net)}`,
+                      '',
+                      '── PAYMENTS ──────────────────',
+                      `Cash        : ${fmt2(d2.payments.cash)}`,
+                      `Card        : ${fmt2(d2.payments.credit_card)}`,
+                      `QR          : ${fmt2(d2.payments.qr_payment)}`,
+                      `Online      : ${fmt2(d2.payments.online)}`,
+                      '',
+                      '── CASH DRAWER ───────────────',
+                      `Float       : ${fmt2(d2.shift.opening_float)}`,
+                      `Cash Sales  : ${fmt2(d2.payments.cash)}`,
+                      `Expected    : ${fmt2(d2.shift.opening_float + d2.payments.cash)}`,
+                      `Variance    : ${fmt2(d2.shift.variance ?? 0)}`,
+                      '',
+                      '── FLOOR ─────────────────────',
+                      `Orders      : ${d2.floor.orders}`,
+                      `Covers (pax): ${d2.floor.covers}`,
+                      `Drinks sold : ${d2.floor.drinksSold}`,
+                      `Discounted  : ${d2.floor.discountedOrders} orders`,
+                    ].join('\n')
+                    try { await navigator.clipboard.writeText(text); toast('Copied to clipboard', 'success') }
+                    catch { toast('Could not copy — please select and copy manually', 'error') }
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-colors"
+                >
+                  <Copy size={13} /> Copy Text
+                </button>
+              </div>
+            </div>
+          )
+        })()}
       </Modal>
     </div>
   )
