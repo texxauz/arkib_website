@@ -35,14 +35,13 @@ export async function POST(req: NextRequest) {
     const pinStr = String(managerPin).trim()
     const { data: managers } = await supabase
       .from('users')
-      .select('id, manager_pin, manager_pin_hash')
+      .select('id, manager_pin_hash')
       .in('role', ['owner', 'manager'])
+      .not('manager_pin_hash', 'is', null)
       .eq('is_active', true)
     let pinValid = false
     for (const mgr of managers ?? []) {
-      if (mgr.manager_pin_hash) {
-        if (await bcrypt.compare(pinStr, mgr.manager_pin_hash)) { pinValid = true; break }
-      } else if (mgr.manager_pin && mgr.manager_pin === pinStr) {
+      if (mgr.manager_pin_hash && await bcrypt.compare(pinStr, mgr.manager_pin_hash)) {
         pinValid = true; break
       }
     }

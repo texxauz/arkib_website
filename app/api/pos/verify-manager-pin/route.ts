@@ -52,23 +52,18 @@ export async function POST(req: NextRequest) {
 
   const pinStr = String(pin).trim()
 
-  // Fetch all managers/owners with a PIN set (hash or legacy plain-text).
   const { data: managers } = await supabase
     .from('users')
-    .select('id, full_name, manager_pin, manager_pin_hash')
+    .select('id, full_name, manager_pin_hash')
     .in('role', ['owner', 'manager'])
+    .not('manager_pin_hash', 'is', null)
     .eq('is_active', true)
 
   let matched: { id: string; full_name: string | null } | null = null
 
   for (const mgr of managers ?? []) {
-    if (mgr.manager_pin_hash) {
-      // Preferred path: bcrypt compare
-      const ok = await bcrypt.compare(pinStr, mgr.manager_pin_hash)
-      if (ok) { matched = mgr; break }
-    } else if (mgr.manager_pin) {
-      // Legacy plain-text fallback (until migration is complete)
-      if (mgr.manager_pin === pinStr) { matched = mgr; break }
+    if (mgr.manager_pin_hash && await bcrypt.compare(pinStr, mgr.manager_pin_hash)) {
+      matched = mgr; break
     }
   }
 
