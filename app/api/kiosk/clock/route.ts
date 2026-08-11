@@ -1,6 +1,7 @@
 import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
+import bcrypt from 'bcryptjs'
 
 // Simple in-memory rate limit: 10 attempts per IP per 5 minutes
 const attempts = new Map<string, { count: number; resetAt: number }>()
@@ -27,15 +28,22 @@ export async function POST(req: NextRequest) {
   // Verify PIN against the user's clock_pin (service role bypasses RLS)
   const { data: user, error: userErr } = await adminClient
     .from('users')
-    .select('id, full_name, role, clock_pin, is_active')
+    .select('id, full_name, role, clock_pin, clock_pin_hash, is_active')
     .eq('id', userId)
     .single()
 
   if (userErr || !user) return NextResponse.json({ error: 'User not found' }, { status: 404 })
   if (!user.is_active) return NextResponse.json({ error: 'Account is inactive' }, { status: 403 })
-  if (!user.clock_pin || user.clock_pin !== String(pin).trim()) {
-    return NextResponse.json({ error: 'Incorrect PIN' }, { status: 403 })
+
+  const pinStr = String(pin).trim()
+  let pinOk = false
+  if (user.clock_pin_hash) {
+    pinOk = await bcrypt.compare(pinStr, user.clock_pin_hash)
+  } else if (user.clock_pin) {
+    // Plain-text fallback — active until hash_clock_pins.js backfill is complete
+    pinOk = user.clock_pin === pinStr
   }
+  if (!pinOk) return NextResponse.json({ error: 'Incorrect PIN' }, { status: 403 })
 
   // Check if already clocked in
   const { data: activeShift } = await adminClient

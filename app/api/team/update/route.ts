@@ -2,6 +2,7 @@ import { createClient } from '@/lib/supabase/server'
 import { createClient as createAdminClient } from '@supabase/supabase-js'
 import { NextRequest, NextResponse } from 'next/server'
 import { rateLimit } from '@/lib/rate-limit'
+import bcrypt from 'bcryptjs'
 
 export async function POST(request: NextRequest) {
   const ip = request.headers.get('x-forwarded-for')?.split(',')[0]?.trim() ?? 'unknown'
@@ -41,7 +42,10 @@ export async function POST(request: NextRequest) {
   const updatePayload: Record<string, unknown> = { full_name, role, tab_permissions, pos_permissions, is_active }
   // manager_pin: null clears it, a string sets it, undefined means no change
   if (manager_pin !== undefined) updatePayload.manager_pin = manager_pin || null
-  if (clock_pin !== undefined) updatePayload.clock_pin = clock_pin || null
+  if (clock_pin !== undefined) {
+    updatePayload.clock_pin = clock_pin || null
+    updatePayload.clock_pin_hash = clock_pin ? await bcrypt.hash(String(clock_pin), 12) : null
+  }
 
   const { error } = await adminClient.from('users').update(updatePayload).eq('id', userId)
 
