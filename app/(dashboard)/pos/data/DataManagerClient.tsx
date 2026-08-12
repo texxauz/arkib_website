@@ -4,7 +4,7 @@ import { useState, useMemo } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Trash2, Pencil, Plus, ChevronDown } from 'lucide-react'
+import { Trash2, Pencil, Plus, ChevronDown, RefreshCw } from 'lucide-react'
 
 type Order = {
   id: string; table_name: string | null; section: string | null
@@ -299,6 +299,25 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   const [recatModal, setRecatModal] = useState(false)
   const [recatTarget, setRecatTarget] = useState(MENU_CATEGORIES[0])
   const [recatLoading, setRecatLoading] = useState(false)
+  const [syncLoading, setSyncLoading] = useState(false)
+
+  async function handleSyncCocktails() {
+    setSyncLoading(true)
+    try {
+      const res = await fetch('/api/pos/sync-cocktails', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) { toast(json.error ?? 'Sync failed', 'error'); return }
+      if (json.added === 0) {
+        toast('All cocktails are already in the menu', 'info')
+      } else {
+        toast(`Added ${json.added} cocktail${json.added !== 1 ? 's' : ''} to menu`, 'success')
+        // Reload the page to show the newly added items
+        window.location.reload()
+      }
+    } finally {
+      setSyncLoading(false)
+    }
+  }
 
   const filteredMenu = useMemo(() => {
     if (menuCatFilter === 'all') return menuItems
@@ -707,6 +726,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                 >{c}</button>
               ))}
             </div>
+            <button onClick={handleSyncCocktails} disabled={syncLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:text-[#F0EEF6] hover:border-[#3A3A44] transition-colors disabled:opacity-50">
+              <RefreshCw size={14} className={syncLoading ? 'animate-spin' : ''} /> Sync Cocktails
+            </button>
             <button onClick={openMenuCreate} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] text-sm hover:bg-[#8B5CF6]/30 transition-colors">
               <Plus size={14} /> Add Item
             </button>
