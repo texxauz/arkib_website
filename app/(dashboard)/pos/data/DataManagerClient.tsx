@@ -301,6 +301,20 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   const [recatLoading, setRecatLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
   const [cogsLoading, setCogsLoading] = useState(false)
+  const [syncCostsLoading, setSyncCostsLoading] = useState(false)
+
+  async function handleSyncMenuCosts() {
+    setSyncCostsLoading(true)
+    try {
+      const res = await fetch('/api/pos/sync-menu-costs', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) { toast(json.error ?? 'Sync failed', 'error'); return }
+      toast(json.message ?? `Synced ${json.updated} items`, json.updated > 0 ? 'success' : 'info')
+      if (json.updated > 0) window.location.reload()
+    } finally {
+      setSyncCostsLoading(false)
+    }
+  }
 
   async function handleRecalculateCogs() {
     setCogsLoading(true)
@@ -739,6 +753,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                 >{c}</button>
               ))}
             </div>
+            <button onClick={handleSyncMenuCosts} disabled={syncCostsLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:text-[#F0EEF6] hover:border-[#3A3A44] transition-colors disabled:opacity-50">
+              <RefreshCw size={14} className={syncCostsLoading ? 'animate-spin' : ''} /> Sync Costs
+            </button>
             <button onClick={handleRecalculateCogs} disabled={cogsLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:text-[#F0EEF6] hover:border-[#3A3A44] transition-colors disabled:opacity-50">
               <RefreshCw size={14} className={cogsLoading ? 'animate-spin' : ''} /> Recalculate COGS
             </button>
