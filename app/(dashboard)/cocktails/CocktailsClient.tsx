@@ -218,10 +218,13 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
   const handleAddIngredient = async (e: React.FormEvent) => {
     e.preventDefault()
     setIngLoading(true)
+    // cost_per_unit is a GENERATED column (cost_per_bottle / bottle_size_ml).
+    // Set bottle_size_ml=1 so cost_per_unit equals the entered cost directly.
     const { data, error } = await supabase.from('ingredients').insert({
       name: ingForm.name.trim(),
       unit: ingForm.unit.trim() || 'ml',
-      cost_per_unit: parseFloat(ingForm.cost_per_unit) || 0,
+      bottle_size_ml: 1,
+      cost_per_bottle: parseFloat(ingForm.cost_per_unit) || 0,
       is_active: true,
     }).select().single()
     setIngLoading(false)
