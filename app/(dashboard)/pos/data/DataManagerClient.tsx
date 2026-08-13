@@ -17,7 +17,7 @@ type PosTable = {
 }
 type MenuItem = {
   id: string; name: string; category: string; price: number
-  is_active: boolean; sort_order: number
+  cost_price: number; is_active: boolean; sort_order: number
 }
 type DailySales = {
   date: string; cocktails_revenue: number; beer_revenue: number
@@ -352,7 +352,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   }
 
   function openMenuEdit(item: MenuItem) { setMenuModal({ open: true, item: { ...item }, isNew: false }) }
-  function openMenuCreate() { setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, is_active: true, sort_order: 99 }, isNew: true }) }
+  function openMenuCreate() { setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, cost_price: 0, is_active: true, sort_order: 99 }, isNew: true }) }
 
   async function handleSaveMenu() {
     const m = menuModal.item
@@ -360,12 +360,12 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     if (!m?.price || m.price <= 0) { toast('Price must be greater than 0', 'error'); return }
     setMenuLoading(true)
     if (menuModal.isNew) {
-      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'create', name: m.name, category: m.category, price: m.price, sort_order: m.sort_order })
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'create', name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, sort_order: m.sort_order })
       setMenuLoading(false)
       if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
       setMenuItems(prev => [...prev, { ...m, id: crypto.randomUUID(), is_active: true } as MenuItem])
     } else {
-      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: m.id, name: m.name, category: m.category, price: m.price, is_active: m.is_active, sort_order: m.sort_order })
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: m.id, name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, is_active: m.is_active, sort_order: m.sort_order })
       setMenuLoading(false)
       if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
       setMenuItems(prev => prev.map(x => x.id === m.id ? { ...x, ...m } as MenuItem : x))
@@ -759,6 +759,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                   <th className="text-left py-2 pr-3">Name</th>
                   <th className="text-left py-2 pr-3">Category</th>
                   <th className="text-right py-2 px-3">Price</th>
+                  <th className="text-right py-2 px-3">Cost</th>
                   <th className="text-right py-2 px-3">Sort</th>
                   <th className="text-center py-2 px-3">Active</th>
                   <th className="py-2 pl-3" />
@@ -766,7 +767,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
               </thead>
               <tbody>
                 {filteredMenu.length === 0 ? (
-                  <tr><td colSpan={7} className="text-center py-10 text-[#5A5865]">No items found</td></tr>
+                  <tr><td colSpan={8} className="text-center py-10 text-[#5A5865]">No items found</td></tr>
                 ) : filteredMenu.map(item => (
                   <tr key={item.id} className={`border-b border-[#1A1A1E] transition-colors ${selectedMenuItems.has(item.id) ? 'bg-[#8B5CF6]/5' : 'hover:bg-[#1A1A1E]'} ${!item.is_active ? 'opacity-50' : ''}`}>
                     <td className="py-2.5 pr-3"><Checkbox checked={selectedMenuItems.has(item.id)} onChange={() => toggleMenuItem(item.id)} /></td>
@@ -775,6 +776,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                       <span className="inline-flex px-2 py-0.5 rounded-full text-xs bg-[#8B5CF6]/10 text-[#A78BFA] border border-[#8B5CF6]/20">{item.category}</span>
                     </td>
                     <td className="py-2.5 px-3 text-right text-[#F0EEF6] tabular-nums">{fmtRM(item.price)}</td>
+                    <td className="py-2.5 px-3 text-right tabular-nums text-[#9896A4]">{fmtRM(item.cost_price ?? 0)}</td>
                     <td className="py-2.5 px-3 text-right text-[#9896A4] tabular-nums">{item.sort_order}</td>
                     <td className="py-2.5 px-3 text-center">
                       <button onClick={() => handleToggleMenu(item)} disabled={loadingId === item.id}
@@ -991,11 +993,19 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                 <ChevronDown size={13} className="absolute right-3 top-1/2 -translate-y-1/2 text-[#5A5865] pointer-events-none" />
               </div>
             </div>
-            <div>
-              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Price (RM)</label>
-              <input type="number" step="0.01" value={menuModal.item.price ?? ''}
-                onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, price: parseFloat(e.target.value) } }))}
-                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Price (RM)</label>
+                <input type="number" step="0.01" value={menuModal.item.price ?? ''}
+                  onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, price: parseFloat(e.target.value) } }))}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
+              </div>
+              <div>
+                <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Cost Price (RM)</label>
+                <input type="number" step="0.01" min="0" value={menuModal.item.cost_price ?? 0}
+                  onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, cost_price: parseFloat(e.target.value) || 0 } }))}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
+              </div>
             </div>
             <div>
               <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Sort Order</label>

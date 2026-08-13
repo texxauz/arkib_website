@@ -2,8 +2,9 @@ import { NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
 
 // Recalculates unit_cost on cocktail_sales rows where it was recorded as 0.
-// Matches by cocktail_id first, then falls back to cocktail_name for rows
-// where cocktail_id was not recorded at sale time.
+// For cocktail items: uses recipe ingredients to compute cost.
+// For non-cocktail items (beer, wine, food, etc.): uses menu_items.cost_price.
+// Matches by cocktail_id first, then falls back to cocktail_name.
 // total_cogs is a GENERATED column so it updates automatically.
 // Owner/manager only.
 
@@ -26,14 +27,21 @@ export async function POST() {
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
   if (!zeroCogs?.length) return NextResponse.json({ updated: 0, message: 'No zero-cost rows found' })
 
-  // 2. Fetch all cocktails with their recipe costs (for both id and name matching)
+  // 2. Fetch all cocktails with recipe costs
   const { data: cocktails, error: cErr } = await supabase
     .from('cocktails')
     .select('id, name, garnish_cost, ice_cost, other_cost, cocktail_recipes(quantity_ml, ingredients(cost_per_unit))')
 
   if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 })
 
-  // Build maps: by id and by lowercase name
+  // 3. Fetch all menu items with cost_price (for beer, wine, food, etc.)
+  const { data: menuItems, error: mErr } = await supabase
+    .from('menu_items')
+    .select('id, name, cost_price')
+
+  if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 })
+
+  // Build cost maps keyed by id and lowercase name
   const costById: Record<string, number> = {}
   const costByName: Record<string, number> = {}
 
@@ -45,16 +53,24 @@ export async function POST() {
     costByName[c.name.toLowerCase().trim()] = total
   }
 
-  // 3. Update each zero-cost row
+  // Menu items fill in gaps (non-cocktail items, or cocktails with no recipe)
+  for (const m of menuItems ?? []) {
+    const key = m.name.toLowerCase().trim()
+    if (!costByName[key] && (m.cost_price ?? 0) > 0) {
+      costByName[key] = m.cost_price ?? 0
+    }
+  }
+
+  // 4. Update each zero-cost row
   let updated = 0
   let skipped = 0
 
   for (const row of zeroCogs) {
     const newCost = row.cocktail_id
-      ? costById[row.cocktail_id]
+      ? (costById[row.cocktail_id] ?? costByName[(row.cocktail_name ?? '').toLowerCase().trim()])
       : costByName[(row.cocktail_name ?? '').toLowerCase().trim()]
 
-    if (newCost == null || newCost === 0) {
+    if (!newCost || newCost === 0) {
       skipped++
       continue
     }
@@ -69,7 +85,7 @@ export async function POST() {
     updated,
     skipped,
     message: skipped > 0
-      ? `Updated ${updated} rows. ${skipped} skipped — those cocktails still have no recipe costs set.`
+      ? `Updated ${updated} rows. ${skipped} skipped — set cost prices for those items in Data Manager → Menu Items.`
       : `Updated ${updated} rows successfully.`,
   })
 }
