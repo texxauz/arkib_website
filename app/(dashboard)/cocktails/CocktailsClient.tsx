@@ -593,6 +593,7 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
               <label className="label">Unit <span className="text-rose-400">*</span></label>
               <select value={ingForm.unit} onChange={fi('unit')} className="input">
                 <option value="ml">ml</option>
+                <option value="bottle">bottle</option>
                 <option value="g">g</option>
                 <option value="oz">oz</option>
                 <option value="dash">dash</option>
