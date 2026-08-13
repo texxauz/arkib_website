@@ -144,7 +144,7 @@ export async function GET(req: NextRequest) {
   const rentalRows = rentalResult.data ?? []
   const rentalTotal = rentalRows.reduce((s, r) => s + (r.amount ?? 0), 0)
   const rentalLines = rentalRows.map(r => {
-    const fc = r.fixed_costs as { name: string; category: string } | null
+    const fc = r.fixed_costs as unknown as { name: string; category: string } | null
     return {
       id: r.id,
       name: fc?.name ?? 'Rental',
