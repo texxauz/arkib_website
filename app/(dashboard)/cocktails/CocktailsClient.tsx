@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, GlassWater, Trash2, TrendingUp, X, ChevronDown, Search } from 'lucide-react'
+import { Plus, GlassWater, Trash2, TrendingUp, X, ChevronDown, Search, Pencil, FlaskConical } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type Ingredient = Database['public']['Tables']['ingredients']['Row']
@@ -60,7 +60,6 @@ function IngredientCombobox({
     i.name.toLowerCase().includes(search.toLowerCase())
   )
 
-  // Close on outside click
   useEffect(() => {
     function handler(e: MouseEvent) {
       if (ref.current && !ref.current.contains(e.target as Node)) {
@@ -87,7 +86,6 @@ function IngredientCombobox({
 
       {open && (
         <div className="absolute z-50 top-full mt-1 left-0 right-0 bg-[#1A1A1E] border border-[#3A3A44] rounded-xl shadow-xl overflow-hidden">
-          {/* Search */}
           <div className="p-2 border-b border-[#2A2A30]">
             <div className="relative">
               <Search size={12} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#5A5865]" />
@@ -101,7 +99,6 @@ function IngredientCombobox({
               />
             </div>
           </div>
-          {/* Options */}
           <div className="max-h-48 overflow-y-auto">
             {filtered.length === 0 ? (
               <div className="px-3 py-3 text-xs text-[#5A5865] text-center">No match found</div>
@@ -128,6 +125,9 @@ function IngredientCombobox({
 export function CocktailsClient({ cocktails: initialCocktails, ingredients: initialIngredients }: { cocktails: Cocktail[], ingredients: Ingredient[] }) {
   const [cocktails, setCocktails] = useState<Cocktail[]>(initialCocktails)
   const [ingredients, setIngredients] = useState<Ingredient[]>(initialIngredients)
+  const [view, setView] = useState<'cocktails' | 'ingredients'>('cocktails')
+  const [ingSearch, setIngSearch] = useState('')
+
   const [modalOpen, setModalOpen] = useState(false)
   const [selected, setSelected] = useState<Cocktail | null>(null)
   const [form, setForm] = useState(emptyForm)
@@ -135,8 +135,9 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
   const [editId, setEditId] = useState<string | null>(null)
   const [loading, setLoading] = useState(false)
 
-  // New ingredient sub-modal
+  // Ingredient modal — used for both new and edit
   const [ingModal, setIngModal] = useState(false)
+  const [ingEditId, setIngEditId] = useState<string | null>(null)
   const [ingForm, setIngForm] = useState(emptyIngForm)
   const [ingLoading, setIngLoading] = useState(false)
 
@@ -153,6 +154,22 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
     setRecipe(c.cocktail_recipes.length > 0 ? c.cocktail_recipes.map(r => ({ ingredient_id: r.ingredient_id, quantity_ml: String(r.quantity_ml) })) : [{ ingredient_id: '', quantity_ml: '' }])
     setSelected(null)
     setModalOpen(true)
+  }
+
+  const openNewIngredient = () => {
+    setIngEditId(null)
+    setIngForm(emptyIngForm)
+    setIngModal(true)
+  }
+
+  const openEditIngredient = (ing: Ingredient) => {
+    setIngEditId(ing.id)
+    setIngForm({
+      name: ing.name,
+      unit: ing.unit ?? 'ml',
+      cost_per_unit: String(ing.cost_per_unit ?? ing.cost_per_bottle ?? ''),
+    })
+    setIngModal(true)
   }
 
   const estimatedCost = () => {
@@ -215,34 +232,57 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
     setLoading(false)
   }
 
-  const handleAddIngredient = async (e: React.FormEvent) => {
+  const handleSaveIngredient = async (e: React.FormEvent) => {
     e.preventDefault()
     setIngLoading(true)
-    // cost_per_unit is a GENERATED column (cost_per_bottle / bottle_size_ml).
-    // Set bottle_size_ml=1 so cost_per_unit equals the entered cost directly.
-    const { data, error } = await supabase.from('ingredients').insert({
+
+    const costValue = parseFloat(ingForm.cost_per_unit) || 0
+    // cost_per_unit is GENERATED ALWAYS AS (cost_per_bottle / bottle_size_ml).
+    // Use bottle_size_ml=1 so cost_per_unit = cost_per_bottle = entered value.
+    const payload = {
       name: ingForm.name.trim(),
       unit: ingForm.unit.trim() || 'ml',
       bottle_size_ml: 1,
-      cost_per_bottle: parseFloat(ingForm.cost_per_unit) || 0,
-      is_active: true,
-    }).select().single()
-    setIngLoading(false)
+      cost_per_bottle: costValue,
+    }
 
-    if (error) { toast(error.message, 'error'); return }
+    if (ingEditId) {
+      // Edit existing ingredient
+      const { data, error } = await supabase
+        .from('ingredients')
+        .update(payload)
+        .eq('id', ingEditId)
+        .select()
+        .single()
+      setIngLoading(false)
+      if (error) { toast(error.message, 'error'); return }
+      const updated = data as Ingredient
+      setIngredients(prev => prev.map(i => i.id === ingEditId ? updated : i).sort((a, b) => a.name.localeCompare(b.name)))
+      toast(`"${updated.name}" updated`, 'success')
+    } else {
+      // New ingredient
+      const { data, error } = await supabase
+        .from('ingredients')
+        .insert({ ...payload, is_active: true })
+        .select()
+        .single()
+      setIngLoading(false)
+      if (error) { toast(error.message, 'error'); return }
+      const newIng = data as Ingredient
+      setIngredients(prev => [...prev, newIng].sort((a, b) => a.name.localeCompare(b.name)))
+      // Auto-select in last empty recipe line (when adding from cocktail modal)
+      setRecipe(prev => {
+        const lastEmpty = [...prev].reverse().findIndex(r => !r.ingredient_id)
+        if (lastEmpty === -1) return prev
+        const idx = prev.length - 1 - lastEmpty
+        return prev.map((r, i) => i === idx ? { ...r, ingredient_id: newIng.id } : r)
+      })
+      toast(`"${newIng.name}" added`, 'success')
+    }
 
-    const newIng = data as Ingredient
-    setIngredients(prev => [...prev, newIng].sort((a, b) => a.name.localeCompare(b.name)))
-    // Auto-select the new ingredient in the last empty recipe line
-    setRecipe(prev => {
-      const lastEmpty = [...prev].reverse().findIndex(r => !r.ingredient_id)
-      if (lastEmpty === -1) return [...prev, { ingredient_id: newIng.id, quantity_ml: '' }]
-      const idx = prev.length - 1 - lastEmpty
-      return prev.map((r, i) => i === idx ? { ...r, ingredient_id: newIng.id } : r)
-    })
-    toast(`"${newIng.name}" added`, 'success')
     setIngModal(false)
     setIngForm(emptyIngForm)
+    setIngEditId(null)
   }
 
   const f = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
@@ -255,56 +295,137 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
   const previewCost = estimatedCost()
   const previewMargin = previewPrice > 0 ? ((previewPrice - previewCost) / previewPrice) * 100 : 0
 
+  const filteredIngredients = ingredients.filter(i =>
+    i.name.toLowerCase().includes(ingSearch.toLowerCase())
+  )
+
   return (
     <div className="space-y-6">
       <TopBar
         title="Cocktail Costing"
-        subtitle={`${cocktails.length} cocktails · Profitability calculator`}
+        subtitle={`${cocktails.length} cocktails · ${ingredients.length} ingredients`}
         actions={
-          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus size={14} /> New Cocktail
-          </button>
+          <div className="flex items-center gap-2">
+            {/* View toggle */}
+            <div className="flex items-center bg-[#1A1A1E] border border-[#2A2A30] rounded-lg p-0.5">
+              <button
+                onClick={() => setView('cocktails')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${view === 'cocktails' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+              >
+                <GlassWater size={12} /> Cocktails
+              </button>
+              <button
+                onClick={() => setView('ingredients')}
+                className={`flex items-center gap-1.5 px-3 py-1.5 rounded-md text-xs font-medium transition-all ${view === 'ingredients' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+              >
+                <FlaskConical size={12} /> Ingredients
+              </button>
+            </div>
+            {view === 'cocktails'
+              ? <button onClick={openCreate} className="btn-primary flex items-center gap-2"><Plus size={14} /> New Cocktail</button>
+              : <button onClick={openNewIngredient} className="btn-primary flex items-center gap-2"><Plus size={14} /> New Ingredient</button>
+            }
+          </div>
         }
       />
 
-      {cocktails.length === 0 ? (
-        <EmptyState icon={<GlassWater size={40} />} title="No cocktails yet" action={<button onClick={openCreate} className="btn-primary">Add Cocktail</button>} />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {cocktails.map(c => {
-            const { cost, profit, margin } = calcCost(c)
-            const marginColor = margin >= 70 ? 'text-emerald-400' : margin >= 50 ? 'text-amber-400' : 'text-rose-400'
-            return (
-              <div key={c.id} className="card-hover cursor-pointer" onClick={() => setSelected(c)}>
-                <div className="flex items-start justify-between mb-3">
-                  <p className="text-[#F0EEF6] font-semibold">{c.name}</p>
-                  <span className={`text-sm font-bold ${marginColor}`}>{margin.toFixed(0)}%</span>
-                </div>
-                <div className="grid grid-cols-3 gap-2 text-center">
-                  <div className="bg-[#1A1A1E] rounded-lg p-2">
-                    <p className="text-[#5A5865] text-[9px] uppercase">Cost</p>
-                    <p className="text-[#F0EEF6] text-xs font-medium">{formatCurrency(cost)}</p>
+      {/* ── COCKTAILS VIEW ── */}
+      {view === 'cocktails' && (
+        cocktails.length === 0 ? (
+          <EmptyState icon={<GlassWater size={40} />} title="No cocktails yet" action={<button onClick={openCreate} className="btn-primary">Add Cocktail</button>} />
+        ) : (
+          <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {cocktails.map(c => {
+              const { cost, profit, margin } = calcCost(c)
+              const marginColor = margin >= 70 ? 'text-emerald-400' : margin >= 50 ? 'text-amber-400' : 'text-rose-400'
+              return (
+                <div key={c.id} className="card-hover cursor-pointer" onClick={() => setSelected(c)}>
+                  <div className="flex items-start justify-between mb-3">
+                    <p className="text-[#F0EEF6] font-semibold">{c.name}</p>
+                    <span className={`text-sm font-bold ${marginColor}`}>{margin.toFixed(0)}%</span>
                   </div>
-                  <div className="bg-[#1A1A1E] rounded-lg p-2">
-                    <p className="text-[#5A5865] text-[9px] uppercase">Price</p>
-                    <p className="text-[#F0EEF6] text-xs font-medium">{formatCurrency(c.selling_price)}</p>
+                  <div className="grid grid-cols-3 gap-2 text-center">
+                    <div className="bg-[#1A1A1E] rounded-lg p-2">
+                      <p className="text-[#5A5865] text-[9px] uppercase">Cost</p>
+                      <p className="text-[#F0EEF6] text-xs font-medium">{formatCurrency(cost)}</p>
+                    </div>
+                    <div className="bg-[#1A1A1E] rounded-lg p-2">
+                      <p className="text-[#5A5865] text-[9px] uppercase">Price</p>
+                      <p className="text-[#F0EEF6] text-xs font-medium">{formatCurrency(c.selling_price)}</p>
+                    </div>
+                    <div className="bg-[#1A1A1E] rounded-lg p-2">
+                      <p className="text-[#5A5865] text-[9px] uppercase">Profit</p>
+                      <p className="text-emerald-400 text-xs font-medium">{formatCurrency(profit)}</p>
+                    </div>
                   </div>
-                  <div className="bg-[#1A1A1E] rounded-lg p-2">
-                    <p className="text-[#5A5865] text-[9px] uppercase">Profit</p>
-                    <p className="text-emerald-400 text-xs font-medium">{formatCurrency(profit)}</p>
+                  <div className="mt-2 w-full bg-[#1A1A1E] rounded-full h-1">
+                    <div className={`h-1 rounded-full ${margin >= 70 ? 'bg-emerald-400' : margin >= 50 ? 'bg-amber-400' : 'bg-rose-400'}`}
+                      style={{ width: `${Math.min(margin, 100)}%` }} />
                   </div>
                 </div>
-                <div className="mt-2 w-full bg-[#1A1A1E] rounded-full h-1">
-                  <div className={`h-1 rounded-full ${margin >= 70 ? 'bg-emerald-400' : margin >= 50 ? 'bg-amber-400' : 'bg-rose-400'}`}
-                    style={{ width: `${Math.min(margin, 100)}%` }} />
-                </div>
+              )
+            })}
+          </div>
+        )
+      )}
+
+      {/* ── INGREDIENTS VIEW ── */}
+      {view === 'ingredients' && (
+        <div className="space-y-3">
+          {/* Search */}
+          <div className="relative">
+            <Search size={14} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+            <input
+              type="text"
+              value={ingSearch}
+              onChange={e => setIngSearch(e.target.value)}
+              placeholder="Search ingredients…"
+              className="input pl-9 w-full sm:w-72"
+            />
+          </div>
+
+          {filteredIngredients.length === 0 ? (
+            <EmptyState icon={<FlaskConical size={40} />} title="No ingredients found" action={<button onClick={openNewIngredient} className="btn-primary">Add Ingredient</button>} />
+          ) : (
+            <div className="card p-0 overflow-hidden">
+              <div className="grid grid-cols-[1fr_auto_auto_auto] gap-0 text-[10px] uppercase tracking-widest text-[#5A5865] px-4 py-2.5 border-b border-[#2A2A30]">
+                <span>Ingredient</span>
+                <span className="text-right pr-6">Unit</span>
+                <span className="text-right pr-6">Cost / unit</span>
+                <span />
               </div>
-            )
-          })}
+              <div className="divide-y divide-[#1A1A1E]">
+                {filteredIngredients.map(ing => {
+                  const hasCost = ing.cost_per_unit != null && ing.cost_per_unit > 0
+                  return (
+                    <div key={ing.id} className="grid grid-cols-[1fr_auto_auto_auto] items-center gap-0 px-4 py-3 hover:bg-[#1A1A1E] transition-colors group">
+                      <span className="text-[#F0EEF6] text-sm font-medium">{ing.name}</span>
+                      <span className="text-[#9896A4] text-sm pr-6">{ing.unit}</span>
+                      <span className={`text-sm tabular-nums pr-6 ${hasCost ? 'text-[#F0EEF6]' : 'text-rose-400'}`}>
+                        {hasCost ? formatCurrency(ing.cost_per_unit ?? 0) : 'RM0.00 ⚠'}
+                      </span>
+                      <button
+                        onClick={() => openEditIngredient(ing)}
+                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-all px-2 py-1 rounded-lg hover:bg-[#8B5CF6]/10"
+                      >
+                        <Pencil size={12} /> Edit
+                      </button>
+                    </div>
+                  )
+                })}
+              </div>
+              <div className="px-4 py-2.5 border-t border-[#2A2A30] text-[#5A5865] text-xs">
+                {filteredIngredients.length} ingredient{filteredIngredients.length !== 1 ? 's' : ''}
+                {filteredIngredients.some(i => !i.cost_per_unit || i.cost_per_unit === 0) && (
+                  <span className="text-rose-400 ml-3">⚠ Some ingredients have no cost set</span>
+                )}
+              </div>
+            </div>
+          )}
         </div>
       )}
 
-      {/* Detail view */}
+      {/* Cocktail detail view */}
       {selected && (
         <div className="fixed inset-0 z-50 flex items-center justify-center p-4">
           <div className="absolute inset-0 bg-black/70" onClick={() => setSelected(null)} />
@@ -374,7 +495,7 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
               <p className="text-[#9896A4] text-xs uppercase tracking-wider">Recipe Ingredients</p>
               <button
                 type="button"
-                onClick={() => { setIngForm(emptyIngForm); setIngModal(true) }}
+                onClick={openNewIngredient}
                 className="flex items-center gap-1 text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-colors"
               >
                 <Plus size={11} /> New ingredient
@@ -449,10 +570,12 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
         </form>
       </Modal>
 
-      {/* New ingredient sub-modal */}
-      <Modal isOpen={ingModal} onClose={() => setIngModal(false)} title="New Ingredient" size="sm">
-        <form onSubmit={handleAddIngredient} className="space-y-4">
-          <p className="text-[#9896A4] text-sm">Add a new ingredient to the costing library. It will be immediately available to select in the recipe above.</p>
+      {/* New / Edit ingredient modal */}
+      <Modal isOpen={ingModal} onClose={() => { setIngModal(false); setIngEditId(null); setIngForm(emptyIngForm) }} title={ingEditId ? 'Edit Ingredient' : 'New Ingredient'} size="sm">
+        <form onSubmit={handleSaveIngredient} className="space-y-4">
+          {!ingEditId && (
+            <p className="text-[#9896A4] text-sm">Add a new ingredient to the costing library.</p>
+          )}
           <div>
             <label className="label">Ingredient Name <span className="text-rose-400">*</span></label>
             <input
@@ -486,16 +609,21 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
                 min="0"
                 value={ingForm.cost_per_unit}
                 onChange={fi('cost_per_unit')}
-                placeholder="0.00"
+                placeholder="0.000"
                 className="input"
                 required
               />
             </div>
           </div>
+          {ingForm.cost_per_unit && (
+            <p className="text-[#5A5865] text-xs">
+              Preview: {formatCurrency(parseFloat(ingForm.cost_per_unit) || 0)} per {ingForm.unit}
+            </p>
+          )}
           <div className="flex gap-3 pt-1">
-            <button type="button" onClick={() => setIngModal(false)} className="btn-secondary flex-1">Cancel</button>
+            <button type="button" onClick={() => { setIngModal(false); setIngEditId(null); setIngForm(emptyIngForm) }} className="btn-secondary flex-1">Cancel</button>
             <button type="submit" disabled={ingLoading || !ingForm.name.trim()} className="btn-primary flex-1 disabled:opacity-50">
-              {ingLoading ? 'Adding…' : 'Add Ingredient'}
+              {ingLoading ? 'Saving…' : (ingEditId ? 'Save Changes' : 'Add Ingredient')}
             </button>
           </div>
         </form>
