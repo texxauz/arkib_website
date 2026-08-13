@@ -4,7 +4,7 @@ import { usePathname } from 'next/navigation'
 import { cn } from '@/lib/utils'
 import {
   LayoutDashboard, TrendingUp, Receipt, BookOpen,
-  GlassWater, Building, BarChart3, Settings,
+  GlassWater, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
   MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText,
@@ -23,7 +23,6 @@ const MGMT_ITEMS = [
   { href: '/checklist',    label: 'Checklist',   icon: ClipboardCheck,  key: 'checklist' },
   { href: '/cocktails',    label: 'Cocktails',   icon: GlassWater,      key: 'cocktails' },
   { href: '/shifts',       label: 'Shifts',      icon: Clock,           key: 'shifts' },
-  { href: '/rent',         label: 'Rent & Fixed',icon: Building,        key: 'rent' },
   { href: '/reports',      label: 'Reports',     icon: BarChart3,       key: 'reports' },
   { href: '/pnl',          label: 'P&L',         icon: PieChart,        key: 'pnl' },
   { href: '/treasury',     label: 'Treasury',    icon: Landmark,        key: 'treasury' },

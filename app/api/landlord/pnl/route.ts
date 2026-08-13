@@ -59,15 +59,13 @@ export async function GET(req: NextRequest) {
       .select('date, cocktail_name, quantity, unit_cost, total_cogs')
       .gte('date', startDate).lte('date', endDate).order('date'),
 
-    // Exclude rental (rental_records is authoritative) and capex items
+    // All expenses including rental — rental tracked via expenses.category='rental'
     supabase.from('expenses')
       .select('id, date, expense_period, category, description, amount, supplier_name, receipt_url, is_capex')
-      .is('deleted_at', null)
-      .neq('category', 'rental'),
+      .is('deleted_at', null),
 
-    supabase.from('rental_records')
-      .select('id, amount, status, due_date, paid_date, payment_method, receipt_url, notes, fixed_costs(name, category)')
-      .eq('month', month).eq('year', year),
+    // rental_records no longer used — kept as null placeholder
+    Promise.resolve({ data: [], error: null }),
 
     supabase.from('pos_audit_log')
       .select('id, actor_id, actor_name, event, entity_type, entity_id, payload, created_at')
@@ -136,15 +134,25 @@ export async function GET(req: NextRequest) {
   const opexExpenses  = monthExpenses.filter(e => !e.is_capex)
   const capexExpenses = monthExpenses.filter(e => e.is_capex)
 
+  // ── Rental — from expenses.category='rental' ─────────────────────────────────
+  const rentalExpenses    = opexExpenses.filter(e => e.category === 'rental')
+  const nonRentalExpenses = opexExpenses.filter(e => e.category !== 'rental')
+
+  const rentalTotal = rentalExpenses.reduce((s, e) => s + e.amount, 0)
+  const rentalLines = rentalExpenses.map(e => ({
+    id: e.id, name: e.description || e.supplier_name || 'Rental',
+    amount: e.amount, date: e.date, receipt_url: e.receipt_url,
+  }))
+
   const expenseByCategory: Record<string, number> = {}
-  for (const e of opexExpenses) {
+  for (const e of nonRentalExpenses) {
     expenseByCategory[e.category] = (expenseByCategory[e.category] ?? 0) + e.amount
   }
 
-  const totalNonRentalOpex = opexExpenses.reduce((s, e) => s + e.amount, 0)
+  const totalNonRentalOpex = nonRentalExpenses.reduce((s, e) => s + e.amount, 0)
 
   // Expense lines for detail view (payroll excluded for investor privacy)
-  const expenseLines = opexExpenses
+  const expenseLines = nonRentalExpenses
     .filter(e => isOwner || e.category !== 'salary')
     .map(e => ({
       id: e.id, date: e.date, category: e.category,
@@ -157,18 +165,6 @@ export async function GET(req: NextRequest) {
     description: e.description, amount: e.amount,
     supplier_name: e.supplier_name, receipt_url: e.receipt_url,
   }))
-
-  // ── Rental ──────────────────────────────────────────────────────────────────
-  const rentalRows  = rentalResult.data ?? []
-  const rentalTotal = rentalRows.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const rentalLines = rentalRows.map(r => {
-    const fc = r.fixed_costs as unknown as { name: string; category: string } | null
-    return {
-      id: r.id, name: fc?.name ?? 'Rental', amount: r.amount,
-      status: r.status, due_date: r.due_date, paid_date: r.paid_date,
-      payment_method: r.payment_method, receipt_url: r.receipt_url, notes: r.notes,
-    }
-  })
 
   // ── P&L calculation ─────────────────────────────────────────────────────────
   const grossProfit           = revenue.total - cogsTotal
