@@ -300,6 +300,19 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   const [recatTarget, setRecatTarget] = useState(MENU_CATEGORIES[0])
   const [recatLoading, setRecatLoading] = useState(false)
   const [syncLoading, setSyncLoading] = useState(false)
+  const [cogsLoading, setCogsLoading] = useState(false)
+
+  async function handleRecalculateCogs() {
+    setCogsLoading(true)
+    try {
+      const res = await fetch('/api/pos/recalculate-cogs', { method: 'POST' })
+      const json = await res.json()
+      if (!res.ok) { toast(json.error ?? 'Recalculate failed', 'error'); return }
+      toast(json.message ?? `Updated ${json.updated} rows`, json.updated > 0 ? 'success' : 'info')
+    } finally {
+      setCogsLoading(false)
+    }
+  }
 
   async function handleSyncCocktails() {
     setSyncLoading(true)
@@ -726,6 +739,9 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                 >{c}</button>
               ))}
             </div>
+            <button onClick={handleRecalculateCogs} disabled={cogsLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:text-[#F0EEF6] hover:border-[#3A3A44] transition-colors disabled:opacity-50">
+              <RefreshCw size={14} className={cogsLoading ? 'animate-spin' : ''} /> Recalculate COGS
+            </button>
             <button onClick={handleSyncCocktails} disabled={syncLoading} className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:text-[#F0EEF6] hover:border-[#3A3A44] transition-colors disabled:opacity-50">
               <RefreshCw size={14} className={syncLoading ? 'animate-spin' : ''} /> Sync Cocktails
             </button>
