@@ -7,7 +7,7 @@ import {
   GlassWater, Building, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -27,6 +27,7 @@ const MGMT_ITEMS = [
   { href: '/reports',      label: 'Reports',     icon: BarChart3,       key: 'reports' },
   { href: '/pnl',          label: 'P&L',         icon: PieChart,        key: 'pnl' },
   { href: '/treasury',     label: 'Treasury',    icon: Landmark,        key: 'treasury' },
+  { href: '/landlord',     label: 'Landlord P&L',icon: ScrollText,      key: 'landlord' },
   { href: '/settings',     label: 'Settings',    icon: Settings,        key: 'settings' },
   { href: '/settings/team',label: 'Team Access', icon: Users,           key: 'team' },
 ]
@@ -50,6 +51,7 @@ function getMgmtItems(userRole: string, tabPermissions: Record<string, string> |
   return MGMT_ITEMS.filter(item => {
     if (item.key === 'team' || item.key === 'settings') return isAdmin
     if (item.key === 'treasury') return userRole === 'owner'
+    if (item.key === 'landlord') return userRole === 'owner' || userRole === 'investor'
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })
