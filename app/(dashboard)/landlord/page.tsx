@@ -9,11 +9,22 @@ export default async function LandlordPage() {
 
   const { data: profile } = await supabase
     .from('users')
-    .select('role')
+    .select('role, tab_permissions')
     .eq('id', user.id)
     .single()
 
-  if (profile?.role !== 'owner' && profile?.role !== 'investor') {
+  const role = profile?.role
+  const tabPerms = profile?.tab_permissions as Record<string, string> | null
+
+  // Owners always have access. Other roles need explicit tab permission.
+  if (role === 'owner') {
+    // allowed
+  } else if (role === 'investor') {
+    // investors allowed unless explicitly revoked
+    if (tabPerms && tabPerms['landlord'] === 'none') redirect('/dashboard')
+  } else if (tabPerms && tabPerms['landlord'] && tabPerms['landlord'] !== 'none') {
+    // non-owner/investor can access if explicitly granted
+  } else {
     redirect('/dashboard')
   }
 

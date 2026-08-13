@@ -43,6 +43,7 @@ const MGMT_TABS = [
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
   { key: 'pnl', label: 'P&L' },
+  { key: 'landlord', label: 'Landlord P&L' },
 ]
 
 const POS_TABS = [
@@ -79,6 +80,7 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   rent: 'none',
   reports: 'none',
   pnl: 'none',
+  landlord: 'none',
 }
 
 const DEFAULT_ACCOUNTANT: Record<string, string> = Object.fromEntries(
@@ -86,7 +88,7 @@ const DEFAULT_ACCOUNTANT: Record<string, string> = Object.fromEntries(
 )
 
 const DEFAULT_INVESTOR: Record<string, string> = Object.fromEntries(
-  ALL_TABS.map(t => [t.key, t.key === 'pnl' ? 'view' : 'none'])
+  ALL_TABS.map(t => [t.key, ['pnl', 'landlord'].includes(t.key) ? 'view' : 'none'])
 )
 
 const PERM_CYCLE: Record<string, string> = { none: 'view', view: 'edit', edit: 'none' }
