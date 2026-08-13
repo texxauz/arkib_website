@@ -10,8 +10,7 @@ function getProfitShareRate(year: number, month: number): number {
   if (year === 2026 && month >= 7) return 0.30
   if (year === 2027) return 0.30
   if (year === 2028 && month <= 7) return 0.30
-  // Outside defined contract period — return 0 so caller can flag this
-  return 0
+  return 0 // Outside defined contract period
 }
 
 export async function GET(req: NextRequest) {
@@ -38,66 +37,52 @@ export async function GET(req: NextRequest) {
     return NextResponse.json({ error: 'Invalid year or month' }, { status: 400 })
   }
 
-  // Date range for the month
   const monthStr = `${year}-${String(month).padStart(2, '0')}`
   const startDate = `${monthStr}-01`
-  const endDate = new Date(year, month, 0).toISOString().slice(0, 10) // last day of month
+  const lastDay = new Date(year, month, 0).getDate()
+  const endDate = `${monthStr}-${String(lastDay).padStart(2, '0')}`
 
-  // Run all queries in parallel
-  const [
-    salesResult,
-    cogsResult,
-    expensesResult,
-    rentalResult,
-    auditResult,
-  ] = await Promise.all([
-    // Revenue — daily_sales for month
-    supabase
-      .from('daily_sales')
-      .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, entered_by, notes')
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .is('deleted_at', null)
-      .order('date'),
+  // Run all queries in parallel.
+  // Expenses: fetch all non-rental records without a date filter;
+  // date filtering happens in JS to handle expense_period vs date correctly.
+  const [salesResult, cogsResult, expensesResult, rentalResult, auditResult] =
+    await Promise.all([
+      supabase
+        .from('daily_sales')
+        .select('date, total_revenue, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .is('deleted_at', null)
+        .order('date'),
 
-    // COGS — cocktail_sales for month (transactional, locked at sale time)
-    supabase
-      .from('cocktail_sales')
-      .select('date, cocktail_name, quantity, unit_cost, total_cogs')
-      .gte('date', startDate)
-      .lte('date', endDate)
-      .order('date'),
+      supabase
+        .from('cocktail_sales')
+        .select('date, cocktail_name, quantity, unit_cost, total_cogs')
+        .gte('date', startDate)
+        .lte('date', endDate)
+        .order('date'),
 
-    // Operating expenses — EXCLUDING rental category to avoid double-counting
-    // rental_records is the authoritative source for rental costs
-    supabase
-      .from('expenses')
-      .select('id, date, expense_period, category, description, amount, supplier_name, receipt_url')
-      .is('deleted_at', null)
-      .neq('category', 'rental')
-      .or(
-        `expense_period.gte.${startDate},and(expense_period.is.null,date.gte.${startDate})`
-      )
-      .or(
-        `expense_period.lte.${endDate},and(expense_period.is.null,date.lte.${endDate})`
-      ),
+      // Exclude rental category — rental_records is the authoritative rental source
+      supabase
+        .from('expenses')
+        .select('id, date, expense_period, category, description, amount, supplier_name, receipt_url')
+        .is('deleted_at', null)
+        .neq('category', 'rental'),
 
-    // Rental — from rental_records (authoritative source)
-    supabase
-      .from('rental_records')
-      .select('id, amount, status, due_date, paid_date, payment_method, receipt_url, notes, fixed_costs(name, category)')
-      .eq('month', month)
-      .eq('year', year),
+      supabase
+        .from('rental_records')
+        .select('id, amount, status, due_date, paid_date, payment_method, receipt_url, notes, fixed_costs(name, category)')
+        .eq('month', month)
+        .eq('year', year),
 
-    // Manual adjustments — pos_audit_log events touching daily_sales in this month
-    supabase
-      .from('pos_audit_log')
-      .select('id, actor_id, actor_name, event, entity_type, entity_id, payload, created_at')
-      .eq('entity_type', 'daily_sales')
-      .gte('created_at', `${startDate}T00:00:00Z`)
-      .lte('created_at', `${endDate}T23:59:59Z`)
-      .order('created_at', { ascending: false }),
-  ])
+      supabase
+        .from('pos_audit_log')
+        .select('id, actor_id, actor_name, event, entity_type, entity_id, payload, created_at')
+        .eq('entity_type', 'daily_sales')
+        .gte('created_at', `${startDate}T00:00:00Z`)
+        .lte('created_at', `${endDate}T23:59:59Z`)
+        .order('created_at', { ascending: false }),
+    ])
 
   if (salesResult.error) return NextResponse.json({ error: salesResult.error.message }, { status: 500 })
   if (cogsResult.error) return NextResponse.json({ error: cogsResult.error.message }, { status: 500 })
@@ -118,8 +103,6 @@ export async function GET(req: NextRequest) {
 
   // COGS
   const cogsTotal = cogsRows.reduce((s, r) => s + (r.total_cogs ?? 0), 0)
-
-  // COGS breakdown by cocktail name
   const cogsByName: Record<string, { qty: number; totalCogs: number }> = {}
   for (const r of cogsRows) {
     if (!cogsByName[r.cocktail_name]) cogsByName[r.cocktail_name] = { qty: 0, totalCogs: 0 }
@@ -130,30 +113,19 @@ export async function GET(req: NextRequest) {
     .map(([name, v]) => ({ name, ...v }))
     .sort((a, b) => b.totalCogs - a.totalCogs)
 
-  // Gross Profit
-  const grossProfit = revenue.total - cogsTotal
-
-  // Operating expenses (non-rental) — fix the OR filter by re-querying cleanly
-  // The Supabase JS OR on expense_period needs a cleaner approach
-  const expensesClean = await supabase
-    .from('expenses')
-    .select('id, date, expense_period, category, description, amount, supplier_name, receipt_url')
-    .is('deleted_at', null)
-    .neq('category', 'rental')
-
-  const allExpenses = expensesClean.data ?? []
+  // Filter expenses to the reporting period using expense_period when set, otherwise date
+  const allExpenses = expensesResult.data ?? []
   const monthExpenses = allExpenses.filter(e => {
     const period = e.expense_period ?? e.date
     return period >= startDate && period <= endDate
   })
 
-  // Aggregate by category (salary is shown as aggregate only — no line items)
   const expenseByCategory: Record<string, number> = {}
   for (const e of monthExpenses) {
     expenseByCategory[e.category] = (expenseByCategory[e.category] ?? 0) + e.amount
   }
 
-  // Individual expense lines — exclude salary line items for privacy (show aggregate only)
+  // Individual lines — payroll excluded for privacy (shown as aggregate only)
   const expenseLines = monthExpenses
     .filter(e => e.category !== 'salary')
     .map(e => ({
@@ -168,50 +140,45 @@ export async function GET(req: NextRequest) {
 
   const totalNonRentalExpenses = monthExpenses.reduce((s, e) => s + e.amount, 0)
 
-  // Rental from rental_records (authoritative)
+  // Rental from rental_records (authoritative source)
   const rentalRows = rentalResult.data ?? []
   const rentalTotal = rentalRows.reduce((s, r) => s + (r.amount ?? 0), 0)
-  const rentalLines = rentalRows.map(r => ({
-    id: r.id,
-    name: (r.fixed_costs as { name: string; category: string } | null)?.name ?? 'Rental',
-    amount: r.amount,
-    status: r.status,
-    due_date: r.due_date,
-    paid_date: r.paid_date,
-    payment_method: r.payment_method,
-    receipt_url: r.receipt_url,
-    notes: r.notes,
-  }))
+  const rentalLines = rentalRows.map(r => {
+    const fc = r.fixed_costs as { name: string; category: string } | null
+    return {
+      id: r.id,
+      name: fc?.name ?? 'Rental',
+      amount: r.amount,
+      status: r.status,
+      due_date: r.due_date,
+      paid_date: r.paid_date,
+      payment_method: r.payment_method,
+      receipt_url: r.receipt_url,
+      notes: r.notes,
+    }
+  })
 
+  const grossProfit = revenue.total - cogsTotal
   const totalOperatingExpenses = totalNonRentalExpenses + rentalTotal
-
-  // Gross Operating Profit
   const grossOperatingProfit = grossProfit - totalOperatingExpenses
 
-  // Contractual profit share
   const profitShareRate = getProfitShareRate(year, month)
   const isOutsideContractPeriod = profitShareRate === 0
   const landlordEntitlement = grossOperatingProfit > 0 ? grossOperatingProfit * profitShareRate : 0
   const tenantProfit = grossOperatingProfit - landlordEntitlement
 
-  // Manual adjustments from audit log
   const manualAdjustments = auditRows
-    .filter(r => r.event === 'manual_update' || r.event?.includes('manual'))
+    .filter(r => r.event === 'manual_update' || (r.event ?? '').includes('manual'))
     .map(r => ({
       id: r.id,
       actorName: r.actor_name,
       event: r.event,
       entityId: r.entity_id,
-      payload: r.payload,
+      payload: r.payload as Record<string, unknown> | null,
       createdAt: r.created_at,
     }))
 
-  // Flag if any daily_sales row for this month was manually adjusted
-  // We check audit log for any daily_sales manual_update events
-  const hasManualAdjustments = auditRows.some(r =>
-    r.entity_type === 'daily_sales' &&
-    (r.event === 'manual_update' || r.event === 'daily_sales_update' || r.event?.includes('manual'))
-  )
+  const hasManualAdjustments = manualAdjustments.length > 0
 
   return NextResponse.json({
     month: monthStr,
@@ -236,9 +203,7 @@ export async function GET(req: NextRequest) {
     grossOperatingProfit,
     landlordEntitlement,
     tenantProfit,
-    status: grossOperatingProfit > 0 && landlordEntitlement > 0
-      ? 'profit_share_payable'
-      : 'no_profit_share_payable',
+    status: landlordEntitlement > 0 ? 'profit_share_payable' : 'no_profit_share_payable',
     hasManualAdjustments,
     manualAdjustments,
   })
