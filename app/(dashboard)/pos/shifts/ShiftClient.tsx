@@ -567,16 +567,14 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                               <FileText size={11} /> Report
                             </button>
                           )}
-                          {isAdmin && (
-                            <button
-                              onClick={() => openSettlement(shift.id)}
-                              disabled={settlementLoading === shift.id}
-                              className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
-                            >
-                              <Receipt size={11} />
-                              {settlementLoading === shift.id ? '…' : 'Settlement'}
-                            </button>
-                          )}
+                          <button
+                            onClick={() => openSettlement(shift.id)}
+                            disabled={settlementLoading === shift.id}
+                            className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
+                          >
+                            <Receipt size={11} />
+                            {settlementLoading === shift.id ? '…' : 'Settlement'}
+                          </button>
                         </div>
                       </td>
                     </tr>
