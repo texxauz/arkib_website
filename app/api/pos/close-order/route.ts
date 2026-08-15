@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   //    NEVER trust client-supplied discountAmount / serviceCharge / taxAmount.
   const { data: order, error: orderErr } = await supabase
     .from('pos_orders')
-    .select('id, status, table_id, server_id, opened_at, discount_amount, discount_label, service_charge, tax_amount')
+    .select('id, status, table_id, server_id, opened_at, discount_amount, discount_label, service_charge, tax_amount, shift_id')
     .eq('id', orderId)
     .single()
   if (orderErr || !order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -37,6 +37,18 @@ export async function POST(req: NextRequest) {
 
   if (!isAdmin && !posPerm.close_any_table && order.server_id !== user.id) {
     return NextResponse.json({ error: 'You can only close your own orders' }, { status: 403 })
+  }
+
+  // 1a. Backfill shift_id if the order was opened before a shift was started.
+  //     Without this, the order stays invisible to all shift aggregation queries.
+  if (!order.shift_id) {
+    const { data: openShift } = await supabase
+      .from('pos_shifts').select('id').eq('status', 'open')
+      .order('opened_at', { ascending: false }).limit(1).maybeSingle()
+    if (openShift) {
+      await supabase.from('pos_orders').update({ shift_id: openShift.id }).eq('id', orderId)
+      order.shift_id = openShift.id
+    }
   }
 
   // 2. Load non-voided items — the source of truth for all calculations.

@@ -11,6 +11,7 @@ type PosShift = {
   opened_at: string; closed_at: string | null
   opening_float: number; closing_cash: number | null
   expected_cash: number | null; variance: number | null
+  revenue: number | null
   status: string; notes: string | null
   users_opened?: { full_name: string }
   users_closed?: { full_name: string } | null
@@ -540,7 +541,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                         {formatCurrency(shift.opening_float)}
                       </td>
                       <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
-                        {shift.expected_cash != null ? formatCurrency(shift.expected_cash) : '—'}
+                        {shift.revenue != null ? formatCurrency(shift.revenue) : '—'}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {shift.variance != null ? (
