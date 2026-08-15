@@ -47,7 +47,11 @@ export async function POST(req: NextRequest) {
     .select()
     .single()
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  if (error) {
+    // Unique constraint violation — another request already opened an order for this table
+    if (error.code === '23505') return NextResponse.json({ error: 'Table already has an open order' }, { status: 409 })
+    return NextResponse.json({ error: error.message }, { status: 500 })
+  }
 
   if (tableId) {
     await supabase.from('pos_tables').update({ current_order_id: order.id }).eq('id', tableId)
