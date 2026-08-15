@@ -557,8 +557,8 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                       <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
                         {shift.closed_at ? formatDuration(shift.opened_at, shift.closed_at) : '—'}
                       </td>
-                      <td className="px-4 py-3">
-                        <div className="flex items-center gap-2">
+                      <td className="px-4 py-3 whitespace-nowrap">
+                        <div className="flex items-center gap-3">
                           {shift.night_report && (
                             <button
                               onClick={() => { setViewReportData(shift.night_report!); setViewReportModal(true) }}
