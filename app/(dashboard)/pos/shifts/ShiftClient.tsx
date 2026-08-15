@@ -315,7 +315,11 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
     setSettlementLoading(shiftId)
     try {
       const res = await fetch(`/api/pos/shift-settlement/${shiftId}`)
-      if (!res.ok) { toast('Failed to load settlement data', 'error'); return }
+      if (!res.ok) {
+        const err = await res.json().catch(() => ({}))
+        toast(err?.error ? `Settlement error: ${err.error}` : 'Failed to load settlement data', 'error')
+        return
+      }
       setSettlementData(await res.json())
       setSettlementModal(true)
     } catch {
@@ -563,14 +567,16 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                               <FileText size={11} /> Report
                             </button>
                           )}
-                          <button
-                            onClick={() => openSettlement(shift.id)}
-                            disabled={settlementLoading === shift.id}
-                            className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
-                          >
-                            <Receipt size={11} />
-                            {settlementLoading === shift.id ? '…' : 'Settlement'}
-                          </button>
+                          {isAdmin && (
+                            <button
+                              onClick={() => openSettlement(shift.id)}
+                              disabled={settlementLoading === shift.id}
+                              className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
+                            >
+                              <Receipt size={11} />
+                              {settlementLoading === shift.id ? '…' : 'Settlement'}
+                            </button>
+                          )}
                         </div>
                       </td>
                     </tr>
