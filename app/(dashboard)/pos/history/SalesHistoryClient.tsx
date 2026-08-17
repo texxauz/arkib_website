@@ -6,7 +6,7 @@ import { TopBar } from '@/components/layout/TopBar'
 import {
   Users, Receipt, TrendingUp, ChevronDown, ChevronUp,
   Search, Calendar, CreditCard, Banknote, QrCode, Clock,
-  Printer, Download, RotateCcw, Mail, Eye, X,
+  Printer, Download, RotateCcw, Mail, Eye, X, Trash2,
 } from 'lucide-react'
 import { ReceiptPrint, type ReceiptData } from '@/app/(dashboard)/pos/order/[id]/ReceiptPrint'
 import { useToast } from '@/components/ui/Toast'
@@ -122,6 +122,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   const [dateFilter, setDateFilter] = useState<string>('')
   const [reprintData, setReprintData] = useState<ReceiptData | null>(null)
   const [reopening, setReopening] = useState<string | null>(null)
+  const [deleting, setDeleting] = useState<string | null>(null)
   const [viewingReceiptHtml, setViewingReceiptHtml] = useState<string | null>(null)
 
   const itemsByOrder = useMemo(() => {
@@ -247,6 +248,26 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     a.download = `arkib-sales-${dateFilter || 'all'}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function handleDelete(orderId: string, tableLabel: string, total: number) {
+    if (!confirm(`Delete order "${tableLabel}" (RM ${total.toFixed(2)})?\n\nThis will reverse daily sales and inventory. This cannot be undone.`)) return
+    setDeleting(orderId)
+    try {
+      const res = await fetch('/api/pos/delete-order', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to delete order')
+      toast('Order deleted and sales reversed', 'success')
+      router.refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to delete order', 'error')
+    } finally {
+      setDeleting(null)
+    }
   }
 
   async function handleReopen(orderId: string) {
@@ -554,6 +575,16 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                                 >
                                   <RotateCcw size={12} />
                                   {reopening === order.id ? 'Reopening…' : 'Reopen Order'}
+                                </button>
+                              )}
+                              {isAdmin && (
+                                <button
+                                  onClick={() => handleDelete(order.id, order.table_name ?? 'Walk-in', order.total)}
+                                  disabled={deleting === order.id}
+                                  className="flex items-center gap-1.5 text-xs bg-red-500/10 border border-red-500/20 hover:border-red-500/40 rounded-lg px-3 py-1.5 text-red-400 hover:text-red-300 transition-colors disabled:opacity-50"
+                                >
+                                  <Trash2 size={12} />
+                                  {deleting === order.id ? 'Deleting…' : 'Delete Order'}
                                 </button>
                               )}
                             </div>
