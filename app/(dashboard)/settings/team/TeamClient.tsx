@@ -433,7 +433,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
           </div>
 
           {/* Manager PIN */}
-          {!['owner', 'manager'].includes(editRole) && (
+          {editRole !== 'owner' && (
             <div className="rounded-xl border border-[#2A2A30] bg-[#0D0D10] p-4 space-y-3">
               <div className="flex items-center justify-between">
                 <div>
