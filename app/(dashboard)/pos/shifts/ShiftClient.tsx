@@ -112,6 +112,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [viewReportModal, setViewReportModal] = useState(false)
   const [viewReportData, setViewReportData] = useState<NightReport | null>(null)
   const [viewReportShiftId, setViewReportShiftId] = useState<string | null>(null)
+  const [editingHistoricalReport, setEditingHistoricalReport] = useState(false)
   const [reportSaving, setReportSaving] = useState(false)
   const [reportSaved, setReportSaved] = useState(false)
   const [nightReport, setNightReport] = useState<NightReport>({
@@ -639,34 +640,64 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
       )}
 
       {/* ── Night Report Modal ─────────────────────────────────────────────── */}
-      <Modal isOpen={nightReportModal} onClose={() => setNightReportModal(false)} title="Night Report" size="lg">
+      <Modal isOpen={nightReportModal} onClose={() => { setNightReportModal(false); setEditingHistoricalReport(false) }} title="Night Report" size="lg">
         <div className="space-y-5">
           {/* Auto-filled section */}
           <div>
-            <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-3">Auto-filled by system</p>
-            <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
-              {[
-                { label: 'Date', value: nightReport.date },
-                { label: 'Staff (Opened By)', value: nightReport.staff },
-                { label: 'Sales (before discount)', value: `RM ${nightReport.salesBeforeDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Sales (after discount)', value: `RM ${nightReport.salesAfterDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Cash', value: `RM ${nightReport.cash.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Card (Mastercard)', value: `RM ${nightReport.mastercard.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Card (Visa)', value: `RM ${nightReport.visa.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Card (Debit/Other)', value: `RM ${nightReport.debit.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'QR Code', value: `RM ${nightReport.qr.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Drinks Sold', value: nightReport.drinksSold.toString() },
-                { label: 'Guests (tables)', value: nightReport.guestsTables.toString() },
-                { label: 'Guests (pax)', value: nightReport.guestsPax.toString() },
-                { label: 'Discount', value: `RM ${nightReport.discount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-                { label: 'Void', value: `${nightReport.voidCount} items / RM ${nightReport.voidValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
-              ].map(({ label, value }) => (
-                <div key={label} className="bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5">
-                  <p className="text-[#5A5865] text-xs mb-0.5">{label}</p>
-                  <p className="text-[#F0EEF6] text-sm font-medium">{value}</p>
-                </div>
-              ))}
-            </div>
+            <p className="text-[#5A5865] text-xs uppercase tracking-wider mb-3">
+              {editingHistoricalReport ? 'Edit report figures' : 'Auto-filled by system'}
+            </p>
+            {editingHistoricalReport ? (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {([
+                  ['Sales (before discount)', 'salesBeforeDiscount'],
+                  ['Sales (after discount)', 'salesAfterDiscount'],
+                  ['Cash', 'cash'],
+                  ['Card (Mastercard)', 'mastercard'],
+                  ['Card (Visa)', 'visa'],
+                  ['Card (Debit/Other)', 'debit'],
+                  ['QR Code', 'qr'],
+                  ['Drinks Sold', 'drinksSold'],
+                  ['Guests (tables)', 'guestsTables'],
+                  ['Guests (pax)', 'guestsPax'],
+                  ['Discount', 'discount'],
+                ] as [string, keyof NightReport][]).map(([label, key]) => (
+                  <div key={key}>
+                    <label className="block text-[#9896A4] text-xs font-medium mb-1.5">{label}</label>
+                    <input
+                      type="number" step="0.01" min="0"
+                      value={nightReport[key] as number}
+                      onChange={e => setNightReport(r => ({ ...r, [key]: parseFloat(e.target.value) || 0 }))}
+                      className="w-full bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#7C3AED] transition-colors"
+                    />
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
+                {[
+                  { label: 'Date', value: nightReport.date },
+                  { label: 'Staff (Opened By)', value: nightReport.staff },
+                  { label: 'Sales (before discount)', value: `RM ${nightReport.salesBeforeDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Sales (after discount)', value: `RM ${nightReport.salesAfterDiscount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Cash', value: `RM ${nightReport.cash.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Card (Mastercard)', value: `RM ${nightReport.mastercard.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Card (Visa)', value: `RM ${nightReport.visa.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Card (Debit/Other)', value: `RM ${nightReport.debit.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'QR Code', value: `RM ${nightReport.qr.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Drinks Sold', value: nightReport.drinksSold.toString() },
+                  { label: 'Guests (tables)', value: nightReport.guestsTables.toString() },
+                  { label: 'Guests (pax)', value: nightReport.guestsPax.toString() },
+                  { label: 'Discount', value: `RM ${nightReport.discount.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                  { label: 'Void', value: `${nightReport.voidCount} items / RM ${nightReport.voidValue.toLocaleString('en-MY', { minimumFractionDigits: 2 })}` },
+                ].map(({ label, value }) => (
+                  <div key={label} className="bg-[#0E0E11] border border-[#2A2A30] rounded-lg px-3 py-2.5">
+                    <p className="text-[#5A5865] text-xs mb-0.5">{label}</p>
+                    <p className="text-[#F0EEF6] text-sm font-medium">{value}</p>
+                  </div>
+                ))}
+              </div>
+            )}
           </div>
 
           {/* Manual fields */}
@@ -770,6 +801,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                     if (!viewReportData || !viewReportShiftId) return
                     setNightReport({ ...viewReportData })
                     setReportSaved(false)
+                    setEditingHistoricalReport(true)
                     setViewReportModal(false)
                     setNightReportModal(true)
                   }}
