@@ -125,7 +125,9 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   const [deleting, setDeleting] = useState<string | null>(null)
   const [emailing, setEmailing] = useState<string | null>(null)
   const [viewingReceiptHtml, setViewingReceiptHtml] = useState<string | null>(null)
-  const [backdating, setBackdating] = useState<string | null>(null)
+  const [movingOrderId, setMovingOrderId] = useState<string | null>(null)
+  const [movePickerOrderId, setMovePickerOrderId] = useState<string | null>(null)
+  const [moveTargetDate, setMoveTargetDate] = useState<string>('')
 
   const itemsByOrder = useMemo(() => {
     const m = new Map<string, Item[]>()
@@ -313,45 +315,26 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     }
   }
 
-  async function handleBackdate(date: string) {
-    const input = prompt('Move orders closed before what time (24h)?\nExample: enter 13 for orders before 1:00 PM')
-    if (!input) return
-    const beforeHour = parseInt(input, 10)
-    if (isNaN(beforeHour) || beforeHour < 1 || beforeHour > 23) {
-      toast('Invalid hour — enter a number between 1 and 23', 'error')
-      return
-    }
-    const prevDate = new Date(date)
-    prevDate.setDate(prevDate.getDate() - 1)
-    const prevStr = prevDate.toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short' })
-
-    // Dry run first to show what will move
-    const dryRes = await fetch('/api/admin/backdate-orders', {
-      method: 'POST',
-      headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ fromDate: date, beforeHour, dryRun: true }),
-    })
-    const dryData = await dryRes.json()
-    if (!dryRes.ok) { toast(dryData.error ?? 'Failed', 'error'); return }
-    if (!dryData.ordersToMove?.length) { toast('No orders found before that time', 'error'); return }
-
-    const tables = dryData.ordersToMove.map((o: { table: string | null }) => o.table ?? 'Walk-in').join(', ')
-    if (!confirm(`Move ${dryData.ordersToMove.length} order(s) to ${prevStr}?\n\nTables: ${tables}\n\nThis updates both order timestamps and daily sales figures.`)) return
-    setBackdating(date)
+  async function handleMoveDate(orderId: string, tableLabel: string) {
+    if (!moveTargetDate) return
+    if (!confirm(`Move order "${tableLabel}" to ${new Date(moveTargetDate + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}?\n\nThis updates the order date and daily sales figures.`)) return
+    setMovingOrderId(orderId)
     try {
-      const res = await fetch('/api/admin/backdate-orders', {
+      const res = await fetch('/api/admin/move-order-date', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ fromDate: date, beforeHour }),
+        body: JSON.stringify({ orderId, toDate: moveTargetDate }),
       })
       const data = await res.json()
-      if (!res.ok) throw new Error(data.error ?? 'Failed to backdate orders')
-      toast(`${data.ordersToMove?.length ?? 0} orders moved to ${prevStr}`, 'success')
+      if (!res.ok) throw new Error(data.error ?? 'Failed to move order')
+      toast(`Order moved to ${moveTargetDate}`, 'success')
+      setMovePickerOrderId(null)
+      setMoveTargetDate('')
       router.refresh()
     } catch (err) {
-      toast(err instanceof Error ? err.message : 'Failed to backdate orders', 'error')
+      toast(err instanceof Error ? err.message : 'Failed to move order', 'error')
     } finally {
-      setBackdating(null)
+      setMovingOrderId(null)
     }
   }
 
@@ -443,20 +426,6 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                       {new Date(date + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                     <span className="text-[#5A5865] text-xs">{dayOrders.length} tables · {dayCovers} covers</span>
-                    {isAdmin && (
-                      <button
-                        onClick={() => handleBackdate(date)}
-                        disabled={backdating === date}
-                        style={{
-                          fontSize: '11px', padding: '2px 8px', borderRadius: '6px',
-                          border: '1px solid #4A3A6B', background: '#1A1A2A',
-                          color: '#A78BFA', cursor: backdating === date ? 'wait' : 'pointer',
-                          opacity: backdating === date ? 0.6 : 1, whiteSpace: 'nowrap',
-                        }}
-                      >
-                        {backdating === date ? 'Moving…' : 'Move to prev day'}
-                      </button>
-                    )}
                   </div>
                   <span className="text-[#9896A4] text-sm font-medium">{fmt(dayRevenue)}</span>
                 </div>
@@ -673,6 +642,44 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                                   <Trash2 size={12} />
                                   {deleting === order.id ? 'Deleting…' : 'Delete Order'}
                                 </button>
+                              )}
+                              {isAdmin && (
+                                movePickerOrderId === order.id ? (
+                                  <div className="flex items-center gap-1.5">
+                                    <input
+                                      type="date"
+                                      value={moveTargetDate}
+                                      onChange={e => setMoveTargetDate(e.target.value)}
+                                      max={new Date().toISOString().slice(0, 10)}
+                                      style={{
+                                        fontSize: '12px', padding: '4px 8px', borderRadius: '8px',
+                                        border: '1px solid #3A3A42', background: '#141417',
+                                        color: '#F0EEF6', outline: 'none',
+                                      }}
+                                    />
+                                    <button
+                                      onClick={() => handleMoveDate(order.id, order.table_name ?? 'Walk-in')}
+                                      disabled={!moveTargetDate || movingOrderId === order.id}
+                                      className="flex items-center gap-1 text-xs bg-violet-500/20 border border-violet-500/40 rounded-lg px-2.5 py-1.5 text-violet-300 hover:text-violet-200 transition-colors disabled:opacity-40"
+                                    >
+                                      {movingOrderId === order.id ? 'Moving…' : 'Confirm'}
+                                    </button>
+                                    <button
+                                      onClick={() => { setMovePickerOrderId(null); setMoveTargetDate('') }}
+                                      className="text-xs text-[#5A5865] hover:text-[#9896A4] px-1"
+                                    >
+                                      ✕
+                                    </button>
+                                  </div>
+                                ) : (
+                                  <button
+                                    onClick={() => { setMovePickerOrderId(order.id); setMoveTargetDate('') }}
+                                    className="flex items-center gap-1.5 text-xs bg-[#141417] border border-[#2A2A30] hover:border-violet-500/40 rounded-lg px-3 py-1.5 text-[#9896A4] hover:text-violet-400 transition-colors"
+                                  >
+                                    <Calendar size={12} />
+                                    Move to Date
+                                  </button>
+                                )
                               )}
                             </div>
                           </div>
