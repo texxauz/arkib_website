@@ -1,5 +1,7 @@
 'use client'
 
+import { useState } from 'react'
+
 type OrderItem = {
   id: string
   item_name: string
@@ -86,6 +88,33 @@ function Divider({ thick }: { thick?: boolean }) {
 }
 
 export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: () => void }) {
+  const [emailing, setEmailing] = useState(false)
+  const [emailSent, setEmailSent] = useState(false)
+
+  async function handleEmail() {
+    const email = prompt('Enter customer email address:')
+    if (!email || !email.includes('@')) return
+    setEmailing(true)
+    try {
+      const res = await fetch('/api/pos/email-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId: data.orderId, email }),
+      })
+      if (res.ok) {
+        setEmailSent(true)
+        alert(`Receipt sent to ${email}`)
+      } else {
+        const d = await res.json()
+        alert(d.error ?? 'Failed to send email')
+      }
+    } catch {
+      alert('Failed to send email')
+    } finally {
+      setEmailing(false)
+    }
+  }
+
   function handlePrint() {
     const style = document.createElement('style')
     style.id = '__receipt_print_style__'
@@ -249,6 +278,11 @@ export function ReceiptPrint({ data, onClose }: { data: ReceiptData; onClose: ()
           padding: '10px 24px', borderRadius: '8px', border: '1px solid #3A3A42',
           background: '#1A1A1E', color: '#9896A4', fontSize: '14px', cursor: 'pointer',
         }}>Close</button>
+        <button onClick={handleEmail} disabled={emailing} style={{
+          padding: '10px 24px', borderRadius: '8px', border: '1px solid #3A3A42',
+          background: emailSent ? '#1A3A2E' : '#1A1A2E', color: emailSent ? '#34D399' : '#A78BFA',
+          fontSize: '14px', cursor: emailing ? 'wait' : 'pointer', opacity: emailing ? 0.6 : 1,
+        }}>{emailing ? 'Sending…' : emailSent ? '✓ Email Sent' : 'Email Receipt'}</button>
         <button onClick={handlePrint} style={{
           padding: '10px 24px', borderRadius: '8px', border: 'none',
           background: '#8B5CF6', color: '#fff', fontSize: '14px', fontWeight: 600, cursor: 'pointer',
