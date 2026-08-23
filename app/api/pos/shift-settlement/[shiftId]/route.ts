@@ -26,14 +26,19 @@ export async function GET(
     : { data: [] }
   const nameMap = Object.fromEntries((userRows ?? []).map(u => [u.id, u.full_name]))
 
-  // Closed orders for this shift
-  const { data: orders } = await supabase
-    .from('pos_orders')
-    .select('id, total, subtotal, discount_amount, covers, service_charge, tax_amount, status')
-    .eq('shift_id', shiftId)
-    .eq('status', 'closed')
-
-  const orderIds = (orders ?? []).map(o => o.id)
+  // Closed orders for this shift — include null-shift orders closed during the shift window
+  const [{ data: shiftLinked }, { data: nullShift }] = await Promise.all([
+    supabase.from('pos_orders')
+      .select('id, total, subtotal, discount_amount, covers, service_charge, tax_amount, status')
+      .eq('shift_id', shiftId).eq('status', 'closed'),
+    supabase.from('pos_orders')
+      .select('id, total, subtotal, discount_amount, covers, service_charge, tax_amount, status')
+      .is('shift_id', null).eq('status', 'closed')
+      .gte('closed_at', shift.opened_at)
+      .lte('closed_at', shift.closed_at ?? new Date().toISOString()),
+  ])
+  const orders = [...(shiftLinked ?? []), ...(nullShift ?? [])]
+  const orderIds = orders.map(o => o.id)
 
   if (!orderIds.length) {
     return NextResponse.json({

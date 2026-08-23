@@ -54,31 +54,38 @@ export default async function ShiftsPage() {
     drinksSold: number; voidValue: number; voidCount: number
   } | null = null
   if (openShift) {
-    const [{ data: orders }, { data: payments }, { data: orderItems }, { data: voidedItems }] = await Promise.all([
+    // Fetch orders linked to this shift OR closed after the shift opened with no shift assigned
+    const [{ data: shiftOrders1 }, { data: shiftOrders2 }] = await Promise.all([
       supabase.from('pos_orders')
         .select('id, total, subtotal, discount_amount, covers, status')
         .eq('shift_id', openShift.id).eq('status', 'closed'),
-      supabase.from('pos_payments')
-        .select('method, amount, pos_orders!inner(shift_id)')
-        .eq('pos_orders.shift_id', openShift.id),
-      supabase.from('pos_order_items')
-        .select('quantity, pos_orders!inner(shift_id)')
-        .eq('pos_orders.shift_id', openShift.id).is('voided_at', null),
-      supabase.from('pos_order_items')
-        .select('quantity, unit_price, pos_orders!inner(shift_id)')
-        .eq('pos_orders.shift_id', openShift.id).not('voided_at', 'is', null),
+      supabase.from('pos_orders')
+        .select('id, total, subtotal, discount_amount, covers, status')
+        .is('shift_id', null).eq('status', 'closed')
+        .gte('closed_at', openShift.opened_at),
     ])
+
+    const orders = [...(shiftOrders1 ?? []), ...(shiftOrders2 ?? [])]
+    const orderIds = orders.map(o => o.id)
+
+    const [{ data: payments }, { data: orderItems }, { data: voidedItems }] = orderIds.length
+      ? await Promise.all([
+          supabase.from('pos_payments').select('method, amount').in('order_id', orderIds),
+          supabase.from('pos_order_items').select('quantity').in('order_id', orderIds).is('voided_at', null),
+          supabase.from('pos_order_items').select('quantity, unit_price').in('order_id', orderIds).not('voided_at', 'is', null),
+        ])
+      : [{ data: [] }, { data: [] }, { data: [] }]
 
     const breakdown: Record<string, number> = {}
     for (const p of (payments ?? [])) {
       breakdown[p.method] = (breakdown[p.method] ?? 0) + p.amount
     }
     shiftOrders = {
-      count: orders?.length ?? 0,
-      revenue: orders?.reduce((s, o) => s + (o.total ?? 0), 0) ?? 0,
-      subtotal: orders?.reduce((s, o) => s + (o.subtotal ?? 0), 0) ?? 0,
-      discount: orders?.reduce((s, o) => s + (o.discount_amount ?? 0), 0) ?? 0,
-      covers: orders?.reduce((s, o) => s + (o.covers ?? 0), 0) ?? 0,
+      count: orders.length,
+      revenue: orders.reduce((s, o) => s + (o.total ?? 0), 0),
+      subtotal: orders.reduce((s, o) => s + (o.subtotal ?? 0), 0),
+      discount: orders.reduce((s, o) => s + (o.discount_amount ?? 0), 0),
+      covers: orders.reduce((s, o) => s + (o.covers ?? 0), 0),
       payment_breakdown: breakdown,
       drinksSold: (orderItems ?? []).reduce((s, i) => s + (i.quantity ?? 0), 0),
       voidValue: (voidedItems ?? []).reduce((s, i) => s + i.quantity * i.unit_price, 0),
