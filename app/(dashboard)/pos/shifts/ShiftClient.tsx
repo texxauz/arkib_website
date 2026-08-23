@@ -111,6 +111,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [nightReportModal, setNightReportModal] = useState(false)
   const [viewReportModal, setViewReportModal] = useState(false)
   const [viewReportData, setViewReportData] = useState<NightReport | null>(null)
+  const [viewReportShiftId, setViewReportShiftId] = useState<string | null>(null)
   const [reportSaving, setReportSaving] = useState(false)
   const [reportSaved, setReportSaved] = useState(false)
   const [nightReport, setNightReport] = useState<NightReport>({
@@ -213,13 +214,14 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   }
 
   async function handleSaveReport() {
-    if (!openShift) return
+    const targetShiftId = nightReportModal && !openShift ? viewReportShiftId : (openShift?.id ?? viewReportShiftId)
+    if (!targetShiftId) return
     setReportSaving(true)
     try {
       const res = await fetch('/api/pos/save-night-report', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ shiftId: openShift.id, report: nightReport }),
+        body: JSON.stringify({ shiftId: targetShiftId, report: nightReport }),
       })
       if (!res.ok) { const e = await res.json(); toast(e.error ?? 'Failed to save', 'error'); return }
       setReportSaved(true)
@@ -611,7 +613,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                         <div className="flex items-center gap-3">
                           {shift.night_report && (
                             <button
-                              onClick={() => { setViewReportData(shift.night_report!); setViewReportModal(true) }}
+                              onClick={() => { setViewReportData(shift.night_report!); setViewReportShiftId(shift.id); setViewReportModal(true) }}
                               className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
                             >
                               <FileText size={11} /> Report
@@ -762,6 +764,20 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
               ))}
             </div>
             <div className="flex gap-2 pt-1 border-t border-[#2A2A30]">
+              {isAdmin && (
+                <button
+                  onClick={() => {
+                    if (!viewReportData || !viewReportShiftId) return
+                    setNightReport({ ...viewReportData })
+                    setReportSaved(false)
+                    setViewReportModal(false)
+                    setNightReportModal(true)
+                  }}
+                  className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-violet-500/10 border border-violet-500/30 text-violet-400 hover:text-violet-300 transition-all"
+                >
+                  <Save size={14} /> Edit Report
+                </button>
+              )}
               <button onClick={async () => { if (viewReportData) { try { await navigator.clipboard.writeText(buildReportText(viewReportData)); toast('Copied!', 'success') } catch { toast('Could not copy', 'error') } }}}
                 className="flex items-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
                 <Copy size={14} /> Copy Text
