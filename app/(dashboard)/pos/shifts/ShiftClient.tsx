@@ -215,7 +215,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   }
 
   async function handleSaveReport() {
-    const targetShiftId = nightReportModal && !openShift ? viewReportShiftId : (openShift?.id ?? viewReportShiftId)
+    const targetShiftId = editingHistoricalReport ? viewReportShiftId : openShift?.id
     if (!targetShiftId) return
     setReportSaving(true)
     try {
