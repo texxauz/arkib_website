@@ -125,6 +125,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   const [deleting, setDeleting] = useState<string | null>(null)
   const [emailing, setEmailing] = useState<string | null>(null)
   const [viewingReceiptHtml, setViewingReceiptHtml] = useState<string | null>(null)
+  const [backdating, setBackdating] = useState<string | null>(null)
 
   const itemsByOrder = useMemo(() => {
     const m = new Map<string, Item[]>()
@@ -312,6 +313,29 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     }
   }
 
+  async function handleBackdate(date: string, beforeHour: number) {
+    const prevDate = new Date(date)
+    prevDate.setDate(prevDate.getDate() - 1)
+    const prevStr = prevDate.toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short' })
+    if (!confirm(`Move all orders on ${date} before ${beforeHour}:00 to ${prevStr}?\n\nThis updates both order timestamps and daily sales figures.`)) return
+    setBackdating(date)
+    try {
+      const res = await fetch('/api/admin/backdate-orders', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ fromDate: date, beforeHour }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to backdate orders')
+      toast(`${data.ordersToMove?.length ?? 0} orders moved to ${prevStr}`, 'success')
+      router.refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to backdate orders', 'error')
+    } finally {
+      setBackdating(null)
+    }
+  }
+
   return (
     <div className="min-h-screen bg-[#0D0D10] text-[#F0EEF6] p-4 sm:p-6">
       <TopBar title="Sales History" subtitle="Closed bills by table" />
@@ -392,6 +416,12 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
           {grouped.map(([date, dayOrders]) => {
             const dayRevenue = dayOrders.reduce((s, o) => s + (o.total ?? 0), 0)
             const dayCovers = dayOrders.reduce((s, o) => s + (o.covers ?? 0), 0)
+            const earlyOrders = dayOrders.filter(o => {
+              if (!o.closed_at) return false
+              const h = new Date(o.closed_at).getUTCHours() + 8  // MYT
+              return (h % 24) < 14
+            })
+            const hasBackdatable = isAdmin && earlyOrders.length > 0
             return (
               <div key={date}>
                 <div className="flex items-center justify-between mb-2">
@@ -400,6 +430,20 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                       {new Date(date + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                     <span className="text-[#5A5865] text-xs">{dayOrders.length} tables · {dayCovers} covers</span>
+                    {hasBackdatable && (
+                      <button
+                        onClick={() => handleBackdate(date, 14)}
+                        disabled={backdating === date}
+                        style={{
+                          fontSize: '11px', padding: '2px 8px', borderRadius: '6px',
+                          border: '1px solid #6B3A3A', background: '#2A1A1A',
+                          color: '#F87171', cursor: backdating === date ? 'wait' : 'pointer',
+                          opacity: backdating === date ? 0.6 : 1, whiteSpace: 'nowrap',
+                        }}
+                      >
+                        {backdating === date ? 'Moving…' : `Move ${earlyOrders.length} to prev day`}
+                      </button>
+                    )}
                   </div>
                   <span className="text-[#9896A4] text-sm font-medium">{fmt(dayRevenue)}</span>
                 </div>
