@@ -313,11 +313,30 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     }
   }
 
-  async function handleBackdate(date: string, beforeHour: number) {
+  async function handleBackdate(date: string) {
+    const input = prompt('Move orders closed before what time (24h)?\nExample: enter 13 for orders before 1:00 PM')
+    if (!input) return
+    const beforeHour = parseInt(input, 10)
+    if (isNaN(beforeHour) || beforeHour < 1 || beforeHour > 23) {
+      toast('Invalid hour — enter a number between 1 and 23', 'error')
+      return
+    }
     const prevDate = new Date(date)
     prevDate.setDate(prevDate.getDate() - 1)
     const prevStr = prevDate.toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short' })
-    if (!confirm(`Move all orders on ${date} before ${beforeHour}:00 to ${prevStr}?\n\nThis updates both order timestamps and daily sales figures.`)) return
+
+    // Dry run first to show what will move
+    const dryRes = await fetch('/api/admin/backdate-orders', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify({ fromDate: date, beforeHour, dryRun: true }),
+    })
+    const dryData = await dryRes.json()
+    if (!dryRes.ok) { toast(dryData.error ?? 'Failed', 'error'); return }
+    if (!dryData.ordersToMove?.length) { toast('No orders found before that time', 'error'); return }
+
+    const tables = dryData.ordersToMove.map((o: { table: string | null }) => o.table ?? 'Walk-in').join(', ')
+    if (!confirm(`Move ${dryData.ordersToMove.length} order(s) to ${prevStr}?\n\nTables: ${tables}\n\nThis updates both order timestamps and daily sales figures.`)) return
     setBackdating(date)
     try {
       const res = await fetch('/api/admin/backdate-orders', {
@@ -416,12 +435,6 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
           {grouped.map(([date, dayOrders]) => {
             const dayRevenue = dayOrders.reduce((s, o) => s + (o.total ?? 0), 0)
             const dayCovers = dayOrders.reduce((s, o) => s + (o.covers ?? 0), 0)
-            const earlyOrders = dayOrders.filter(o => {
-              if (!o.closed_at) return false
-              const h = new Date(o.closed_at).getUTCHours() + 8  // MYT
-              return (h % 24) < 14
-            })
-            const hasBackdatable = isAdmin && earlyOrders.length > 0
             return (
               <div key={date}>
                 <div className="flex items-center justify-between mb-2">
@@ -430,18 +443,18 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                       {new Date(date + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}
                     </span>
                     <span className="text-[#5A5865] text-xs">{dayOrders.length} tables · {dayCovers} covers</span>
-                    {hasBackdatable && (
+                    {isAdmin && (
                       <button
-                        onClick={() => handleBackdate(date, 14)}
+                        onClick={() => handleBackdate(date)}
                         disabled={backdating === date}
                         style={{
                           fontSize: '11px', padding: '2px 8px', borderRadius: '6px',
-                          border: '1px solid #6B3A3A', background: '#2A1A1A',
-                          color: '#F87171', cursor: backdating === date ? 'wait' : 'pointer',
+                          border: '1px solid #4A3A6B', background: '#1A1A2A',
+                          color: '#A78BFA', cursor: backdating === date ? 'wait' : 'pointer',
                           opacity: backdating === date ? 0.6 : 1, whiteSpace: 'nowrap',
                         }}
                       >
-                        {backdating === date ? 'Moving…' : `Move ${earlyOrders.length} to prev day`}
+                        {backdating === date ? 'Moving…' : 'Move to prev day'}
                       </button>
                     )}
                   </div>
