@@ -123,6 +123,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   const [reprintData, setReprintData] = useState<ReceiptData | null>(null)
   const [reopening, setReopening] = useState<string | null>(null)
   const [deleting, setDeleting] = useState<string | null>(null)
+  const [emailing, setEmailing] = useState<string | null>(null)
   const [viewingReceiptHtml, setViewingReceiptHtml] = useState<string | null>(null)
 
   const itemsByOrder = useMemo(() => {
@@ -248,6 +249,27 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     a.download = `arkib-sales-${dateFilter || 'all'}.csv`
     a.click()
     URL.revokeObjectURL(url)
+  }
+
+  async function handleEmailReceipt(orderId: string) {
+    const email = prompt('Enter customer email address:')
+    if (!email || !email.includes('@')) return
+    setEmailing(orderId)
+    try {
+      const res = await fetch('/api/pos/email-receipt', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ orderId, email }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed to send email')
+      toast(`Receipt sent to ${email}`, 'success')
+      router.refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to send email', 'error')
+    } finally {
+      setEmailing(null)
+    }
   }
 
   async function handleDelete(orderId: string, tableLabel: string, total: number) {
@@ -566,6 +588,14 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                               >
                                 <Printer size={12} />
                                 Reprint Receipt
+                              </button>
+                              <button
+                                onClick={() => handleEmailReceipt(order.id)}
+                                disabled={emailing === order.id}
+                                className="flex items-center gap-1.5 text-xs bg-[#141417] border border-[#2A2A30] hover:border-[#A78BFA]/40 rounded-lg px-3 py-1.5 text-[#9896A4] hover:text-[#A78BFA] transition-colors disabled:opacity-50"
+                              >
+                                <Mail size={12} />
+                                {emailing === order.id ? 'Sending…' : 'Email Receipt'}
                               </button>
                               {isAdmin && (
                                 <button
