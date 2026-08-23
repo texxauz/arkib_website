@@ -97,7 +97,17 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
   const handleDeleteEON = async (date: string) => {
     setDeleteLoading(true)
     const rows = eonByDate[date]
-    const totalCocktailRevenue = rows.reduce((s: number, r: any) => s + (r.total_revenue ?? 0), 0)
+
+    // Per-category revenue deltas
+    let cocktailDelta = 0, wineDelta = 0, whiskyDelta = 0, othersDelta = 0
+    for (const r of rows) {
+      const rev = r.total_revenue ?? 0
+      if (r.category === 'house_cocktail' || r.category === 'classic') cocktailDelta += rev
+      else if (r.category === 'wine') wineDelta += rev
+      else if (r.category === 'whisky') whiskyDelta += rev
+      else othersDelta += rev
+    }
+    const totalDelta = cocktailDelta + wineDelta + whiskyDelta + othersDelta
 
     try {
       // ── 1. Reverse premix sold_serves for house cocktails ──────────────────
@@ -149,8 +159,7 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
       // ── 4. Adjust daily_sales ──────────────────────────────────────────────
       const dsRow = sales.find(s => s.date === date)
       if (dsRow) {
-        const newCocktails = (dsRow.cocktails_revenue ?? 0) - totalCocktailRevenue
-        const newTotal = (dsRow.total_revenue ?? 0) - totalCocktailRevenue
+        const newTotal = (dsRow.total_revenue ?? 0) - totalDelta
 
         if (newTotal <= 0.005) {
           await supabase.from('daily_sales').delete().eq('id', dsRow.id)
@@ -159,7 +168,9 @@ export function SalesClient({ initialSales, initialEonSales }: SalesClientProps)
           const { data: updated } = await supabase
             .from('daily_sales')
             .update({
-              cocktails_revenue: Math.max(0, newCocktails),
+              cocktails_revenue: Math.max(0, (dsRow.cocktails_revenue ?? 0) - cocktailDelta),
+              wine_revenue: Math.max(0, (dsRow.wine_revenue ?? 0) - wineDelta - whiskyDelta),
+              others_revenue: Math.max(0, (dsRow.others_revenue ?? 0) - othersDelta),
             })
             .eq('id', dsRow.id)
             .select()

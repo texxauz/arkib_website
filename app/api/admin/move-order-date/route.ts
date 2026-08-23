@@ -114,8 +114,27 @@ export async function POST(req: NextRequest) {
     })
   }
 
-  // Update cocktail_sales date for this order (EON report)
-  await supabase.from('cocktail_sales').update({ date: toDate }).eq('order_id', orderId)
+  // Update cocktail_sales date for this order (EON report).
+  // If the rows were written with order_id, this moves them precisely.
+  // If 0 rows matched (order_id absent on old rows), fall back to moving all
+  // rows on fromDate that were created around the order's close time (±2 min).
+  const { data: csUpdated } = await supabase
+    .from('cocktail_sales')
+    .update({ date: toDate })
+    .eq('order_id', orderId)
+    .select('id')
+  if ((csUpdated?.length ?? 0) === 0 && order.closed_at) {
+    const closedAt = new Date(order.closed_at)
+    const windowStart = new Date(closedAt.getTime() - 2 * 60 * 1000).toISOString()
+    const windowEnd   = new Date(closedAt.getTime() + 2 * 60 * 1000).toISOString()
+    await supabase
+      .from('cocktail_sales')
+      .update({ date: toDate })
+      .eq('date', fromDate)
+      .is('order_id', null)
+      .gte('created_at', windowStart)
+      .lte('created_at', windowEnd)
+  }
 
   // Shift order timestamps by the exact day difference
   const dayDiff = (new Date(toDate).getTime() - new Date(fromDate).getTime()) / (24 * 60 * 60 * 1000)
