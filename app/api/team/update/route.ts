@@ -41,7 +41,10 @@ export async function POST(request: NextRequest) {
 
   const updatePayload: Record<string, unknown> = { full_name, role, tab_permissions, pos_permissions, is_active }
   // manager_pin: null clears it, a string sets it, undefined means no change
-  if (manager_pin !== undefined) updatePayload.manager_pin = manager_pin || null
+  if (manager_pin !== undefined) {
+    updatePayload.manager_pin = manager_pin || null
+    updatePayload.manager_pin_hash = manager_pin ? await bcrypt.hash(String(manager_pin), 12) : null
+  }
   if (clock_pin !== undefined) {
     updatePayload.clock_pin = clock_pin || null
     updatePayload.clock_pin_hash = clock_pin ? await bcrypt.hash(String(clock_pin), 12) : null
