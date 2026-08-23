@@ -114,6 +114,9 @@ export async function POST(req: NextRequest) {
     })
   }
 
+  // Update cocktail_sales date for this order (EON report)
+  await supabase.from('cocktail_sales').update({ date: toDate }).eq('order_id', orderId)
+
   // Shift order timestamps by the exact day difference
   const dayDiff = (new Date(toDate).getTime() - new Date(fromDate).getTime()) / (24 * 60 * 60 * 1000)
   const shiftMs = dayDiff * 24 * 60 * 60 * 1000
