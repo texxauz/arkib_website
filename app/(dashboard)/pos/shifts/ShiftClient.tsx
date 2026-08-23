@@ -103,6 +103,9 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [closingCash, setClosingCash] = useState('')
   const [shiftNotes, setShiftNotes] = useState('')
   const [loading, setLoading] = useState(false)
+  const [editRevenueShiftId, setEditRevenueShiftId] = useState<string | null>(null)
+  const [editRevenueValue, setEditRevenueValue] = useState('')
+  const [savingRevenue, setSavingRevenue] = useState(false)
 
   // Night report state
   const [nightReportModal, setNightReportModal] = useState(false)
@@ -310,6 +313,28 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
 
   const paymentMethods = ['cash', 'credit_card', 'qr_payment']
   const methodLabels: Record<string, string> = { cash: 'Cash', credit_card: 'Card', qr_payment: 'QR' }
+
+  async function saveRevenueCorrection(shiftId: string) {
+    const val = parseFloat(editRevenueValue)
+    if (isNaN(val) || val < 0) { toast('Invalid amount', 'error'); return }
+    setSavingRevenue(true)
+    try {
+      const res = await fetch('/api/admin/adjust-shift-revenue', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ shiftId, revenue: val }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error ?? 'Failed')
+      toast('Shift revenue updated', 'success')
+      setEditRevenueShiftId(null)
+      router.refresh()
+    } catch (err) {
+      toast(err instanceof Error ? err.message : 'Failed to update revenue', 'error')
+    } finally {
+      setSavingRevenue(false)
+    }
+  }
 
   async function openSettlement(shiftId: string) {
     setSettlementLoading(shiftId)
@@ -545,7 +570,32 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                         {formatCurrency(shift.opening_float)}
                       </td>
                       <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
-                        {shift.revenue != null ? formatCurrency(shift.revenue) : '—'}
+                        {isAdmin && editRevenueShiftId === shift.id ? (
+                          <div className="flex items-center gap-1">
+                            <input
+                              type="number"
+                              step="0.01"
+                              min="0"
+                              value={editRevenueValue}
+                              onChange={e => setEditRevenueValue(e.target.value)}
+                              onKeyDown={e => { if (e.key === 'Enter') saveRevenueCorrection(shift.id); if (e.key === 'Escape') setEditRevenueShiftId(null) }}
+                              autoFocus
+                              style={{ width: '90px', fontSize: '12px', padding: '2px 6px', borderRadius: '6px', border: '1px solid #6C63FF', background: '#141417', color: '#F0EEF6', outline: 'none' }}
+                            />
+                            <button onClick={() => saveRevenueCorrection(shift.id)} disabled={savingRevenue} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', border: 'none', background: '#6C63FF', color: '#fff', cursor: 'pointer', opacity: savingRevenue ? 0.6 : 1 }}>
+                              {savingRevenue ? '…' : '✓'}
+                            </button>
+                            <button onClick={() => setEditRevenueShiftId(null)} style={{ fontSize: '11px', color: '#5A5865', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                          </div>
+                        ) : (
+                          <span
+                            className={isAdmin ? 'cursor-pointer hover:text-[#A78BFA] transition-colors' : ''}
+                            title={isAdmin ? 'Click to correct revenue' : undefined}
+                            onClick={isAdmin ? () => { setEditRevenueShiftId(shift.id); setEditRevenueValue(shift.revenue?.toFixed(2) ?? '0') } : undefined}
+                          >
+                            {shift.revenue != null ? formatCurrency(shift.revenue) : '—'}
+                          </span>
+                        )}
                       </td>
                       <td className="px-4 py-3 whitespace-nowrap">
                         {shift.variance != null ? (
