@@ -225,6 +225,16 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
         body: JSON.stringify({ shiftId: targetShiftId, report: nightReport }),
       })
       if (!res.ok) { const e = await res.json(); toast(e.error ?? 'Failed to save', 'error'); return }
+
+      // Keep shift revenue in sync with sales after discount when editing a historical report
+      if (editingHistoricalReport) {
+        await fetch('/api/admin/adjust-shift-revenue', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ shiftId: targetShiftId, revenue: nightReport.salesAfterDiscount }),
+        })
+      }
+
       setReportSaved(true)
       toast('Night report saved', 'success')
     } finally {
