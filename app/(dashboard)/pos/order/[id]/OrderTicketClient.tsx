@@ -33,7 +33,7 @@ type OrderItem = {
 }
 
 type Cocktail = { id: string; name: string; selling_price: number; total_cost: number }
-type MenuItem = { id: string; name: string; category: string; price: number; is_active: boolean; sort_order: number }
+type MenuItem = { id: string; name: string; category: string; price: number; is_active: boolean; sort_order: number; stock_qty: number | null }
 
 interface Props {
   order: PosOrder
@@ -507,6 +507,9 @@ export function OrderTicketClient({
           <div className="grid grid-cols-2 sm:grid-cols-3 gap-2">
             {menuDisplay.map(item => {
               const inOrder = activeItems.some(i => i.item_id === item.id)
+              const menuItem = item.type === 'menu_item' ? menuItems.find(m => m.id === item.id) : null
+              const stockQty = menuItem?.stock_qty ?? null
+              const soldOut = stockQty !== null && stockQty <= 0
               return (
                 <button
                   key={`${item.type}-${item.id}`}
@@ -521,6 +524,8 @@ export function OrderTicketClient({
                     'relative flex flex-col items-start p-3 rounded-xl border text-left transition-all hover:scale-[1.02] active:scale-[0.98]',
                     inOrder
                       ? 'bg-[#1A1230] border-[#7B5EA7]/60'
+                      : soldOut
+                      ? 'bg-[#141417] border-[#2A2A30] opacity-50'
                       : 'bg-[#141417] border-[#2A2A30] hover:border-[#3A3A44]'
                   )}
                 >
@@ -528,7 +533,21 @@ export function OrderTicketClient({
                     <span className="absolute top-2 right-2 w-2 h-2 bg-[#7B5EA7] rounded-full" />
                   )}
                   <span className="text-[#F0EEF6] text-sm font-medium leading-snug line-clamp-2">{item.name}</span>
-                  <span className="text-[#9896A4] text-xs mt-1.5">{formatCurrency(item.price)}</span>
+                  <div className="flex items-center gap-1.5 mt-1.5">
+                    <span className="text-[#9896A4] text-xs">{formatCurrency(item.price)}</span>
+                    {stockQty !== null && (
+                      <span className={cn(
+                        'text-[10px] font-semibold px-1.5 py-0.5 rounded-md',
+                        stockQty === 0
+                          ? 'bg-rose-900/60 text-rose-400'
+                          : stockQty <= 3
+                          ? 'bg-amber-900/60 text-amber-400'
+                          : 'bg-[#1A1A1E] text-[#9896A4]'
+                      )}>
+                        {stockQty === 0 ? 'sold out' : `${stockQty} left`}
+                      </span>
+                    )}
+                  </div>
                 </button>
               )
             })}

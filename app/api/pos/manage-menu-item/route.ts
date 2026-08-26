@@ -11,13 +11,13 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   }
 
-  const { action, id, name, category, price, cost_price, is_active, sort_order } = await req.json()
+  const { action, id, name, category, price, cost_price, is_active, sort_order, stock_qty } = await req.json()
 
   if (action === 'create') {
     if (price !== undefined && (typeof price !== 'number' || price < 0)) {
       return NextResponse.json({ error: 'Price must be a non-negative number' }, { status: 400 })
     }
-    const { data, error } = await supabase.from('menu_items').insert({ name, category, price, cost_price: cost_price ?? 0, is_active: true, sort_order: sort_order ?? 99 }).select().single()
+    const { data, error } = await supabase.from('menu_items').insert({ name, category, price, cost_price: cost_price ?? 0, is_active: true, sort_order: sort_order ?? 99, stock_qty: stock_qty ?? null }).select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true, item: data })
   }
@@ -34,6 +34,7 @@ export async function POST(req: NextRequest) {
     if (cost_price !== undefined) updates.cost_price = cost_price
     if (is_active !== undefined) updates.is_active = is_active
     if (sort_order !== undefined) updates.sort_order = sort_order
+    if (stock_qty !== undefined) updates.stock_qty = stock_qty ?? null
     const { error } = await supabase.from('menu_items').update(updates).eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     return NextResponse.json({ success: true })

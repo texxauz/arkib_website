@@ -22,7 +22,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
     supabase.from('pos_orders').select('id, table_id, table_name, section, server_name, covers, status, subtotal, discount_amount, service_charge, tax_amount, total, notes, opened_at, customer_name').eq('id', id).single(),
     supabase.from('pos_order_items').select('id, order_id, item_type, item_id, item_name, category, quantity, unit_price, unit_cost, discount, modifiers, notes, status, voided_at').eq('order_id', id).order('created_at'),
     supabase.from('cocktails').select('id, name, selling_price, total_cost').eq('is_on_menu', true).is('deleted_at', null).order('name'),
-    supabase.from('menu_items').select('id, name, category, price, is_active, sort_order').eq('is_active', true).order('category').order('sort_order').order('name'),
+    supabase.from('menu_items').select('id, name, category, price, is_active, sort_order, stock_qty').eq('is_active', true).order('category').order('sort_order').order('name'),
     supabase.from('pos_config').select('key, value'),
     supabase.from('pos_tables').select('id, name, section, capacity, current_order_id').eq('is_active', true).order('section').order('name'),
   ])

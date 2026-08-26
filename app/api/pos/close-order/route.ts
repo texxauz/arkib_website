@@ -150,7 +150,26 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 8. Insert cocktail_sales rows (analytics — non-fatal on failure).
+  // 8. Decrement menu_item stock_qty for items that have a limited stock count.
+  const menuItemDelta = new Map<string, number>()
+  for (const item of items) {
+    if (item.item_type === 'menu_item' && item.item_id) {
+      menuItemDelta.set(item.item_id, (menuItemDelta.get(item.item_id) ?? 0) + item.quantity)
+    }
+  }
+  if (menuItemDelta.size > 0) {
+    const { data: stockRows } = await supabase
+      .from('menu_items').select('id, stock_qty').in('id', [...menuItemDelta.keys()])
+    for (const row of stockRows ?? []) {
+      if (row.stock_qty === null) continue
+      const delta = menuItemDelta.get(row.id) ?? 0
+      await supabase.from('menu_items')
+        .update({ stock_qty: Math.max(0, row.stock_qty - delta) })
+        .eq('id', row.id)
+    }
+  }
+
+  // 9. Insert cocktail_sales rows (analytics — non-fatal on failure).
   //    order_id is included so reopen-order can cleanly reverse these rows.
   //    discountRatio computed here so unit_price reflects post-discount revenue.
   const _grossForSales = items.reduce((s, i) => s + (i.quantity * i.unit_price - (i.discount ?? 0)), 0)

@@ -17,7 +17,7 @@ type PosTable = {
 }
 type MenuItem = {
   id: string; name: string; category: string; price: number
-  cost_price: number; is_active: boolean; sort_order: number
+  cost_price: number; is_active: boolean; sort_order: number; stock_qty: number | null
 }
 type DailySales = {
   date: string; cocktails_revenue: number; beer_revenue: number
@@ -366,7 +366,7 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   }
 
   function openMenuEdit(item: MenuItem) { setMenuModal({ open: true, item: { ...item }, isNew: false }) }
-  function openMenuCreate() { setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, cost_price: 0, is_active: true, sort_order: 99 }, isNew: true }) }
+  function openMenuCreate() { setMenuModal({ open: true, item: { name: '', category: MENU_CATEGORIES[0], price: 0, cost_price: 0, is_active: true, sort_order: 99, stock_qty: null }, isNew: true }) }
 
   async function handleSaveMenu() {
     const m = menuModal.item
@@ -374,12 +374,12 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
     if (!m?.price || m.price <= 0) { toast('Price must be greater than 0', 'error'); return }
     setMenuLoading(true)
     if (menuModal.isNew) {
-      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'create', name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, sort_order: m.sort_order })
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'create', name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, sort_order: m.sort_order, stock_qty: m.stock_qty ?? null })
       setMenuLoading(false)
       if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
       setMenuItems(prev => [...prev, { ...m, id: crypto.randomUUID(), is_active: true } as MenuItem])
     } else {
-      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: m.id, name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, is_active: m.is_active, sort_order: m.sort_order })
+      const res = await apiFetch('/api/pos/manage-menu-item', { action: 'update', id: m.id, name: m.name, category: m.category, price: m.price, cost_price: m.cost_price ?? 0, is_active: m.is_active, sort_order: m.sort_order, stock_qty: m.stock_qty ?? null })
       setMenuLoading(false)
       if (!res.ok) { toast(res.error ?? 'Failed', 'error'); return }
       setMenuItems(prev => prev.map(x => x.id === m.id ? { ...x, ...m } as MenuItem : x))
@@ -1024,11 +1024,20 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
                   className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
               </div>
             </div>
-            <div>
-              <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Sort Order</label>
-              <input type="number" value={menuModal.item.sort_order ?? 99}
-                onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, sort_order: parseInt(e.target.value) } }))}
-                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
+            <div className="grid grid-cols-2 gap-3">
+              <div>
+                <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Sort Order</label>
+                <input type="number" value={menuModal.item.sort_order ?? 99}
+                  onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, sort_order: parseInt(e.target.value) } }))}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]" />
+              </div>
+              <div>
+                <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Stock Qty <span className="normal-case text-[#5A5865]">(blank = unlimited)</span></label>
+                <input type="number" min="0" value={menuModal.item.stock_qty ?? ''}
+                  placeholder="∞"
+                  onChange={e => setMenuModal(prev => ({ ...prev, item: { ...prev.item, stock_qty: e.target.value === '' ? null : parseInt(e.target.value) } }))}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]" />
+              </div>
             </div>
             <div className="flex gap-2 justify-end pt-1">
               <button onClick={() => setMenuModal({ open: false, item: null, isNew: false })} className="px-4 py-2 rounded-xl text-sm text-[#9896A4] hover:text-[#F0EEF6] border border-[#2A2A30] hover:bg-[#1A1A1E] transition-all">Cancel</button>
