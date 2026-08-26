@@ -23,7 +23,7 @@ export default async function DataManagerPage() {
       .select('id, name, section, capacity, sort_order, is_active, current_order_id')
       .order('section').order('sort_order'),
     supabase.from('menu_items')
-      .select('id, name, category, price, cost_price, is_active, sort_order')
+      .select('id, name, category, price, cost_price, is_active, sort_order, stock_qty')
       .order('category').order('sort_order').order('name'),
     supabase.from('daily_sales')
       .select('date, cocktails_revenue, beer_revenue, wine_revenue, food_revenue, others_revenue, cash_collected, credit_card_collected, qr_collected, transaction_count, total_revenue, total_collected')
