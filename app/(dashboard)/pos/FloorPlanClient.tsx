@@ -190,6 +190,20 @@ export function FloorPlanClient({
     }
   }
 
+  // Polling fallback — re-fetch open orders every 20s in case real-time drops
+  useEffect(() => {
+    const supabase = createClient()
+    const poll = async () => {
+      const { data } = await supabase
+        .from('pos_orders')
+        .select('id, table_id, covers, opened_at, server_name, guest_name, total, status')
+        .eq('status', 'open')
+      if (data) setOrders(data as OpenOrder[])
+    }
+    const id = setInterval(poll, 20_000)
+    return () => clearInterval(id)
+  }, [])
+
   useEffect(() => {
     const supabase = createClient()
 
