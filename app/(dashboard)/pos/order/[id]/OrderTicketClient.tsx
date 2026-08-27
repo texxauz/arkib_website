@@ -717,7 +717,7 @@ export function OrderTicketClient({
       </div>
 
       {/* Action buttons */}
-      <div className="p-4 pt-0 space-y-2">
+      <div className="p-4 pt-0 space-y-2" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         {/* Print Bill + Email Bill row */}
         {currentOrder.status === 'open' && activeItems.length > 0 && (
           <div className="flex gap-2">
