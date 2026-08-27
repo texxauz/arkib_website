@@ -261,7 +261,12 @@ export function FloorPlanClient({
     }
   }, [])
 
-  const sectionTables = tables.filter(t => t.section === activeSection)
+  const sortTables = (list: PosTable[]) => [...list].sort((a, b) => {
+    if (a.sort_order !== b.sort_order) return a.sort_order - b.sort_order
+    // Natural name sort: "Table 2" < "Table 10", "Ad-Hoc 1" < "Ad-Hoc 2"
+    return a.name.localeCompare(b.name, undefined, { numeric: true, sensitivity: 'base' })
+  })
+  const sectionTables = sortTables(tables.filter(t => t.section === activeSection))
   const totalTables = sectionTables.length
   const occupiedCount = sectionTables.filter(t => getTableStatus(t) === 'occupied').length
   const allOpenCount = tables.filter(t => getTableStatus(t) === 'occupied').length
