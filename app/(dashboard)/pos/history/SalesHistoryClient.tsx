@@ -223,10 +223,12 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
   }
 
   function exportCsv() {
-    const header = ['Date', 'Table', 'Section', 'Server', 'Covers', 'Opened', 'Closed', 'Duration', 'Subtotal', 'Discount', 'Service Charge', 'Tax', 'Total', 'Payment Methods']
+    const header = ['Date', 'Table', 'Section', 'Server', 'Covers', 'Opened', 'Closed', 'Duration', 'Items', 'Subtotal', 'Discount', 'Service Charge', 'Tax', 'Total', 'Payment Methods']
     const rows = filtered.map(o => {
       const orderPayments = paymentsByOrder.get(o.id) ?? []
+      const orderItems = (itemsByOrder.get(o.id) ?? []).filter(i => !i.voided_at)
       const payStr = orderPayments.map(p => `${METHOD_LABELS[p.method] ?? p.method} ${fmtRaw(p.amount)}`).join('; ')
+      const itemsStr = orderItems.map(i => `${i.item_name} x${i.quantity}`).join('; ')
       return [
         getBusinessDateStr(o.opened_at, cutoffHour),
         o.table_name ?? 'Walk-in',
@@ -236,6 +238,7 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
         formatTime(o.opened_at),
         o.closed_at ? formatTime(o.closed_at) : '',
         o.closed_at ? getDuration(o.opened_at, o.closed_at) : '',
+        itemsStr,
         fmtRaw(o.subtotal ?? 0),
         fmtRaw(o.discount_amount ?? 0),
         fmtRaw(o.service_charge ?? 0),
