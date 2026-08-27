@@ -27,6 +27,7 @@ type OpenOrder = {
   covers: number
   opened_at: string
   server_name: string | null
+  guest_name: string | null
   total: number
   status: string
 }
@@ -95,6 +96,7 @@ export function FloorPlanClient({
     table: null,
   })
   const [covers, setCovers] = useState(2)
+  const [guestName, setGuestName] = useState('')
   const [loading, setLoading] = useState(false)
   const [isOnline, setIsOnline] = useState(true)
   const [serverSwitchOpen, setServerSwitchOpen] = useState(false)
@@ -157,6 +159,7 @@ export function FloorPlanClient({
 
   function handleOpenOrder(table: PosTable) {
     setCovers(2)
+    setGuestName('')
     setNewOrderModal({ open: true, table })
   }
 
@@ -171,6 +174,7 @@ export function FloorPlanClient({
           tableName: newOrderModal.table?.name ?? null,
           section: newOrderModal.table?.section ?? null,
           covers,
+          guestName: guestName.trim() || null,
           serverName: activeServer,
           userId,
         }),
@@ -385,6 +389,9 @@ export function FloorPlanClient({
                 {/* Order details */}
                 {order && (
                   <div className="flex flex-col gap-1 mt-1">
+                    {order.guest_name && (
+                      <p className="text-[#F0EEF6] text-xs font-medium truncate">{order.guest_name}</p>
+                    )}
                     {order.covers > 0 && (
                       <div className="flex items-center gap-1 text-[#9896A4] text-xs">
                         <Users size={11} />
@@ -439,6 +446,17 @@ export function FloorPlanClient({
               </span>
             </div>
           )}
+
+          <div>
+            <label className="block text-xs font-medium text-[#9896A4] mb-2">Guest Name <span className="text-[#5A5865] normal-case font-normal">(optional)</span></label>
+            <input
+              type="text"
+              value={guestName}
+              onChange={e => setGuestName(e.target.value)}
+              placeholder="e.g. Ahmad, Table Reservation..."
+              className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#8B5CF6]"
+            />
+          </div>
 
           <div>
             <label className="block text-xs font-medium text-[#9896A4] mb-2">Covers</label>

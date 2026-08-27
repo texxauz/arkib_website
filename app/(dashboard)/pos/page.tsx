@@ -15,7 +15,7 @@ export default async function POSPage() {
 
   const [{ data: tables }, { data: orders }, { data: config }, { data: staffList }] = await Promise.all([
     supabase.from('pos_tables').select('*').eq('is_active', true).order('section').order('sort_order'),
-    supabase.from('pos_orders').select('id, table_id, covers, opened_at, server_name, total, status').eq('status', 'open'),
+    supabase.from('pos_orders').select('id, table_id, covers, opened_at, server_name, guest_name, total, status').eq('status', 'open'),
     supabase.from('pos_config').select('key, value'),
     supabase.from('users').select('id, full_name').eq('is_active', true).order('full_name'),
   ])

@@ -6,7 +6,7 @@ export async function POST(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { tableId, tableName, section, covers = 1 } = await req.json()
+  const { tableId, tableName, section, covers = 1, guestName } = await req.json()
 
   if (covers < 1) return NextResponse.json({ error: 'Covers must be at least 1' }, { status: 400 })
 
@@ -41,6 +41,7 @@ export async function POST(req: NextRequest) {
       server_id: user.id,
       server_name: profile?.full_name ?? 'Staff',
       covers,
+      guest_name: guestName ?? null,
       status: 'open',
       shift_id: openShift?.id ?? null,
     })
