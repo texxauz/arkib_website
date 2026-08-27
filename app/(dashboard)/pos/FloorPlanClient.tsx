@@ -190,17 +190,24 @@ export function FloorPlanClient({
     }
   }
 
-  // Polling fallback — re-fetch open orders every 20s in case real-time drops
+  // Polling fallback — re-fetch orders AND tables every 10s in case real-time drops or RLS blocks events
   useEffect(() => {
     const supabase = createClient()
     const poll = async () => {
-      const { data } = await supabase
-        .from('pos_orders')
-        .select('id, table_id, covers, opened_at, server_name, guest_name, total, status')
-        .eq('status', 'open')
-      if (data) setOrders(data as OpenOrder[])
+      const [{ data: ordersData }, { data: tablesData }] = await Promise.all([
+        supabase
+          .from('pos_orders')
+          .select('id, table_id, covers, opened_at, server_name, guest_name, total, status')
+          .eq('status', 'open'),
+        supabase
+          .from('pos_tables')
+          .select('*')
+          .eq('is_active', true),
+      ])
+      if (ordersData) setOrders(ordersData as OpenOrder[])
+      if (tablesData) setTables(tablesData as PosTable[])
     }
-    const id = setInterval(poll, 20_000)
+    const id = setInterval(poll, 10_000)
     return () => clearInterval(id)
   }, [])
 
