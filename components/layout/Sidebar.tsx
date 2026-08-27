@@ -218,7 +218,7 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
       )}
 
       {/* Mobile bottom nav */}
-      <nav className="lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0D0D0F] border-t border-[#2A2A30] flex items-center justify-around px-2 py-2">
+      <nav className={cn('lg:hidden fixed bottom-0 left-0 right-0 z-30 bg-[#0D0D0F] border-t border-[#2A2A30] flex items-center justify-around px-2 py-2', (pathname.startsWith('/pos/order/') || pathname.startsWith('/pos/payment/')) && 'hidden')}>
         {mobileItems.map(({ href, label, icon: Icon }) => {
           const isActive = pathname === href
           return (
