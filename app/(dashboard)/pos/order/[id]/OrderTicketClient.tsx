@@ -773,7 +773,7 @@ export function OrderTicketClient({
   )
 
   return (
-    <div className="fixed inset-0 lg:left-56 z-20 flex flex-col bg-[#0A0A0D] overflow-hidden">
+    <div className="fixed inset-0 lg:left-56 z-20 flex flex-col bg-[#0A0A0D] overflow-hidden" style={{ height: '100dvh' }}>
       {/* Offline banner */}
       {!isOnline && (
         <div className="mx-4 mt-4 flex items-center gap-2 px-3 py-2 rounded-xl bg-amber-500/10 border border-amber-500/30 text-amber-400 text-xs shrink-0">
@@ -811,7 +811,7 @@ export function OrderTicketClient({
       </div>
 
       {/* Mobile: toggle between ticket and menu */}
-      <div className="md:hidden flex flex-col flex-1 min-h-0 px-4 pb-4">
+      <div className="md:hidden flex flex-col flex-1 min-h-0 px-4 pb-4" style={{ paddingBottom: 'max(1rem, env(safe-area-inset-bottom))' }}>
         {/* Toggle buttons */}
         <div className="flex gap-2 mb-3 shrink-0">
           <button
