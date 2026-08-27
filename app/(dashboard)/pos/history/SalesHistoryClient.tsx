@@ -315,6 +315,98 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
     }
   }
 
+  function handleExportDay(date: string, dayOrders: Order[]) {
+    const dateLabel = new Date(date + 'T12:00:00').toLocaleDateString('en-MY', {
+      weekday: 'long', day: '2-digit', month: 'short', year: 'numeric',
+    })
+
+    const receipts = dayOrders.map(order => {
+      const orderItems = (itemsByOrder.get(order.id) ?? []).filter(i => !i.voided_at)
+      const orderPayments = paymentsByOrder.get(order.id) ?? []
+      const subtotal = order.subtotal ?? 0
+      const discountAmount = order.discount_amount ?? 0
+      const serviceCharge = order.service_charge ?? 0
+      const taxAmount = order.tax_amount ?? 0
+      const total = order.total ?? 0
+
+      const itemsHtml = orderItems.map(item => {
+        const lineTotal = item.quantity * item.unit_price - (item.discount ?? 0)
+        return `<tr>
+          <td style="padding:1px 0">${item.item_name}</td>
+          <td style="text-align:center;padding:1px 4px">${item.quantity}</td>
+          <td style="text-align:right;padding:1px 0">${lineTotal.toFixed(2)}</td>
+        </tr>`
+      }).join('')
+
+      const paymentsHtml = orderPayments.map(p => {
+        const label = { cash: 'Cash', credit_card: 'Card', debit_card: 'Card', qr_payment: 'QR', online: 'Online' }[p.method] ?? p.method
+        return `<div style="display:flex;justify-content:space-between"><span>${label}</span><span>${p.amount.toFixed(2)}</span></div>`
+      }).join('')
+
+      const openTime = new Date(order.opened_at).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
+      const closeTime = order.closed_at ? new Date(order.closed_at).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true }) : ''
+
+      return `
+        <div style="width:80mm;font-family:'Courier New',Courier,monospace;font-size:12px;margin:0 auto 32px auto;padding:16px;border:1px dashed #999;page-break-inside:avoid">
+          <div style="text-align:center;font-weight:bold;font-size:14px;margin-bottom:4px">ARKIB</div>
+          <div style="text-align:center;font-size:10px;margin-bottom:12px">COCKTAIL BAR</div>
+          <div style="border-top:1px dashed #999;margin:8px 0"></div>
+          <div style="display:flex;justify-content:space-between"><span>Table:</span><span>${order.table_name ?? 'Walk-in'}</span></div>
+          ${order.section ? `<div style="display:flex;justify-content:space-between"><span>Section:</span><span>${order.section}</span></div>` : ''}
+          <div style="display:flex;justify-content:space-between"><span>Covers:</span><span>${order.covers}</span></div>
+          ${order.server_name ? `<div style="display:flex;justify-content:space-between"><span>Server:</span><span>${order.server_name}</span></div>` : ''}
+          <div style="display:flex;justify-content:space-between"><span>Open:</span><span>${openTime}</span></div>
+          ${closeTime ? `<div style="display:flex;justify-content:space-between"><span>Close:</span><span>${closeTime}</span></div>` : ''}
+          <div style="border-top:1px dashed #999;margin:8px 0"></div>
+          <table style="width:100%;border-collapse:collapse">
+            <thead><tr>
+              <th style="text-align:left;font-weight:normal;text-decoration:underline">Item</th>
+              <th style="text-align:center;font-weight:normal;text-decoration:underline">Qty</th>
+              <th style="text-align:right;font-weight:normal;text-decoration:underline">RM</th>
+            </tr></thead>
+            <tbody>${itemsHtml}</tbody>
+          </table>
+          <div style="border-top:1px dashed #999;margin:8px 0"></div>
+          <div style="display:flex;justify-content:space-between"><span>Subtotal</span><span>${subtotal.toFixed(2)}</span></div>
+          ${discountAmount > 0 ? `<div style="display:flex;justify-content:space-between"><span>Discount${order.discount_label ? ` (${order.discount_label})` : ''}</span><span>-${discountAmount.toFixed(2)}</span></div>` : ''}
+          ${serviceCharge > 0 ? `<div style="display:flex;justify-content:space-between"><span>Service Charge</span><span>${serviceCharge.toFixed(2)}</span></div>` : ''}
+          ${taxAmount > 0 ? `<div style="display:flex;justify-content:space-between"><span>Tax</span><span>${taxAmount.toFixed(2)}</span></div>` : ''}
+          <div style="display:flex;justify-content:space-between;font-weight:bold;border-top:1px dashed #999;margin-top:4px;padding-top:4px"><span>TOTAL</span><span>RM ${total.toFixed(2)}</span></div>
+          <div style="border-top:1px dashed #999;margin:8px 0"></div>
+          ${paymentsHtml}
+          <div style="border-top:1px dashed #999;margin:8px 0"></div>
+          <div style="text-align:center;font-size:10px">Thank you and Come Again!</div>
+        </div>`
+    }).join('')
+
+    const html = `<!DOCTYPE html>
+<html>
+<head>
+  <meta charset="utf-8">
+  <title>Receipts — ${dateLabel}</title>
+  <style>
+    body { margin: 0; padding: 16px; background: #fff; color: #000; }
+    h2 { font-family: 'Courier New', Courier, monospace; text-align: center; margin-bottom: 24px; font-size: 14px; }
+    @media print {
+      body { padding: 0; }
+      h2 { margin-top: 0; }
+    }
+  </style>
+</head>
+<body>
+  <h2>ARKIB — ${dateLabel} (${dayOrders.length} receipts)</h2>
+  ${receipts}
+  <script>window.onload = function() { window.print() }<\/script>
+</body>
+</html>`
+
+    const win = window.open('', '_blank')
+    if (win) {
+      win.document.write(html)
+      win.document.close()
+    }
+  }
+
   async function handleMoveDate(orderId: string, tableLabel: string) {
     if (!moveTargetDate) return
     if (!confirm(`Move order "${tableLabel}" to ${new Date(moveTargetDate + 'T12:00:00').toLocaleDateString('en-MY', { weekday: 'long', day: '2-digit', month: 'short', year: 'numeric' })}?\n\nThis updates the order date and daily sales figures.`)) return
@@ -427,7 +519,16 @@ export function SalesHistoryClient({ orders, items, payments, receiptEmails, isA
                     </span>
                     <span className="text-[#5A5865] text-xs">{dayOrders.length} tables · {dayCovers} covers</span>
                   </div>
-                  <span className="text-[#9896A4] text-sm font-medium">{fmt(dayRevenue)}</span>
+                  <div className="flex items-center gap-3">
+                    <button
+                      onClick={() => handleExportDay(date, dayOrders)}
+                      className="flex items-center gap-1.5 text-xs bg-[#141417] border border-[#2A2A30] hover:border-[#6C63FF]/40 rounded-lg px-2.5 py-1.5 text-[#9896A4] hover:text-[#F0EEF6] transition-colors"
+                    >
+                      <Download size={12} />
+                      Export Day
+                    </button>
+                    <span className="text-[#9896A4] text-sm font-medium">{fmt(dayRevenue)}</span>
+                  </div>
                 </div>
 
                 <div className="rounded-xl border border-[#2A2A30] bg-[#141417] overflow-hidden divide-y divide-[#1E1E24]">
