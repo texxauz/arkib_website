@@ -10,8 +10,13 @@ export default async function SalesHistoryPage() {
   if (!user) redirect('/login')
 
   const { data: userProfile } = await supabase
-    .from('users').select('role').eq('id', user.id).single()
+    .from('users').select('role, tab_permissions').eq('id', user.id).single()
   const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
+
+  if (!isAdmin) {
+    const perms = (userProfile?.tab_permissions ?? {}) as Record<string, string>
+    if (!perms['pos-history'] || perms['pos-history'] === 'none') redirect('/pos')
+  }
 
   // Last 30 days of closed orders with their items and payments
   const from = new Date(Date.now() - 30 * 24 * 60 * 60 * 1000).toISOString().slice(0, 10)
