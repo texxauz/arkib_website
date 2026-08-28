@@ -69,12 +69,13 @@ export async function POST(req: NextRequest) {
   let discountLabel = order.discount_label ?? null
   if (clientDiscountAmount != null && clientDiscountAmount > 0) {
     // Verify the discount name exists in pos_discounts and is active; re-derive the amount server-side
-    const { data: validDiscount } = await supabase
+    const { data: discountRows } = await supabase
       .from('pos_discounts')
       .select('id, type, value, requires_approval')
       .eq('name', clientDiscountLabel)
       .eq('is_active', true)
-      .single()
+      .limit(1)
+    const validDiscount = discountRows?.[0] ?? null
     if (!validDiscount) {
       return NextResponse.json({ error: 'Invalid discount' }, { status: 400 })
     }
