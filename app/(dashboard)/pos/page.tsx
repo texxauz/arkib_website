@@ -1,4 +1,4 @@
-export const revalidate = 10
+export const revalidate = 30
 
 import { createClient } from '@/lib/supabase/server'
 import { FloorPlanClient } from './FloorPlanClient'
