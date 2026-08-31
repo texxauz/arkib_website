@@ -299,12 +299,7 @@ export async function POST(req: NextRequest) {
   // Service charge + tax both go into others_revenue so revenue totals match collected totals.
   const othersRev = othersGross * (1 - discountRatio) + serviceCharge + taxAmount
 
-  // 13. Clear the table link before the RPC (ensures UI updates even if RPC fails).
-  if (order.table_id) {
-    await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
-  }
-
-  // 14. Atomically increment daily_sales (RPC handles upsert + concurrency).
+  // 13. Atomically increment daily_sales (RPC handles upsert + concurrency).
   try {
     await retrySupabase(() => supabase.rpc('increment_daily_sales', {
       p_date: orderDate,
@@ -331,6 +326,11 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({
       error: `Order closed but daily sales update failed after retries: ${err.message}. Logged to audit — contact your manager.`,
     }, { status: 500 })
+  }
+
+  // 14. Clear the table link now that daily_sales is confirmed written.
+  if (order.table_id) {
+    await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
   }
 
   // 15. Audit log.

@@ -44,24 +44,32 @@ export async function POST(req: NextRequest) {
     .select('method, amount')
     .eq('order_id', orderId)
 
-  // Aggregate by category
-  let cocktails = 0, beer = 0, wine = 0, food = 0, others = 0
+  // Aggregate by category — mirror close-order bucketing exactly
+  // (whisky → others, not wine; discount prorated proportionally)
+  let cocktailsGross = 0, beerGross = 0, wineGross = 0, foodGross = 0, othersGross = 0
   for (const item of items ?? []) {
     const line = item.quantity * item.unit_price - (item.discount ?? 0)
-    if (item.category === 'house_cocktail' || item.category === 'classic') cocktails += line
-    else if (item.category === 'beer') beer += line
-    else if (item.category === 'wine' || item.category === 'whisky') wine += line
-    else if (item.category === 'food') food += line
-    else others += line
+    if (item.category === 'house_cocktail' || item.category === 'classic') cocktailsGross += line
+    else if (item.category === 'beer') beerGross += line
+    else if (item.category === 'wine') wineGross += line
+    else if (item.category === 'food') foodGross += line
+    else othersGross += line  // whisky, mocktail, others all go here
   }
+  const grossSubtotal = cocktailsGross + beerGross + wineGross + foodGross + othersGross
+  const discountRatio = grossSubtotal > 0 ? (order.discount_amount ?? 0) / grossSubtotal : 0
+
+  const cocktails = cocktailsGross * (1 - discountRatio)
+  const beer      = beerGross      * (1 - discountRatio)
+  const wine      = wineGross      * (1 - discountRatio)
+  const food      = foodGross      * (1 - discountRatio)
   const svc = order.service_charge ?? 0
   const tax = order.tax_amount ?? 0
-  const othersTotal = others + svc + tax
+  const othersTotal = othersGross * (1 - discountRatio) + svc + tax
 
   let cash = 0, card = 0, qr = 0, online = 0
   for (const p of payments ?? []) {
     if (p.method === 'cash') cash += p.amount
-    else if (p.method === 'credit_card' || p.method === 'debit_card') card += p.amount
+    else if (p.method === 'credit_card' || p.method === 'debit_card' || p.method === 'visa' || p.method === 'mastercard') card += p.amount
     else if (p.method === 'qr_payment') qr += p.amount
     else online += p.amount
   }
@@ -69,7 +77,7 @@ export async function POST(req: NextRequest) {
   // Subtract from fromDate daily_sales
   const { data: fromRow } = await supabase.from('daily_sales').select('*').eq('date', fromDate).maybeSingle()
   if (fromRow) {
-    await supabase.from('daily_sales').update({
+    const { error: fromErr } = await supabase.from('daily_sales').update({
       cocktails_revenue:     Math.max(0, fromRow.cocktails_revenue - cocktails),
       beer_revenue:          Math.max(0, fromRow.beer_revenue - beer),
       wine_revenue:          Math.max(0, fromRow.wine_revenue - wine),
@@ -81,12 +89,13 @@ export async function POST(req: NextRequest) {
       online_collected:      Math.max(0, fromRow.online_collected - online),
       transaction_count:     Math.max(0, (fromRow.transaction_count ?? 0) - 1),
     }).eq('date', fromDate)
+    if (fromErr) return NextResponse.json({ error: `Failed to update source date daily_sales: ${fromErr.message}` }, { status: 500 })
   }
 
   // Add to toDate daily_sales (upsert)
   const { data: toRow } = await supabase.from('daily_sales').select('*').eq('date', toDate).maybeSingle()
   if (toRow) {
-    await supabase.from('daily_sales').update({
+    const { error: toErr } = await supabase.from('daily_sales').update({
       cocktails_revenue:     toRow.cocktails_revenue + cocktails,
       beer_revenue:          toRow.beer_revenue + beer,
       wine_revenue:          toRow.wine_revenue + wine,
@@ -98,8 +107,9 @@ export async function POST(req: NextRequest) {
       online_collected:      toRow.online_collected + online,
       transaction_count:     (toRow.transaction_count ?? 0) + 1,
     }).eq('date', toDate)
+    if (toErr) return NextResponse.json({ error: `Failed to update destination date daily_sales: ${toErr.message}` }, { status: 500 })
   } else {
-    await supabase.from('daily_sales').insert({
+    const { error: insertErr } = await supabase.from('daily_sales').insert({
       date: toDate,
       cocktails_revenue: cocktails,
       beer_revenue: beer,
@@ -112,6 +122,7 @@ export async function POST(req: NextRequest) {
       online_collected: online,
       transaction_count: 1,
     })
+    if (insertErr) return NextResponse.json({ error: `Failed to create destination date daily_sales: ${insertErr.message}` }, { status: 500 })
   }
 
   // Update cocktail_sales date for this order (EON report).
