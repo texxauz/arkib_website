@@ -19,16 +19,18 @@ function formatMonth(yyyyMm: string) {
 }
 
 function VoucherModal({ record, userName, onClose }: { record: PayrollRecord; userName: string; onClose: () => void }) {
+  const today = new Date().toLocaleDateString('en-MY', { day: '2-digit', month: '2-digit', year: 'numeric' })
+  const grossEarnings = Number(record.basic_pay) + Number(record.claims_total ?? 0)
+
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70 print:bg-transparent" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="relative bg-white text-black rounded-lg shadow-2xl w-full max-w-md mx-4 print:shadow-none print:rounded-none print:max-w-none print:mx-0 print:fixed print:inset-0">
-        <div className="flex items-center justify-between px-4 py-3 border-b border-gray-200 print:hidden">
-          <span className="font-semibold text-sm text-gray-700">Payment Voucher</span>
+      <div className="relative bg-white text-black rounded-lg shadow-2xl w-full max-w-2xl mx-4 max-h-[92vh] overflow-y-auto print:shadow-none print:rounded-none print:max-w-none print:mx-0 print:fixed print:inset-0 print:overflow-visible" id="payslip-root">
+
+        {/* Screen-only toolbar */}
+        <div className="flex items-center justify-between px-5 py-3 border-b border-gray-200 print:hidden">
+          <span className="font-semibold text-sm text-gray-600">Payment Statement</span>
           <div className="flex gap-2">
-            <button
-              onClick={() => window.print()}
-              className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition-colors"
-            >
+            <button onClick={() => window.print()} className="flex items-center gap-1.5 px-3 py-1.5 rounded bg-purple-600 text-white text-xs font-medium hover:bg-purple-700 transition-colors">
               <Printer size={13} /> Print
             </button>
             <button onClick={onClose} className="p-1.5 rounded hover:bg-gray-100 transition-colors">
@@ -37,84 +39,137 @@ function VoucherModal({ record, userName, onClose }: { record: PayrollRecord; us
           </div>
         </div>
 
-        <div className="p-8 print:p-10" style={{ fontFamily: 'Georgia, serif' }}>
+        <div className="p-10 print:p-12" style={{ fontFamily: "'Times New Roman', Times, serif" }}>
+
+          {/* Company header */}
           <div className="text-center mb-6">
-            <h1 className="text-2xl font-bold tracking-widest text-black">ARKIB</h1>
-            <h2 className="text-sm tracking-wider text-gray-600 mt-1 uppercase">Payment Voucher</h2>
-            <div className="mt-3 border-t border-b border-gray-300 py-2">
-              <p className="text-sm text-gray-700">{formatMonth(record.month)}</p>
-            </div>
+            <p className="text-xs tracking-widest text-gray-500 uppercase mb-0.5">Payment Statement</p>
+            <h1 className="text-3xl font-bold tracking-widest text-black">ARKIB</h1>
+            <p className="text-xs text-gray-500 mt-1">Kuala Lumpur, Malaysia</p>
           </div>
 
-          <div className="mb-5 space-y-1">
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Staff Name</span>
-              <span className="font-semibold">{userName}</span>
-            </div>
-            <div className="flex justify-between text-sm">
-              <span className="text-gray-500">Employment Type</span>
-              <span className="font-semibold capitalize">{record.employment_type.replace('_', '-')}</span>
-            </div>
+          <div style={{ borderTop: '2px solid black', borderBottom: '2px solid black', padding: '4px 0', textAlign: 'center', marginBottom: '20px' }}>
+            <p style={{ fontSize: '12px', fontWeight: 600, letterSpacing: '1px', textTransform: 'uppercase' }}>
+              Payment Statement — {formatMonth(record.month)}
+            </p>
           </div>
 
-          <table className="w-full text-sm mb-6" style={{ borderCollapse: 'collapse' }}>
+          {/* Employee info grid */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '24px', fontSize: '12px' }}>
+            <tbody>
+              <tr>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', width: '25%', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Staff Name</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', width: '25%' }}>{userName}</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', width: '25%', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Period</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', width: '25%' }}>{record.month}</td>
+              </tr>
+              <tr>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Employment Type</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', textTransform: 'capitalize' }}>{record.employment_type.replace('_', '-')}</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Date of Payment</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px' }}>{today}</td>
+              </tr>
+              <tr>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Mode of Payment</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px' }}>Cash / Bank Transfer</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', backgroundColor: '#F9FAFB', fontWeight: 600, color: '#374151' }}>Status</td>
+                <td style={{ border: '1px solid #9CA3AF', padding: '6px 10px', fontWeight: 600, color: '#059669' }}>Published</td>
+              </tr>
+            </tbody>
+          </table>
+
+          {/* Earnings / Deductions table */}
+          <table style={{ width: '100%', borderCollapse: 'collapse', marginBottom: '16px', fontSize: '12px' }}>
             <thead>
-              <tr style={{ borderBottom: '2px solid #374151' }}>
-                <th className="text-left py-2 font-semibold text-gray-700">Description</th>
-                <th className="text-right py-2 font-semibold text-gray-700">Amount (RM)</th>
+              <tr style={{ backgroundColor: '#1F2937', color: 'white' }}>
+                <th style={{ padding: '8px 10px', textAlign: 'left', fontWeight: 600, width: '60%' }}>Description</th>
+                <th style={{ padding: '8px 10px', textAlign: 'right', fontWeight: 600, width: '40%' }}>Amount (RM)</th>
               </tr>
             </thead>
             <tbody>
-              <tr style={{ borderBottom: '1px solid #E5E7EB' }}>
-                <td className="py-2 text-gray-700">
-                  {record.employment_type === 'part_time'
-                    ? `${Number(record.hours_worked ?? 0).toFixed(2)} hrs × RM ${Number(record.hourly_rate ?? 0).toFixed(2)}/hr`
-                    : 'Monthly Salary'}
+              <tr style={{ backgroundColor: '#F3F4F6' }}>
+                <td colSpan={2} style={{ padding: '5px 10px', fontWeight: 700, fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase', color: '#374151', borderBottom: '1px solid #D1D5DB' }}>
+                  Earnings
                 </td>
-                <td className="py-2 text-right">{Number(record.basic_pay).toFixed(2)}</td>
               </tr>
+
+              <tr style={{ borderBottom: '1px solid #E5E7EB' }}>
+                <td style={{ padding: '7px 10px', color: '#374151' }}>
+                  {record.employment_type === 'part_time'
+                    ? `Basic Pay (${Number(record.hours_worked ?? 0).toFixed(2)} hrs × RM ${Number(record.hourly_rate ?? 0).toFixed(2)}/hr)`
+                    : 'Basic Pay (Monthly Salary)'}
+                </td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(record.basic_pay).toFixed(2)}</td>
+              </tr>
+
               {(record.claims ?? []).map((c, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #E5E7EB' }}>
-                  <td className="py-2 text-gray-600 pl-2">+ {c.label}</td>
-                  <td className="py-2 text-right text-green-700">+{Number(c.amount).toFixed(2)}</td>
+                  <td style={{ padding: '7px 10px 7px 20px', color: '#374151' }}>{c.label}</td>
+                  <td style={{ padding: '7px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums' }}>{Number(c.amount).toFixed(2)}</td>
                 </tr>
               ))}
-              {(record.deductions ?? []).map((d, i) => (
-                <tr key={i} style={{ borderBottom: '1px solid #E5E7EB' }}>
-                  <td className="py-2 text-gray-600 pl-2">– {d.label}</td>
-                  <td className="py-2 text-right text-red-600">-{Number(d.amount).toFixed(2)}</td>
-                </tr>
-              ))}
-              <tr style={{ borderTop: '2px solid #374151' }}>
-                <td className="pt-3 font-bold text-black">Net Pay</td>
-                <td className="pt-3 text-right font-bold text-black">RM {Number(record.net_pay).toFixed(2)}</td>
+
+              <tr style={{ backgroundColor: '#F9FAFB', borderTop: '1px solid #9CA3AF', borderBottom: '2px solid #9CA3AF' }}>
+                <td style={{ padding: '7px 10px', fontWeight: 700 }}>Gross Earnings</td>
+                <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums' }}>{grossEarnings.toFixed(2)}</td>
+              </tr>
+
+              {(record.deductions ?? []).length > 0 && (
+                <>
+                  <tr style={{ backgroundColor: '#F3F4F6' }}>
+                    <td colSpan={2} style={{ padding: '5px 10px', fontWeight: 700, fontSize: '11px', letterSpacing: '0.5px', textTransform: 'uppercase', color: '#374151', borderBottom: '1px solid #D1D5DB' }}>
+                      Deductions
+                    </td>
+                  </tr>
+                  {(record.deductions ?? []).map((d, i) => (
+                    <tr key={i} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                      <td style={{ padding: '7px 10px 7px 20px', color: '#374151' }}>{d.label}</td>
+                      <td style={{ padding: '7px 10px', textAlign: 'right', fontVariantNumeric: 'tabular-nums', color: '#DC2626' }}>({Number(d.amount).toFixed(2)})</td>
+                    </tr>
+                  ))}
+                  <tr style={{ backgroundColor: '#F9FAFB', borderTop: '1px solid #9CA3AF', borderBottom: '2px solid #9CA3AF' }}>
+                    <td style={{ padding: '7px 10px', fontWeight: 700 }}>Total Deductions</td>
+                    <td style={{ padding: '7px 10px', textAlign: 'right', fontWeight: 700, fontVariantNumeric: 'tabular-nums', color: '#DC2626' }}>({Number(record.deductions_total).toFixed(2)})</td>
+                  </tr>
+                </>
+              )}
+
+              <tr style={{ backgroundColor: '#1F2937', color: 'white' }}>
+                <td style={{ padding: '10px 10px', fontWeight: 700, fontSize: '13px' }}>NET PAY</td>
+                <td style={{ padding: '10px 10px', textAlign: 'right', fontWeight: 700, fontSize: '15px', fontVariantNumeric: 'tabular-nums' }}>RM {Number(record.net_pay).toFixed(2)}</td>
               </tr>
             </tbody>
           </table>
 
           {record.notes && (
-            <p className="text-xs text-gray-500 mb-6 italic">Note: {record.notes}</p>
+            <p style={{ fontSize: '11px', color: '#6B7280', fontStyle: 'italic', marginBottom: '20px' }}>Note: {record.notes}</p>
           )}
 
-          <div className="mt-8 pt-4 border-t border-gray-200 grid grid-cols-2 gap-6 text-xs text-gray-600">
+          <div style={{ marginTop: '40px', display: 'grid', gridTemplateColumns: '1fr 1fr', gap: '32px', fontSize: '11px', color: '#6B7280' }}>
             <div>
-              <div className="border-b border-gray-400 mb-1 pb-6"></div>
-              Prepared by
+              <div style={{ borderBottom: '1px solid #9CA3AF', marginBottom: '6px', paddingBottom: '28px' }}></div>
+              <p>Authorised Signatory</p>
+              <p style={{ marginTop: '4px', color: '#9CA3AF' }}>ARKIB Management</p>
             </div>
             <div>
-              <div className="border-b border-gray-400 mb-1 pb-6"></div>
-              Received by
-              <div className="mt-3 border-b border-gray-400 mb-1 pb-2"></div>
-              Date
+              <div style={{ borderBottom: '1px solid #9CA3AF', marginBottom: '6px', paddingBottom: '28px' }}></div>
+              <p>Received by: {userName}</p>
+              <div style={{ borderBottom: '1px solid #9CA3AF', marginBottom: '6px', paddingBottom: '16px', marginTop: '16px' }}></div>
+              <p>Date</p>
             </div>
           </div>
+
+          <p style={{ textAlign: 'center', fontSize: '10px', color: '#9CA3AF', marginTop: '32px' }}>
+            This is a computer-generated document. No signature is required if printed electronically.
+          </p>
         </div>
       </div>
 
       <style>{`
         @media print {
           body * { visibility: hidden !important; }
-          .print\\:fixed, .print\\:fixed * { visibility: visible !important; }
+          #payslip-root, #payslip-root * { visibility: visible !important; }
+          #payslip-root { position: fixed; inset: 0; overflow: visible; }
         }
       `}</style>
     </div>
