@@ -14,13 +14,21 @@ export async function POST(request: NextRequest) {
   const { userId, employmentType, monthlySalary, hourlyRate } = await request.json()
   if (!userId || !employmentType) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
-  const { error } = await supabase.from('employees').upsert({
-    user_id: userId,
+  const payload = {
     employment_type: employmentType,
     monthly_salary: employmentType === 'full_time' ? Number(monthlySalary ?? 0) : null,
     hourly_rate: employmentType === 'part_time' ? Number(hourlyRate ?? 0) : null,
-  }, { onConflict: 'user_id' })
+  }
 
-  if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  const { data: existing } = await supabase.from('employees').select('id').eq('user_id', userId).maybeSingle()
+
+  if (existing) {
+    const { error } = await supabase.from('employees').update(payload).eq('user_id', userId)
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  } else {
+    const { error } = await supabase.from('employees').insert({ user_id: userId, ...payload })
+    if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+  }
+
   return NextResponse.json({ success: true })
 }
