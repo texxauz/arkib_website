@@ -12,15 +12,17 @@ export async function POST(request: NextRequest) {
   }
 
   const body = await request.json()
-  const { userId, month, employmentType, basicPay, hoursWorked, hourlyRate, deductions, notes } = body
+  const { userId, month, employmentType, basicPay, hoursWorked, hourlyRate, deductions, claims, notes } = body
 
   if (!userId || !month || !employmentType || basicPay == null) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
 
   const deductionsList: { label: string; amount: number }[] = Array.isArray(deductions) ? deductions : []
+  const claimsList: { label: string; amount: number }[] = Array.isArray(claims) ? claims : []
   const deductionsTotal = deductionsList.reduce((sum, d) => sum + Number(d.amount ?? 0), 0)
-  const netPay = Number(basicPay) - deductionsTotal
+  const claimsTotal = claimsList.reduce((sum, c) => sum + Number(c.amount ?? 0), 0)
+  const netPay = Number(basicPay) + claimsTotal - deductionsTotal
 
   const { data, error } = await supabase.from('payroll_records').upsert({
     user_id: userId,
@@ -31,6 +33,8 @@ export async function POST(request: NextRequest) {
     hourly_rate: hourlyRate != null ? Number(hourlyRate) : null,
     deductions: deductionsList,
     deductions_total: deductionsTotal,
+    claims: claimsList,
+    claims_total: claimsTotal,
     net_pay: netPay,
     notes: notes ?? null,
     status: 'draft',

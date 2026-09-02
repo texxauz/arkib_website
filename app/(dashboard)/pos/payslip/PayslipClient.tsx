@@ -4,12 +4,13 @@ import { useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { Printer, X, ChevronRight } from 'lucide-react'
 
-interface Deduction { label: string; amount: number }
+interface LineItem { label: string; amount: number }
 interface PayrollRecord {
   id: string; user_id: string; month: string; employment_type: string;
   basic_pay: number; hours_worked: number | null; hourly_rate: number | null;
-  deductions: Deduction[]; deductions_total: number; net_pay: number;
-  notes: string | null; status: string;
+  deductions: LineItem[]; deductions_total: number;
+  claims: LineItem[]; claims_total: number;
+  net_pay: number; notes: string | null; status: string;
 }
 
 function formatMonth(yyyyMm: string) {
@@ -64,7 +65,7 @@ function VoucherModal({ record, userName, onClose }: { record: PayrollRecord; us
               </tr>
             </thead>
             <tbody>
-              <tr style={{ borderBottom: '1px solid #D1D5DB' }}>
+              <tr style={{ borderBottom: '1px solid #E5E7EB' }}>
                 <td className="py-2 text-gray-700">
                   {record.employment_type === 'part_time'
                     ? `${Number(record.hours_worked ?? 0).toFixed(2)} hrs × RM ${Number(record.hourly_rate ?? 0).toFixed(2)}/hr`
@@ -72,7 +73,13 @@ function VoucherModal({ record, userName, onClose }: { record: PayrollRecord; us
                 </td>
                 <td className="py-2 text-right">{Number(record.basic_pay).toFixed(2)}</td>
               </tr>
-              {record.deductions.map((d, i) => (
+              {(record.claims ?? []).map((c, i) => (
+                <tr key={i} style={{ borderBottom: '1px solid #E5E7EB' }}>
+                  <td className="py-2 text-gray-600 pl-2">+ {c.label}</td>
+                  <td className="py-2 text-right text-green-700">+{Number(c.amount).toFixed(2)}</td>
+                </tr>
+              ))}
+              {(record.deductions ?? []).map((d, i) => (
                 <tr key={i} style={{ borderBottom: '1px solid #E5E7EB' }}>
                   <td className="py-2 text-gray-600 pl-2">– {d.label}</td>
                   <td className="py-2 text-right text-red-600">-{Number(d.amount).toFixed(2)}</td>
