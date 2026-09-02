@@ -56,6 +56,7 @@ const POS_TABS = [
   { key: 'pos-reports', label: 'POS Reports' },
   { key: 'pos-audit', label: 'Audit Log' },
   { key: 'pos-settings', label: 'POS Settings' },
+  { key: 'pos-payslip', label: 'My Payslip' },
 ]
 
 const ALL_TABS = [...MGMT_TABS, ...POS_TABS]
@@ -83,6 +84,7 @@ const DEFAULT_BARTENDER: Record<string, string> = {
   reports: 'none',
   pnl: 'none',
   landlord: 'none',
+  'pos-payslip': 'view',
 }
 
 const DEFAULT_ACCOUNTANT: Record<string, string> = Object.fromEntries(
