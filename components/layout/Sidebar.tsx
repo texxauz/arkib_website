@@ -7,7 +7,7 @@ import {
   GlassWater, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -28,7 +28,8 @@ const MGMT_ITEMS = [
   { href: '/treasury',     label: 'Treasury',    icon: Landmark,        key: 'treasury' },
   { href: '/landlord',     label: 'Landlord P&L',icon: ScrollText,      key: 'landlord' },
   { href: '/settings',     label: 'Settings',    icon: Settings,        key: 'settings' },
-  { href: '/settings/team',label: 'Team Access', icon: Users,           key: 'team' },
+  { href: '/settings/team',    label: 'Team Access', icon: Users,   key: 'team' },
+  { href: '/settings/payroll', label: 'Payroll',     icon: Wallet,  key: 'payroll' },
 ]
 
 // ── POS nav ───────────────────────────────────────────────────────
@@ -43,12 +44,13 @@ const POS_ITEMS = [
   { href: '/pos/audit',        label: 'Audit Log',        icon: Shield,            key: 'pos-audit' },
   { href: '/pos/data',         label: 'Data Manager',     icon: Database,          key: 'pos-data' },
   { href: '/pos/settings',     label: 'POS Settings',     icon: SlidersHorizontal, key: 'pos-settings' },
+  { href: '/pos/payslip',      label: 'My Payslip',       icon: Wallet,            key: 'pos-payslip' },
 ]
 
 function getMgmtItems(userRole: string, tabPermissions: Record<string, string> | null) {
   const isAdmin = userRole === 'owner' || userRole === 'manager'
   return MGMT_ITEMS.filter(item => {
-    if (item.key === 'team' || item.key === 'settings') return isAdmin
+    if (item.key === 'team' || item.key === 'settings' || item.key === 'payroll') return isAdmin
     if (item.key === 'treasury') return userRole === 'owner'
     if (item.key === 'landlord') return userRole === 'owner' || userRole === 'investor'
     if (isAdmin || !tabPermissions) return true
