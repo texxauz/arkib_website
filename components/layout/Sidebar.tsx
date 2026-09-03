@@ -7,7 +7,7 @@ import {
   GlassWater, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet, ShoppingCart,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +20,7 @@ const MGMT_ITEMS = [
   { href: '/expenses',     label: 'Expenses',    icon: Receipt,         key: 'expenses' },
   { href: '/receipts',     label: 'Accounting',  icon: BookOpen,        key: 'receipts' },
   { href: '/bar-inventory',label: 'Bar Stock',   icon: FlaskConical,    key: 'bar-inventory' },
+  { href: '/purchase-requests', label: 'Purchase Requests', icon: ShoppingCart, key: 'purchase-requests' },
   { href: '/checklist',    label: 'Checklist',   icon: ClipboardCheck,  key: 'checklist' },
   { href: '/cocktails',    label: 'Cocktails',   icon: GlassWater,      key: 'cocktails' },
   { href: '/shifts',       label: 'Shifts',      icon: Clock,           key: 'shifts' },
@@ -53,6 +54,7 @@ function getMgmtItems(userRole: string, tabPermissions: Record<string, string> |
     if (item.key === 'team' || item.key === 'settings' || item.key === 'payroll') return isAdmin
     if (item.key === 'treasury') return userRole === 'owner'
     if (item.key === 'landlord') return userRole === 'owner' || userRole === 'investor'
+    if (item.key === 'purchase-requests') return isAdmin || userRole === 'full_timer'
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })
@@ -67,9 +69,10 @@ function getPosItems(userRole: string, tabPermissions: Record<string, string> | 
   })
 }
 
-export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
+export function Sidebar({ userRole = 'bartender', tabPermissions = null, purchaseRequestBadge = 0 }: {
   userRole?: string
   tabPermissions?: Record<string, string> | null
+  purchaseRequestBadge?: number
 }) {
   const pathname = usePathname()
   const router = useRouter()
@@ -150,6 +153,7 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
             const isActive = pathname === href ||
               (href !== '/settings' && href !== '/pos' && pathname.startsWith(href + '/')) ||
               (href === '/pos' && pathname === '/pos')
+            const badge = key === 'purchase-requests' && purchaseRequestBadge > 0 ? purchaseRequestBadge : 0
             return (
               <li key={href}>
                 <Link
@@ -164,7 +168,12 @@ export function Sidebar({ userRole = 'bartender', tabPermissions = null }: {
                   )}
                 >
                   <Icon size={key === 'team' ? 14 : 16} className={isActive ? 'text-[#8B5CF6]' : ''} />
-                  <span>{label}</span>
+                  <span className="flex-1">{label}</span>
+                  {badge > 0 && !isActive && (
+                    <span className="bg-amber-500 text-black text-[10px] font-bold px-1.5 py-0.5 rounded-full min-w-[18px] text-center">
+                      {badge}
+                    </span>
+                  )}
                   {isActive && <ChevronRight size={12} className="ml-auto text-[#8B5CF6]" />}
                 </Link>
               </li>
