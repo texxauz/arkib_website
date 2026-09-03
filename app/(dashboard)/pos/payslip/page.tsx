@@ -7,7 +7,7 @@ export default async function PayslipPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: profile } = await supabase.from('users').select('full_name, role').eq('id', user.id).single()
+  const { data: profile } = await supabase.from('users').select('full_name, role, payslip_pin').eq('id', user.id).single()
 
   const { data: records } = await supabase
     .from('payroll_records')
@@ -20,6 +20,7 @@ export default async function PayslipPage() {
     <PayslipClient
       records={records ?? []}
       userName={profile?.full_name ?? 'Staff'}
+      hasPinSet={!!profile?.payslip_pin}
     />
   )
 }

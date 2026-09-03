@@ -1,8 +1,8 @@
 'use client'
 
-import { useState } from 'react'
+import { useState, useEffect, useRef } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
-import { Printer, X, ChevronRight } from 'lucide-react'
+import { Printer, X, ChevronRight, Lock, Eye, EyeOff } from 'lucide-react'
 
 interface LineItem { label: string; amount: number }
 interface PayrollRecord {
@@ -176,8 +176,107 @@ function VoucherModal({ record, userName, onClose }: { record: PayrollRecord; us
   )
 }
 
-export function PayslipClient({ records, userName }: { records: PayrollRecord[]; userName: string }) {
+// ── PIN Gate ──────────────────────────────────────────────────────────────────
+
+const SESSION_KEY = 'payslip_unlocked'
+
+function PinGate({ onUnlocked }: { onUnlocked: () => void }) {
+  const [pin, setPin] = useState('')
+  const [show, setShow] = useState(false)
+  const [error, setError] = useState('')
+  const [loading, setLoading] = useState(false)
+  const inputRef = useRef<HTMLInputElement>(null)
+
+  useEffect(() => { inputRef.current?.focus() }, [])
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    if (!pin) return
+    setLoading(true)
+    setError('')
+    try {
+      const res = await fetch('/api/payslip/verify-pin', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ pin }),
+      })
+      const data = await res.json()
+      if (!res.ok) { setError(data.error ?? 'Incorrect PIN'); setPin(''); return }
+      try { sessionStorage.setItem(SESSION_KEY, '1') } catch {}
+      onUnlocked()
+    } catch {
+      setError('Something went wrong. Try again.')
+    } finally {
+      setLoading(false)
+    }
+  }
+
+  return (
+    <div className="min-h-screen bg-[#0D0D10] flex flex-col">
+      <TopBar title="My Payslips" subtitle="Enter your PIN to access" />
+      <div className="flex-1 flex items-center justify-center px-4">
+        <div className="w-full max-w-xs">
+          <div className="flex justify-center mb-6">
+            <div className="w-16 h-16 rounded-2xl bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 flex items-center justify-center">
+              <Lock size={28} className="text-[#8B5CF6]" />
+            </div>
+          </div>
+          <h2 className="text-[#F0EEF6] font-semibold text-center text-lg mb-1">Payslip Access</h2>
+          <p className="text-[#5A5865] text-sm text-center mb-6">Enter your payslip PIN to continue</p>
+
+          <form onSubmit={handleSubmit} className="space-y-4">
+            <div className="relative">
+              <input
+                ref={inputRef}
+                type={show ? 'text' : 'password'}
+                inputMode="numeric"
+                maxLength={8}
+                placeholder="Enter PIN"
+                value={pin}
+                onChange={e => { setPin(e.target.value.replace(/\D/g, '')); setError('') }}
+                className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-4 py-3.5 text-[#F0EEF6] text-center text-xl tracking-[0.4em] font-mono focus:outline-none focus:border-[#8B5CF6] transition-colors pr-12"
+              />
+              <button
+                type="button"
+                onClick={() => setShow(s => !s)}
+                className="absolute right-3.5 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4] transition-colors"
+              >
+                {show ? <EyeOff size={16} /> : <Eye size={16} />}
+              </button>
+            </div>
+
+            {error && <p className="text-rose-400 text-sm text-center">{error}</p>}
+
+            <button
+              type="submit"
+              disabled={loading || pin.length < 4}
+              className="w-full py-3 rounded-xl bg-[#8B5CF6] text-white font-semibold text-sm hover:bg-[#7C3AED] transition-colors disabled:opacity-40"
+            >
+              {loading ? 'Verifying…' : 'Unlock'}
+            </button>
+          </form>
+
+          <p className="text-[#5A5865] text-xs text-center mt-6">
+            Forgot your PIN? Contact your manager.
+          </p>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Main ──────────────────────────────────────────────────────────────────────
+
+export function PayslipClient({ records, userName, hasPinSet }: { records: PayrollRecord[]; userName: string; hasPinSet: boolean }) {
+  const [unlocked, setUnlocked] = useState(() => {
+    if (!hasPinSet) return true
+    try { return sessionStorage.getItem(SESSION_KEY) === '1' } catch { return false }
+  })
   const [viewing, setViewing] = useState<PayrollRecord | null>(null)
+
+  if (!unlocked) {
+    return <PinGate onUnlocked={() => setUnlocked(true)} />
+  }
 
   return (
     <div className="min-h-screen bg-[#0D0D10]">

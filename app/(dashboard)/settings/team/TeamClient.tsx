@@ -11,6 +11,7 @@ type UserProfile = Database['public']['Tables']['users']['Row'] & {
   pos_permissions?: Record<string, boolean> | null
   manager_pin?: string | null
   clock_pin?: string | null
+  payslip_pin?: string | null
 }
 
 const POS_ACTION_PERMS = [
@@ -118,6 +119,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
   const [editManagerPin, setEditManagerPin] = useState<string | null>(null)
   const [pinEnabled, setPinEnabled] = useState(false)
   const [editClockPin, setEditClockPin] = useState('')
+  const [editPayslipPin, setEditPayslipPin] = useState('')
   const [resetPasswordTarget, setResetPasswordTarget] = useState<UserProfile | null>(null)
   const [newPassword, setNewPassword] = useState('')
   const [pwLoading, setPwLoading] = useState(false)
@@ -145,6 +147,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     setPinEnabled(hasPinSet)
     setEditManagerPin(hasPinSet ? m.manager_pin! : '')
     setEditClockPin(m.clock_pin ?? '')
+    setEditPayslipPin(m.payslip_pin ?? '')
   }
 
   const cyclePerm = (key: string) => setEditPerms(p => ({ ...p, [key]: PERM_CYCLE[p[key] ?? 'none'] ?? 'view' }))
@@ -192,7 +195,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     const res = await fetch('/api/team/update', {
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
-      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms, manager_pin, clock_pin: editClockPin || null }),
+      body: JSON.stringify({ userId: editTarget.id, full_name: editName, role: editRole, tab_permissions: editPerms, pos_permissions: editPosPerms, manager_pin, clock_pin: editClockPin || null, payslip_pin: editPayslipPin || null }),
     })
     const data = await res.json()
     setLoading(false)
@@ -434,6 +437,24 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
               placeholder="4-digit PIN e.g. 1234"
               value={editClockPin}
               onChange={e => setEditClockPin(e.target.value.replace(/\D/g, ''))}
+            />
+          </div>
+
+          {/* Payslip PIN */}
+          <div className="rounded-xl border border-[#2A2A30] bg-[#0D0D10] p-4 space-y-2">
+            <div className="flex items-center gap-2 mb-1">
+              <Wallet size={14} className="text-[#A78BFA]" />
+              <p className="text-[#F0EEF6] text-sm font-medium">Payslip PIN</p>
+            </div>
+            <p className="text-[#5A5865] text-xs">Required to access the My Payslip page. Leave blank to disable PIN protection for this staff member.</p>
+            <input
+              className="input mt-1"
+              type="text"
+              inputMode="numeric"
+              maxLength={8}
+              placeholder="4–8 digit PIN e.g. 5678"
+              value={editPayslipPin}
+              onChange={e => setEditPayslipPin(e.target.value.replace(/\D/g, ''))}
             />
           </div>
 
