@@ -3,7 +3,7 @@ import { useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { useToast } from '@/components/ui/Toast'
 import { Modal } from '@/components/ui/Modal'
-import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight, KeyRound, ShieldCheck } from 'lucide-react'
+import { Users, Plus, UserPlus, Pencil, ToggleLeft, ToggleRight, KeyRound, ShieldCheck, Wallet } from 'lucide-react'
 import type { Database } from '@/types/database'
 
 type UserProfile = Database['public']['Tables']['users']['Row'] & {
