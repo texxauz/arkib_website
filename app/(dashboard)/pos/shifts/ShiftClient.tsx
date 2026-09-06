@@ -4,7 +4,7 @@ import { useRouter } from 'next/navigation'
 import { TopBar } from '@/components/layout/TopBar'
 import { Modal } from '@/components/ui/Modal'
 import { useToast } from '@/components/ui/Toast'
-import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert, FileText, Copy, Printer, Save, Receipt } from 'lucide-react'
+import { Clock, TrendingUp, ShoppingBag, Wallet, AlertCircle, CheckCircle2, Eye, EyeOff, TriangleAlert, FileText, Copy, Printer, Save, Receipt, ChevronDown, ChevronUp } from 'lucide-react'
 
 type PosShift = {
   id: string; opened_by: string; closed_by: string | null
@@ -84,6 +84,24 @@ const DENOMINATIONS = [
   { label: '5 sen',  value: 0.05 },
 ]
 
+function groupByMonth(shifts: ShiftClient['shiftHistory']) {
+  const map: Record<string, typeof shifts> = {}
+  for (const s of shifts) {
+    const key = s.opened_at.slice(0, 7) // YYYY-MM
+    if (!map[key]) map[key] = []
+    map[key].push(s)
+  }
+  return Object.entries(map).sort((a, b) => b[0].localeCompare(a[0]))
+}
+
+function monthLabel(key: string) {
+  const [y, m] = key.split('-').map(Number)
+  return new Date(y, m - 1).toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })
+}
+
+// Trick to infer the type of shiftHistory items for use above
+type ShiftClient = { shiftHistory: (PosShift & { night_report?: NightReport | null; night_report_saved_at?: string | null })[] }
+
 export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, userName, isAdmin }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -103,6 +121,7 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
   const [closingCash, setClosingCash] = useState('')
   const [shiftNotes, setShiftNotes] = useState('')
   const [loading, setLoading] = useState(false)
+  const [collapsedMonths, setCollapsedMonths] = useState<Set<string>>(new Set())
   const [editRevenueShiftId, setEditRevenueShiftId] = useState<string | null>(null)
   const [editRevenueValue, setEditRevenueValue] = useState('')
   const [savingRevenue, setSavingRevenue] = useState(false)
@@ -544,108 +563,137 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
         </div>
       )}
 
-      {/* Shift History */}
+      {/* Shift History — grouped by month */}
       {shiftHistory.length > 0 && (
-        <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
-          <div className="px-4 py-3 border-b border-[#2A2A30]">
-            <h3 className="text-[#F0EEF6] font-medium text-sm">Shift History</h3>
-          </div>
-          <div className="overflow-x-auto">
-            <table className="w-full text-sm">
-              <thead>
-                <tr className="border-b border-[#1E1E24]">
-                  {['Date', 'Opened By', 'Closed By', 'Float', 'Revenue', 'Variance', 'Duration', ''].map(h => (
-                    <th key={h} className="text-left text-[#5A5865] font-medium text-xs px-4 py-2.5">{h}</th>
-                  ))}
-                </tr>
-              </thead>
-              <tbody>
-                {shiftHistory.map(shift => {
-                  const v = shift.variance ?? 0
-                  return (
-                    <tr key={shift.id} className="border-b border-[#1E1E24] last:border-0 hover:bg-[#1A1A1E] transition-colors">
-                      <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
-                        {formatDate(shift.opened_at)}
-                      </td>
-                      <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
-                        {shift.users_opened?.full_name ?? '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {shift.notes?.startsWith('Auto-closed') ? (
-                          <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
-                            <TriangleAlert size={11} /> Auto-closed
-                          </span>
-                        ) : (
-                          <span className="text-[#9896A4]">{shift.users_closed?.full_name ?? '—'}</span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
-                        {formatCurrency(shift.opening_float)}
-                      </td>
-                      <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
-                        {isAdmin && editRevenueShiftId === shift.id ? (
-                          <div className="flex items-center gap-1">
-                            <input
-                              type="number"
-                              step="0.01"
-                              min="0"
-                              value={editRevenueValue}
-                              onChange={e => setEditRevenueValue(e.target.value)}
-                              onKeyDown={e => { if (e.key === 'Enter') saveRevenueCorrection(shift.id); if (e.key === 'Escape') setEditRevenueShiftId(null) }}
-                              autoFocus
-                              style={{ width: '90px', fontSize: '12px', padding: '2px 6px', borderRadius: '6px', border: '1px solid #6C63FF', background: '#141417', color: '#F0EEF6', outline: 'none' }}
-                            />
-                            <button onClick={() => saveRevenueCorrection(shift.id)} disabled={savingRevenue} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', border: 'none', background: '#6C63FF', color: '#fff', cursor: 'pointer', opacity: savingRevenue ? 0.6 : 1 }}>
-                              {savingRevenue ? '…' : '✓'}
-                            </button>
-                            <button onClick={() => setEditRevenueShiftId(null)} style={{ fontSize: '11px', color: '#5A5865', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
-                          </div>
-                        ) : (
-                          <span
-                            className={isAdmin ? 'cursor-pointer hover:text-[#A78BFA] transition-colors' : ''}
-                            title={isAdmin ? 'Click to correct revenue' : undefined}
-                            onClick={isAdmin ? () => { setEditRevenueShiftId(shift.id); setEditRevenueValue(shift.revenue?.toFixed(2) ?? '0') } : undefined}
-                          >
-                            {shift.revenue != null ? formatCurrency(shift.revenue) : '—'}
-                          </span>
-                        )}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        {shift.variance != null ? (
-                          <span className={v < 0 ? 'text-red-400' : v > 0 ? 'text-emerald-400' : 'text-[#9896A4]'}>
-                            {v >= 0 ? '+' : ''}{formatCurrency(v)}
-                          </span>
-                        ) : '—'}
-                      </td>
-                      <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
-                        {shift.closed_at ? formatDuration(shift.opened_at, shift.closed_at) : '—'}
-                      </td>
-                      <td className="px-4 py-3 whitespace-nowrap">
-                        <div className="flex items-center gap-3">
-                          {shift.night_report && (
-                            <button
-                              onClick={() => { setViewReportData(shift.night_report!); setViewReportShiftId(shift.id); setViewReportModal(true) }}
-                              className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
-                            >
-                              <FileText size={11} /> Report
-                            </button>
-                          )}
-                          <button
-                            onClick={() => openSettlement(shift.id)}
-                            disabled={settlementLoading === shift.id}
-                            className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
-                          >
-                            <Receipt size={11} />
-                            {settlementLoading === shift.id ? '…' : 'Settlement'}
-                          </button>
-                        </div>
-                      </td>
-                    </tr>
-                  )
-                })}
-              </tbody>
-            </table>
-          </div>
+        <div className="space-y-3">
+          <h3 className="text-[#F0EEF6] font-medium text-sm px-1">Shift History</h3>
+          {groupByMonth(shiftHistory).map(([monthKey, shifts], idx) => {
+            const isCollapsed = collapsedMonths.has(monthKey)
+            const monthRevenue = shifts.reduce((s, sh) => s + (sh.revenue ?? 0), 0)
+            return (
+              <div key={monthKey} className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+                {/* Month header */}
+                <button
+                  className="w-full flex items-center justify-between px-4 py-3 hover:bg-[#1A1A1E] transition-colors"
+                  onClick={() => setCollapsedMonths(prev => {
+                    const next = new Set(prev)
+                    if (next.has(monthKey)) next.delete(monthKey)
+                    else next.add(monthKey)
+                    return next
+                  })}
+                >
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#F0EEF6] font-medium text-sm">{monthLabel(monthKey)}</span>
+                    <span className="text-[#5A5865] text-xs">{shifts.length} shift{shifts.length !== 1 ? 's' : ''}</span>
+                  </div>
+                  <div className="flex items-center gap-3">
+                    <span className="text-[#9896A4] text-xs font-medium">{formatCurrency(monthRevenue)}</span>
+                    {isCollapsed ? <ChevronDown size={14} className="text-[#5A5865]" /> : <ChevronUp size={14} className="text-[#5A5865]" />}
+                  </div>
+                </button>
+
+                {/* Shifts table */}
+                {!isCollapsed && (
+                  <div className="overflow-x-auto border-t border-[#2A2A30]">
+                    <table className="w-full text-sm">
+                      <thead>
+                        <tr className="border-b border-[#1E1E24]">
+                          {['Date', 'Opened By', 'Closed By', 'Float', 'Revenue', 'Variance', 'Duration', ''].map(h => (
+                            <th key={h} className="text-left text-[#5A5865] font-medium text-xs px-4 py-2.5">{h}</th>
+                          ))}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {shifts.map(shift => {
+                          const v = shift.variance ?? 0
+                          return (
+                            <tr key={shift.id} className="border-b border-[#1E1E24] last:border-0 hover:bg-[#1A1A1E] transition-colors">
+                              <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
+                                {formatDate(shift.opened_at)}
+                              </td>
+                              <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
+                                {shift.users_opened?.full_name ?? '—'}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {shift.notes?.startsWith('Auto-closed') ? (
+                                  <span className="inline-flex items-center gap-1 text-amber-400 text-xs">
+                                    <TriangleAlert size={11} /> Auto-closed
+                                  </span>
+                                ) : (
+                                  <span className="text-[#9896A4]">{shift.users_closed?.full_name ?? '—'}</span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
+                                {formatCurrency(shift.opening_float)}
+                              </td>
+                              <td className="px-4 py-3 text-[#F0EEF6] whitespace-nowrap">
+                                {isAdmin && editRevenueShiftId === shift.id ? (
+                                  <div className="flex items-center gap-1">
+                                    <input
+                                      type="number"
+                                      step="0.01"
+                                      min="0"
+                                      value={editRevenueValue}
+                                      onChange={e => setEditRevenueValue(e.target.value)}
+                                      onKeyDown={e => { if (e.key === 'Enter') saveRevenueCorrection(shift.id); if (e.key === 'Escape') setEditRevenueShiftId(null) }}
+                                      autoFocus
+                                      style={{ width: '90px', fontSize: '12px', padding: '2px 6px', borderRadius: '6px', border: '1px solid #6C63FF', background: '#141417', color: '#F0EEF6', outline: 'none' }}
+                                    />
+                                    <button onClick={() => saveRevenueCorrection(shift.id)} disabled={savingRevenue} style={{ fontSize: '11px', padding: '2px 8px', borderRadius: '6px', border: 'none', background: '#6C63FF', color: '#fff', cursor: 'pointer', opacity: savingRevenue ? 0.6 : 1 }}>
+                                      {savingRevenue ? '…' : '✓'}
+                                    </button>
+                                    <button onClick={() => setEditRevenueShiftId(null)} style={{ fontSize: '11px', color: '#5A5865', background: 'none', border: 'none', cursor: 'pointer' }}>✕</button>
+                                  </div>
+                                ) : (
+                                  <span
+                                    className={isAdmin ? 'cursor-pointer hover:text-[#A78BFA] transition-colors' : ''}
+                                    title={isAdmin ? 'Click to correct revenue' : undefined}
+                                    onClick={isAdmin ? () => { setEditRevenueShiftId(shift.id); setEditRevenueValue(shift.revenue?.toFixed(2) ?? '0') } : undefined}
+                                  >
+                                    {shift.revenue != null ? formatCurrency(shift.revenue) : '—'}
+                                  </span>
+                                )}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                {shift.variance != null ? (
+                                  <span className={v < 0 ? 'text-red-400' : v > 0 ? 'text-emerald-400' : 'text-[#9896A4]'}>
+                                    {v >= 0 ? '+' : ''}{formatCurrency(v)}
+                                  </span>
+                                ) : '—'}
+                              </td>
+                              <td className="px-4 py-3 text-[#9896A4] whitespace-nowrap">
+                                {shift.closed_at ? formatDuration(shift.opened_at, shift.closed_at) : '—'}
+                              </td>
+                              <td className="px-4 py-3 whitespace-nowrap">
+                                <div className="flex items-center gap-3">
+                                  {shift.night_report && (
+                                    <button
+                                      onClick={() => { setViewReportData(shift.night_report!); setViewReportShiftId(shift.id); setViewReportModal(true) }}
+                                      className="flex items-center gap-1 text-[#A78BFA] text-xs hover:text-[#C4B5FD] transition-colors"
+                                    >
+                                      <FileText size={11} /> Report
+                                    </button>
+                                  )}
+                                  <button
+                                    onClick={() => openSettlement(shift.id)}
+                                    disabled={settlementLoading === shift.id}
+                                    className="flex items-center gap-1 text-[#9896A4] text-xs hover:text-[#A78BFA] transition-colors disabled:opacity-50"
+                                  >
+                                    <Receipt size={11} />
+                                    {settlementLoading === shift.id ? '…' : 'Settlement'}
+                                  </button>
+                                </div>
+                              </td>
+                            </tr>
+                          )
+                        })}
+                      </tbody>
+                    </table>
+                  </div>
+                )}
+              </div>
+            )
+          })}
         </div>
       )}
 
