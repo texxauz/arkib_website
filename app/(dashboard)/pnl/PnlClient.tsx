@@ -16,6 +16,7 @@ interface Props {
   }[]
   cogsData: { date: string; total_cogs: number }[]
   expensesData: { date: string; expense_period: string | null; amount: number; category: string }[]
+  eventsData: { event_date: string; revenue: number; cost: number }[]
 }
 
 function monthKey(date: string) {
@@ -48,7 +49,7 @@ function Trend({ current, previous }: { current: number; previous: number | unde
   )
 }
 
-export function PnlClient({ salesData, cogsData, expensesData }: Props) {
+export function PnlClient({ salesData, cogsData, expensesData, eventsData }: Props) {
   const allMonths = useMemo(() => {
     const map: Record<string, {
       revenue: number
@@ -57,14 +58,16 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
       wine: number
       food: number
       others: number
+      eventRevenue: number
       cogs: number
+      eventCost: number
       expenses: number
       expenseByCategory: Record<string, number>
     }> = {}
 
     const ensure = (key: string) => {
       if (!map[key]) {
-        map[key] = { revenue: 0, cocktails: 0, beer: 0, wine: 0, food: 0, others: 0, cogs: 0, expenses: 0, expenseByCategory: {} }
+        map[key] = { revenue: 0, cocktails: 0, beer: 0, wine: 0, food: 0, others: 0, eventRevenue: 0, cogs: 0, eventCost: 0, expenses: 0, expenseByCategory: {} }
       }
       return map[key]
     }
@@ -86,18 +89,25 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
       e.expenses += ex.amount
       e.expenseByCategory[ex.category] = (e.expenseByCategory[ex.category] ?? 0) + ex.amount
     }
+    for (const ev of eventsData) {
+      const e = ensure(monthKey(ev.event_date))
+      e.eventRevenue += ev.revenue
+      e.eventCost += ev.cost
+    }
 
     return Object.entries(map)
       .sort((a, b) => a[0].localeCompare(b[0])) // ascending for range logic
       .map(([key, v]) => {
-        const grossProfit = v.revenue - v.cogs
-        const grossMargin = v.revenue > 0 ? (grossProfit / v.revenue) * 100 : 0
+        const totalRevenue = v.revenue + v.eventRevenue
+        const totalCogs = v.cogs + v.eventCost
+        const grossProfit = totalRevenue - totalCogs
+        const grossMargin = totalRevenue > 0 ? (grossProfit / totalRevenue) * 100 : 0
         const netProfit = grossProfit - v.expenses
-        const margin = v.revenue > 0 ? (netProfit / v.revenue) * 100 : 0
-        const expensePct = v.revenue > 0 ? (v.expenses / v.revenue) * 100 : 0
-        return { key, ...v, grossProfit, grossMargin, netProfit, margin, expensePct }
+        const margin = totalRevenue > 0 ? (netProfit / totalRevenue) * 100 : 0
+        const expensePct = totalRevenue > 0 ? (v.expenses / totalRevenue) * 100 : 0
+        return { key, ...v, revenue: totalRevenue, cogs: totalCogs, grossProfit, grossMargin, netProfit, margin, expensePct }
       })
-  }, [salesData, cogsData, expensesData])
+  }, [salesData, cogsData, expensesData, eventsData])
 
   const earliestKey = allMonths[0]?.key ?? ''
   const latestKey = allMonths[allMonths.length - 1]?.key ?? ''
@@ -115,8 +125,8 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
 
   // Aggregated totals for the selected range
   const rangeTotals = useMemo(() => {
-    const revenue = months.reduce((s, m) => s + m.revenue, 0)
-    const cogs = months.reduce((s, m) => s + m.cogs, 0)
+    const revenue = months.reduce((s, m) => s + m.revenue, 0) // already includes eventRevenue
+    const cogs = months.reduce((s, m) => s + m.cogs, 0) // already includes eventCost
     const expenses = months.reduce((s, m) => s + m.expenses, 0)
     const grossProfit = revenue - cogs
     const grossMargin = revenue > 0 ? (grossProfit / revenue) * 100 : 0
@@ -326,6 +336,7 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
                       ['Wine', selected.wine],
                       ['Food', selected.food],
                       ['Others', selected.others],
+                      ['Events', selected.eventRevenue],
                     ].filter(([, v]) => (v as number) > 0).map(([label, amount]) => {
                       const share = pct(amount as number, selected.revenue)
                       return (
@@ -349,9 +360,15 @@ export function PnlClient({ salesData, cogsData, expensesData }: Props) {
                       <span className="text-emerald-400 font-bold text-lg">{formatCurrency(selected.revenue)}</span>
                     </div>
                     <div className="flex items-center justify-between py-1.5">
-                      <span className="text-[#9896A4] text-sm">COGS</span>
-                      <span className="text-[#F0EEF6] font-medium">{formatCurrency(selected.cogs)}</span>
+                      <span className="text-[#9896A4] text-sm">Bar COGS</span>
+                      <span className="text-[#F0EEF6] font-medium">{formatCurrency(selected.cogs - selected.eventCost)}</span>
                     </div>
+                    {selected.eventCost > 0 && (
+                      <div className="flex items-center justify-between py-1.5">
+                        <span className="text-[#9896A4] text-sm">Event Cost</span>
+                        <span className="text-[#F0EEF6] font-medium">{formatCurrency(selected.eventCost)}</span>
+                      </div>
+                    )}
                     <div className="flex items-center justify-between py-2 border-t border-[#2A2A30]">
                       <div>
                         <span className="text-[#F0EEF6] font-semibold">Gross Profit</span>
