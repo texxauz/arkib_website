@@ -587,7 +587,6 @@ export function ShiftClient({ openShift, shiftHistory, shiftOrders, userId, user
                     <span className="text-[#5A5865] text-xs">{shifts.length} shift{shifts.length !== 1 ? 's' : ''}</span>
                   </div>
                   <div className="flex items-center gap-3">
-                    <span className="text-[#9896A4] text-xs font-medium">{formatCurrency(monthRevenue)}</span>
                     {isCollapsed ? <ChevronDown size={14} className="text-[#5A5865]" /> : <ChevronUp size={14} className="text-[#5A5865]" />}
                   </div>
                 </button>
