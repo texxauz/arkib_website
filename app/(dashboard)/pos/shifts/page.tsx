@@ -22,14 +22,13 @@ export default async function ShiftsPage() {
     .limit(1)
     .maybeSingle()
 
-  // Get shift history (last 10 closed) — opened_by/closed_by reference auth.users which PostgREST
+  // Get all closed shifts — opened_by/closed_by reference auth.users which PostgREST
   // cannot expose via FK embed; resolve names from public.users after fetching scalar IDs.
   const { data: shiftHistoryRaw } = await supabase
     .from('pos_shifts')
     .select('*, night_report, night_report_saved_at')
     .eq('status', 'closed')
     .order('closed_at', { ascending: false })
-    .limit(10)
 
   // Collect unique user IDs and resolve names from public.users
   const userIds = [...new Set([
