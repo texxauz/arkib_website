@@ -33,7 +33,7 @@ type OrderItem = {
 }
 
 type Cocktail = { id: string; name: string; selling_price: number; total_cost: number }
-type MenuItem = { id: string; name: string; category: string; price: number; is_active: boolean; sort_order: number; stock_qty: number | null }
+type MenuItem = { id: string; name: string; category: string; price: number; cost_price: number; is_active: boolean; sort_order: number; stock_qty: number | null }
 
 interface Props {
   order: PosOrder
@@ -148,7 +148,7 @@ export function OrderTicketClient({
     }
 
     const unitPrice = type === 'cocktail' ? (item as Cocktail).selling_price : (item as MenuItem).price
-    const unitCost = type === 'cocktail' ? (item as Cocktail).total_cost : 0
+    const unitCost = type === 'cocktail' ? (item as Cocktail).total_cost : ((item as MenuItem).cost_price ?? 0)
 
     const existing = activeItems.find(i => i.item_id === item.id && i.item_type === type)
     if (existing) {
