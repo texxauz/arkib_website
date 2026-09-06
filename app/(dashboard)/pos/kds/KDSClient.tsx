@@ -155,11 +155,25 @@ export function KDSClient({ initialItems }: Props) {
           } else if (payload.eventType === 'UPDATE') {
             const updated = payload.new as KDSItem
             if (['pending', 'sent', 'making'].includes(updated.status)) {
-              setItems((prev) =>
-                prev.map((i) =>
-                  i.id === updated.id ? { ...i, ...updated } : i
-                )
-              )
+              setItems((prev) => {
+                const exists = prev.find((i) => i.id === updated.id)
+                if (exists) {
+                  return prev.map((i) => i.id === updated.id ? { ...i, ...updated } : i)
+                }
+                // Item not in state yet (e.g. KDS opened after order was placed) — fetch with join and add
+                supabase
+                  .from('pos_order_items')
+                  .select('*, pos_orders!inner(table_name, section, covers, status)')
+                  .eq('id', updated.id)
+                  .single()
+                  .then(({ data }) => {
+                    if (data) {
+                      setItems((p) => p.find((i) => i.id === data.id) ? p : [...p, data as KDSItem])
+                      playNewOrderChime()
+                    }
+                  })
+                return prev
+              })
             } else {
               // served or voided — remove from view
               setItems((prev) => prev.filter((i) => i.id !== updated.id))
