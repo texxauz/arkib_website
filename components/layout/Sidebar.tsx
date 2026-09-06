@@ -7,7 +7,7 @@ import {
   GlassWater, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet, ShoppingCart,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet, ShoppingCart, PartyPopper,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -21,6 +21,7 @@ const MGMT_ITEMS = [
   { href: '/receipts',     label: 'Accounting',  icon: BookOpen,        key: 'receipts' },
   { href: '/bar-inventory',label: 'Bar Stock',   icon: FlaskConical,    key: 'bar-inventory' },
   { href: '/purchase-requests', label: 'Purchase Requests', icon: ShoppingCart, key: 'purchase-requests' },
+  { href: '/events',            label: 'Events',           icon: PartyPopper,  key: 'events' },
   { href: '/checklist',    label: 'Checklist',   icon: ClipboardCheck,  key: 'checklist' },
   { href: '/cocktails',    label: 'Cocktails',   icon: GlassWater,      key: 'cocktails' },
   { href: '/shifts',       label: 'Shifts',      icon: Clock,           key: 'shifts' },
@@ -55,6 +56,7 @@ function getMgmtItems(userRole: string, tabPermissions: Record<string, string> |
     if (item.key === 'treasury') return userRole === 'owner'
     if (item.key === 'landlord') return userRole === 'owner' || userRole === 'investor'
     if (item.key === 'purchase-requests') return isAdmin || userRole === 'full_timer'
+    if (item.key === 'events') return isAdmin
     if (isAdmin || !tabPermissions) return true
     return (tabPermissions[item.key] ?? 'none') !== 'none'
   })
