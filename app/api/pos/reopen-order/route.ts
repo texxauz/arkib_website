@@ -182,7 +182,17 @@ export async function POST(req: NextRequest) {
 
   // Relink the table if it exists
   if (order.table_id) {
-    await supabase.from('pos_tables').update({ current_order_id: orderId }).eq('id', order.table_id)
+    const { error: tableErr } = await supabase.from('pos_tables').update({ current_order_id: orderId }).eq('id', order.table_id)
+    if (tableErr) {
+      await supabase.from('pos_audit_log').insert({
+        actor_id: user.id,
+        actor_name: profile?.full_name ?? null,
+        event: 'table.relink_failed',
+        entity_type: 'pos_tables',
+        entity_id: order.table_id,
+        payload: { order_id: orderId, error: tableErr.message, note: 'Order is reopened but table link was not restored — use Manage Tables to relink it manually.' },
+      })
+    }
   }
 
   await supabase.from('pos_audit_log').insert({

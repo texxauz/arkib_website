@@ -164,9 +164,16 @@ export async function POST(req: NextRequest) {
     for (const row of stockRows ?? []) {
       if (row.stock_qty === null) continue
       const delta = menuItemDelta.get(row.id) ?? 0
-      await supabase.from('menu_items')
+      const { error: stockErr } = await supabase.from('menu_items')
         .update({ stock_qty: Math.max(0, row.stock_qty - delta) })
         .eq('id', row.id)
+      if (stockErr) await supabase.from('pos_audit_log').insert({
+        actor_id: user.id,
+        event: 'inventory.stock_decrement_failed',
+        entity_type: 'menu_items',
+        entity_id: row.id,
+        payload: { order_id: orderId, delta, error: stockErr.message },
+      })
     }
   }
 
@@ -330,7 +337,16 @@ export async function POST(req: NextRequest) {
 
   // 14. Clear the table link now that daily_sales is confirmed written.
   if (order.table_id) {
-    await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
+    const { error: tableErr } = await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', order.table_id)
+    if (tableErr) {
+      await supabase.from('pos_audit_log').insert({
+        actor_id: user.id,
+        event: 'table.unlink_failed',
+        entity_type: 'pos_tables',
+        entity_id: order.table_id,
+        payload: { order_id: orderId, error: tableErr.message, note: 'Order is closed but table may still show as occupied — use Manage Tables to release it manually.' },
+      })
+    }
   }
 
   // 15. Audit log.

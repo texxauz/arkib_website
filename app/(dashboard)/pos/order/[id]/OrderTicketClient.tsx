@@ -116,31 +116,46 @@ export function OrderTicketClient({
   const activeItems = items.filter(i => !i.voided_at)
   const subtotal = activeItems.reduce((sum, i) => sum + i.quantity * i.unit_price - (i.discount ?? 0), 0)
 
-  // Realtime subscription
+  // Realtime subscription with auto-reconnect on channel error or timeout
   useEffect(() => {
-    const channel = supabase
-      .channel(`order-items-${order.id}`)
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pos_order_items', filter: `order_id=eq.${order.id}` },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            // Skip if optimistic update already added it
-            setItems(prev => {
-              if (prev.find(i => i.id === (payload.new as OrderItem).id)) return prev
-              return [...prev, payload.new as OrderItem]
-            })
-          } else if (payload.eventType === 'UPDATE') {
-            setItems(prev => prev.map(i => i.id === (payload.new as OrderItem).id ? payload.new as OrderItem : i))
-          } else if (payload.eventType === 'DELETE') {
-            setItems(prev => prev.filter(i => i.id !== (payload.old as OrderItem).id))
-          }
-        }
-      )
-      .subscribe()
+    let active = true
+    let currentChannel: ReturnType<typeof supabase.channel> | null = null
 
-    return () => { supabase.removeChannel(channel) }
-  }, [order.id])
+    function subscribe() {
+      if (!active) return
+      const ch = supabase
+        .channel(`order-items-${order.id}-${Date.now()}`)
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pos_order_items', filter: `order_id=eq.${order.id}` },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              setItems(prev => {
+                if (prev.find(i => i.id === (payload.new as OrderItem).id)) return prev
+                return [...prev, payload.new as OrderItem]
+              })
+            } else if (payload.eventType === 'UPDATE') {
+              setItems(prev => prev.map(i => i.id === (payload.new as OrderItem).id ? payload.new as OrderItem : i))
+            } else if (payload.eventType === 'DELETE') {
+              setItems(prev => prev.filter(i => i.id !== (payload.old as OrderItem).id))
+            }
+          }
+        )
+        .subscribe((status) => {
+          if ((status === 'CHANNEL_ERROR' || status === 'TIMED_OUT') && active) {
+            supabase.removeChannel(ch)
+            setTimeout(subscribe, 3000)
+          }
+        })
+      currentChannel = ch
+    }
+
+    subscribe()
+    return () => {
+      active = false
+      if (currentChannel) supabase.removeChannel(currentChannel)
+    }
+  }, [order.id, supabase])
 
   const addItem = useCallback(async (item: Cocktail | MenuItem, type: 'cocktail' | 'menu_item', category: string) => {
     if (currentOrder.status !== 'open') {
