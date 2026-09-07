@@ -1135,7 +1135,7 @@ export function BarInventoryClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A30] bg-[#0D0D0F]">
-                {['Cocktail', 'Category', 'Opening', 'Produced', 'Sold', 'Left', 'ml/serve', 'Storage', 'Status', ''].map(h => (
+                {['Cocktail', 'Category', 'Left', 'ml/serve', 'Storage', 'Status', ''].map(h => (
                   <th key={h} className="text-left px-3 py-2.5 text-[#5A5865] text-xs font-medium whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -1143,16 +1143,16 @@ export function BarInventoryClient({
             <tbody>
               {premixes.map(p => {
                 const left = premixLeft(p)
-                const ok = left > 3
+                const isEmpty = left <= 0
+                const isLow = left > 0 && left <= 3
+                const leftColor = isEmpty ? 'text-rose-400' : isLow ? 'text-amber-400' : 'text-[#F0EEF6]'
+                const ok = !isEmpty && !isLow
                 return (
                   <tr key={p.id} className="border-b border-[#1A1A1E] hover:bg-[#0D0D0F] transition-colors">
                     <td className="px-3 py-2.5 text-[#F0EEF6] font-medium whitespace-nowrap">{p.cocktail_name ?? p.name}</td>
                     <td className="px-3 py-2.5 text-[#9896A4] text-xs">{p.category ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{p.opening_serves}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{p.produced_serves}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{p.sold_serves}</td>
-                    <td className={`px-3 py-2.5 font-bold text-base ${ok ? 'text-[#F0EEF6]' : 'text-amber-400'}`}>{left}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{p.ml_per_serve}</td>
+                    <td className={`px-3 py-2.5 font-bold text-base tabular-nums ${leftColor}`}>{left}</td>
+                    <td className="px-3 py-2.5 text-[#9896A4] tabular-nums">{p.ml_per_serve ?? '—'}</td>
                     <td className="px-3 py-2.5 text-[#9896A4] text-xs">{p.storage ?? '—'}</td>
                     <td className="px-3 py-2.5"><StatusBadge ok={ok} label={ok ? 'ON MENU' : 'LOW'} /></td>
                     <td className="px-3 py-2.5">
