@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { POS_MENU_TAG } from '@/lib/pos-menu-cache'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -43,5 +45,6 @@ export async function POST(req: NextRequest) {
   const { error: insertErr } = await supabase.from('menu_items').insert(toInsert)
   if (insertErr) return NextResponse.json({ error: insertErr.message }, { status: 500 })
 
+  revalidateTag(POS_MENU_TAG, 'max')
   return NextResponse.json({ added: toInsert.length, skipped: cocktails.length - toInsert.length })
 }

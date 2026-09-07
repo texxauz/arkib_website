@@ -1,5 +1,7 @@
 import { NextRequest, NextResponse } from 'next/server'
+import { revalidateTag } from 'next/cache'
 import { createClient } from '@/lib/supabase/server'
+import { POS_MENU_TAG } from '@/lib/pos-menu-cache'
 
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
@@ -19,6 +21,7 @@ export async function POST(req: NextRequest) {
     }
     const { data, error } = await supabase.from('menu_items').insert({ name, category, price, cost_price: cost_price ?? 0, is_active: true, sort_order: sort_order ?? 99, stock_qty: stock_qty ?? null }).select().single()
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    revalidateTag(POS_MENU_TAG, 'max')
     return NextResponse.json({ success: true, item: data })
   }
 
@@ -37,6 +40,7 @@ export async function POST(req: NextRequest) {
     if (stock_qty !== undefined) updates.stock_qty = stock_qty ?? null
     const { error } = await supabase.from('menu_items').update(updates).eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    revalidateTag(POS_MENU_TAG, 'max')
     return NextResponse.json({ success: true })
   }
 
@@ -44,6 +48,7 @@ export async function POST(req: NextRequest) {
     if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
     const { error } = await supabase.from('menu_items').delete().eq('id', id)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
+    revalidateTag(POS_MENU_TAG, 'max')
     return NextResponse.json({ success: true })
   }
 

@@ -9,28 +9,27 @@ export default async function POSPage() {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) redirect('/login')
 
-  const { data: userProfile } = await supabase
-    .from('users').select('role, full_name, tab_permissions').eq('id', user.id).single()
-  const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
-
-  const [{ data: tables }, { data: orders }, { data: config }, { data: staffList }] = await Promise.all([
-    supabase.from('pos_tables').select('*').eq('is_active', true).order('section').order('sort_order'),
+  const [profileResult, tablesResult, ordersResult, configResult, staffResult] = await Promise.all([
+    supabase.from('users').select('role, full_name, tab_permissions').eq('id', user.id).single(),
+    supabase.from('pos_tables').select('id, name, section, capacity, pos_x, pos_y, shape, sort_order, is_active, current_order_id').eq('is_active', true).order('section').order('sort_order'),
     supabase.from('pos_orders').select('id, table_id, covers, opened_at, server_name, guest_name, total, status').eq('status', 'open'),
     supabase.from('pos_config').select('key, value'),
     supabase.from('users').select('id, full_name').eq('is_active', true).order('full_name'),
   ])
 
-  const configMap = Object.fromEntries((config ?? []).map(c => [c.key, c.value]))
+  const userProfile = profileResult.data
+  const isAdmin = userProfile?.role === 'owner' || userProfile?.role === 'manager'
+  const configMap = Object.fromEntries((configResult.data ?? []).map(c => [c.key, c.value]))
 
   return (
     <FloorPlanClient
-      initialTables={tables ?? []}
-      openOrders={orders ?? []}
+      initialTables={tablesResult.data ?? []}
+      openOrders={ordersResult.data ?? []}
       userId={user.id}
       userName={userProfile?.full_name ?? 'Staff'}
       isAdmin={isAdmin ?? false}
       config={configMap}
-      staffList={(staffList ?? []).map(s => s.full_name).filter(Boolean) as string[]}
+      staffList={(staffResult.data ?? []).map(s => s.full_name).filter(Boolean) as string[]}
     />
   )
 }

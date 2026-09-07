@@ -40,7 +40,6 @@ interface Props {
   initialItems: OrderItem[]
   cocktails: Cocktail[]
   menuItems: MenuItem[]
-  allTables: PosTable[]
   userId: string
   userName: string
   isAdmin: boolean
@@ -63,7 +62,7 @@ function formatCurrency(amount: number) {
 const CUSTOM_CATEGORIES = ['cocktail', 'beer', 'wine', 'food', 'others']
 
 export function OrderTicketClient({
-  order, initialItems, cocktails, menuItems, allTables, userId, userName, isAdmin, canCreateCustomItem, canCancelOrder, config
+  order, initialItems, cocktails, menuItems, userId, userName, isAdmin, canCreateCustomItem, canCancelOrder, config
 }: Props) {
   const router = useRouter()
   const { toast } = useToast()
@@ -85,6 +84,7 @@ export function OrderTicketClient({
   const [voidPin, setVoidPin] = useState('')
   const [moveModal, setMoveModal] = useState(false)
   const [moveTarget, setMoveTarget] = useState<PosTable | null>(null)
+  const [allTables, setAllTables] = useState<PosTable[]>([])
   const [guestModal, setGuestModal] = useState(false)
   const [guestName, setGuestName] = useState(order.customer_name ?? '')
   const [cancelModal, setCancelModal] = useState(false)
@@ -591,7 +591,13 @@ export function OrderTicketClient({
         {currentOrder.status === 'open' && (
           <div className="flex gap-2 mb-2">
             <button
-              onClick={() => setMoveModal(true)}
+              onClick={async () => {
+                setMoveModal(true)
+                if (allTables.length === 0) {
+                  const { data } = await supabase.from('pos_tables').select('id, name, section, capacity, current_order_id').eq('is_active', true).order('section').order('name')
+                  setAllTables(data ?? [])
+                }
+              }}
               className="flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium bg-[#1A1A1E] border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42] transition-colors"
             >
               <ArrowRightLeft size={11} />
