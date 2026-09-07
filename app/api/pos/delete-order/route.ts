@@ -46,7 +46,11 @@ export async function POST(req: NextRequest) {
       }
       for (const [id, delta] of premixDelta) {
         const { error } = await supabase.rpc('decrement_premix_serves', { p_id: id, p_delta: delta })
-        if (error) console.error('decrement_premix_serves failed:', error.message)
+        if (error) await supabase.from('pos_audit_log').insert({
+          actor_id: user.id, actor_name: profile?.full_name ?? null,
+          event: 'inventory.revert_failed', entity_type: 'bar_premixes', entity_id: id,
+          payload: { order_id: orderId, delta, error: error.message, action: 'delete_order' },
+        })
       }
 
       const spiritBottleDelta = new Map<string, number>()
@@ -57,7 +61,11 @@ export async function POST(req: NextRequest) {
       }
       for (const [id, delta] of spiritBottleDelta) {
         const { error } = await supabase.rpc('increment_spirit_bottles', { p_id: id, p_delta: delta })
-        if (error) console.error('increment_spirit_bottles failed:', error.message)
+        if (error) await supabase.from('pos_audit_log').insert({
+          actor_id: user.id, actor_name: profile?.full_name ?? null,
+          event: 'inventory.revert_failed', entity_type: 'bar_spirits', entity_id: id,
+          payload: { order_id: orderId, delta, error: error.message, action: 'delete_order' },
+        })
       }
 
       const classicMlDelta = new Map<string, number>()
@@ -75,7 +83,11 @@ export async function POST(req: NextRequest) {
       }
       for (const [id, ml] of classicMlDelta) {
         const { error } = await supabase.rpc('decrement_spirit_ml', { p_id: id, p_ml: ml })
-        if (error) console.error('decrement_spirit_ml failed:', error.message)
+        if (error) await supabase.from('pos_audit_log').insert({
+          actor_id: user.id, actor_name: profile?.full_name ?? null,
+          event: 'inventory.revert_failed', entity_type: 'bar_spirits', entity_id: id,
+          payload: { order_id: orderId, ml, error: error.message, action: 'delete_order' },
+        })
       }
 
       // Restore menu_item stock_qty (mirrors close-order decrement in reverse)

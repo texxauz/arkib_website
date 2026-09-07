@@ -69,7 +69,17 @@ export async function POST(req: NextRequest) {
 
   // Free the table
   if (order.table_id) {
-    await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', orderId)
+    const { error: tableErr } = await supabase.from('pos_tables').update({ current_order_id: null }).eq('current_order_id', orderId)
+    if (tableErr) {
+      await supabase.from('pos_audit_log').insert({
+        actor_id: user.id,
+        actor_name: profile?.full_name ?? null,
+        event: 'table.unlink_failed',
+        entity_type: 'pos_tables',
+        entity_id: order.table_id,
+        payload: { order_id: orderId, error: tableErr.message, note: 'Order is voided but table may still show as occupied — use Manage Tables to release it manually.' },
+      })
+    }
   }
 
   // Write audit log — this is the tamper-evident record

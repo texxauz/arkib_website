@@ -50,11 +50,17 @@ export async function POST(req: NextRequest) {
   }
 
   // Mark reservation as seated with order link
-  await supabase.from('pos_reservations').update({
+  const { error: resErr } = await supabase.from('pos_reservations').update({
     status: 'seated',
     order_id: order.id,
     table_id: tableToUse ?? reservation.table_id,
   }).eq('id', reservationId)
+  if (resErr) {
+    // Rollback: undo table link and delete the order so the reservation can be retried
+    if (tableToUse) await supabase.from('pos_tables').update({ current_order_id: null }).eq('id', tableToUse)
+    await supabase.from('pos_orders').delete().eq('id', order.id)
+    return NextResponse.json({ error: `Failed to mark reservation as seated — please try again: ${resErr.message}` }, { status: 500 })
+  }
 
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,

@@ -55,7 +55,12 @@ export async function POST(req: NextRequest) {
   }
 
   if (tableId) {
-    await supabase.from('pos_tables').update({ current_order_id: order.id }).eq('id', tableId)
+    const { error: linkErr } = await supabase.from('pos_tables').update({ current_order_id: order.id }).eq('id', tableId)
+    if (linkErr) {
+      // Rollback the order so the table stays bookable
+      await supabase.from('pos_orders').delete().eq('id', order.id)
+      return NextResponse.json({ error: `Order created but table link failed — please try again: ${linkErr.message}` }, { status: 500 })
+    }
   }
 
   await supabase.from('pos_audit_log').insert({

@@ -41,19 +41,30 @@ export async function POST(req: NextRequest) {
 
     const { data: row } = await supabase.from('daily_sales').select('*').eq('date', date).single()
     if (row) {
-      await supabase.from('daily_sales_backup').insert({
+      const { error: backupErr } = await supabase.from('daily_sales_backup').insert({
         original_date: date,
         deleted_by: user.id,
         deleted_by_name: profile?.full_name ?? null,
         data: row,
       })
+      if (backupErr) return NextResponse.json({ error: `Backup failed — delete aborted to protect your data: ${backupErr.message}` }, { status: 500 })
     }
 
     // Delete daily_sales first — if this fails, cocktail_sales is untouched.
     const { error } = await supabase.from('daily_sales').delete().eq('date', date)
     if (error) return NextResponse.json({ error: error.message }, { status: 500 })
     // Only delete cocktail_sales after the primary record is confirmed gone.
-    await supabase.from('cocktail_sales').delete().eq('date', date)
+    const { error: csErr } = await supabase.from('cocktail_sales').delete().eq('date', date)
+    if (csErr) {
+      await supabase.from('pos_audit_log').insert({
+        actor_id: user.id,
+        actor_name: profile?.full_name ?? null,
+        event: 'daily_sales.cocktail_sales_delete_failed',
+        entity_type: 'daily_sales',
+        entity_id: date,
+        payload: { date, error: csErr.message, note: 'daily_sales deleted but cocktail_sales rows remain — clear manually if needed.' },
+      })
+    }
 
     await supabase.from('pos_audit_log').insert({
       actor_id: user.id,

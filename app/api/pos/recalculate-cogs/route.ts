@@ -18,14 +18,19 @@ export async function POST() {
     return NextResponse.json({ error: 'Admin only' }, { status: 403 })
   }
 
-  // 1. Find ALL cocktail_sales rows with unit_cost = 0
+  // 1. Find cocktail_sales rows with unit_cost = 0 that have a cocktail_id
+  //    We only match by ID — name-based matching is intentionally excluded to prevent
+  //    generic names (e.g. "Event", "Special") from contaminating unrelated historical rows.
+  //    Non-cocktail items (no cocktail_id) should have their cost set via menu_items.cost_price
+  //    at order time; use Data Manager → Menu Items to fix them going forward.
   const { data: zeroCogs, error: fetchErr } = await supabase
     .from('cocktail_sales')
     .select('id, cocktail_id, cocktail_name')
     .eq('unit_cost', 0)
+    .not('cocktail_id', 'is', null)
 
   if (fetchErr) return NextResponse.json({ error: fetchErr.message }, { status: 500 })
-  if (!zeroCogs?.length) return NextResponse.json({ updated: 0, message: 'No zero-cost rows found' })
+  if (!zeroCogs?.length) return NextResponse.json({ updated: 0, message: 'No zero-cost cocktail rows found' })
 
   // 2. Fetch all cocktails with recipe costs
   const { data: cocktails, error: cErr } = await supabase
@@ -34,42 +39,20 @@ export async function POST() {
 
   if (cErr) return NextResponse.json({ error: cErr.message }, { status: 500 })
 
-  // 3. Fetch all menu items with cost_price (for beer, wine, food, etc.)
-  const { data: menuItems, error: mErr } = await supabase
-    .from('menu_items')
-    .select('id, name, cost_price')
-
-  if (mErr) return NextResponse.json({ error: mErr.message }, { status: 500 })
-
-  // Build cost maps keyed by id and lowercase name
+  // Build cost map keyed by cocktail id only
   const costById: Record<string, number> = {}
-  const costByName: Record<string, number> = {}
-
   for (const c of cocktails ?? []) {
     const recipes = c.cocktail_recipes as unknown as { quantity_ml: number; ingredients: { cost_per_unit: number | null } | null }[]
     const ingCost = recipes.reduce((s, r) => s + (r.quantity_ml ?? 0) * (r.ingredients?.cost_per_unit ?? 0), 0)
-    const total = ingCost + (c.garnish_cost ?? 0) + (c.ice_cost ?? 0) + (c.other_cost ?? 0)
-    costById[c.id] = total
-    costByName[c.name.toLowerCase().trim()] = total
+    costById[c.id] = ingCost + (c.garnish_cost ?? 0) + (c.ice_cost ?? 0) + (c.other_cost ?? 0)
   }
 
-  // Menu items fill in gaps (non-cocktail items, or cocktails with no recipe)
-  for (const m of menuItems ?? []) {
-    const key = m.name.toLowerCase().trim()
-    if (!costByName[key] && (m.cost_price ?? 0) > 0) {
-      costByName[key] = m.cost_price ?? 0
-    }
-  }
-
-  // 4. Update each zero-cost row
+  // 3. Update each zero-cost row using ID match only
   let updated = 0
   let skipped = 0
 
   for (const row of zeroCogs) {
-    const newCost = row.cocktail_id
-      ? (costById[row.cocktail_id] ?? costByName[(row.cocktail_name ?? '').toLowerCase().trim()])
-      : costByName[(row.cocktail_name ?? '').toLowerCase().trim()]
-
+    const newCost = costById[row.cocktail_id!]
     if (!newCost || newCost === 0) {
       skipped++
       continue
@@ -85,7 +68,7 @@ export async function POST() {
     updated,
     skipped,
     message: skipped > 0
-      ? `Updated ${updated} rows. ${skipped} skipped — set cost prices for those items in Data Manager → Menu Items.`
+      ? `Updated ${updated} rows. ${skipped} skipped — those cocktails have no recipe cost set.`
       : `Updated ${updated} rows successfully.`,
   })
 }
