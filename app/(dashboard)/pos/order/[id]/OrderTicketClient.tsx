@@ -100,6 +100,7 @@ export function OrderTicketClient({
   const [customModal, setCustomModal] = useState(false)
   const [customName, setCustomName] = useState('')
   const [customPrice, setCustomPrice] = useState('')
+  const [customCost, setCustomCost] = useState('')
   const [customCategory, setCustomCategory] = useState('cocktail')
   const [customQty, setCustomQty] = useState('1')
   const [customLoading, setCustomLoading] = useState(false)
@@ -201,7 +202,7 @@ export function OrderTicketClient({
       category: customCategory,
       quantity: qty,
       unit_price: price,
-      unit_cost: 0,
+      unit_cost: parseFloat(customCost) || 0,
       discount: 0,
       status: 'pending',
       added_by: userId,
@@ -1061,7 +1062,7 @@ export function OrderTicketClient({
       </Modal>
 
       {/* Custom Item Modal */}
-      <Modal isOpen={customModal} onClose={() => { setCustomModal(false); setCustomName(''); setCustomPrice(''); setCustomQty('1'); setCustomCategory('cocktail') }} title="Custom Item" size="sm">
+      <Modal isOpen={customModal} onClose={() => { setCustomModal(false); setCustomName(''); setCustomPrice(''); setCustomCost(''); setCustomQty('1'); setCustomCategory('cocktail') }} title="Custom Item" size="sm">
         <div className="space-y-4">
           <p className="text-[#9896A4] text-sm">Create a one-off item with a custom price. This will be logged for accountability.</p>
           <div>
@@ -1099,6 +1100,18 @@ export function OrderTicketClient({
                 className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] focus:outline-none focus:border-[#7B5EA7]"
               />
             </div>
+          </div>
+          <div>
+            <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Cost Price (RM) <span className="text-[#5A5865]">optional — for COGS tracking</span></label>
+            <input
+              type="number"
+              min="0"
+              step="0.01"
+              value={customCost}
+              onChange={e => setCustomCost(e.target.value)}
+              placeholder="0.00"
+              className="w-full bg-[#141417] border border-[#2A2A30] rounded-xl px-3 py-2.5 text-sm text-[#F0EEF6] placeholder:text-[#5A5865] focus:outline-none focus:border-[#7B5EA7]"
+            />
           </div>
           <div>
             <label className="text-[#9896A4] text-xs uppercase tracking-wider block mb-1.5">Category</label>

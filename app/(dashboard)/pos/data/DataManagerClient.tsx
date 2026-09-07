@@ -317,6 +317,12 @@ export function DataManagerClient({ orders: initialOrders, tables: initialTables
   }
 
   async function handleRecalculateCogs() {
+    const confirmed = window.confirm(
+      'Recalculate COGS will backfill unit costs by matching item names.\n\n' +
+      'WARNING: Items with generic names (e.g. "Event", "Cocktail") may have costs applied to unrelated historical rows, inflating past COGS figures.\n\n' +
+      'Only proceed if you understand the risk. Continue?'
+    )
+    if (!confirmed) return
     setCogsLoading(true)
     try {
       const res = await fetch('/api/pos/recalculate-cogs', { method: 'POST' })

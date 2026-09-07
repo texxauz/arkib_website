@@ -21,14 +21,15 @@ export async function POST(req: NextRequest) {
     return NextResponse.json({ error: 'You can only close your own shift' }, { status: 403 })
   }
 
-  // Block close if any orders under THIS shift are still open (shift-scoped, not global).
-  const { data: openOrders } = await supabase
-    .from('pos_orders')
-    .select('id, table_name')
-    .eq('shift_id', shiftId)
-    .eq('status', 'open')
-    .limit(10)
-  if (openOrders && openOrders.length > 0) {
+  // Block close if any orders still open — check shift-linked orders AND orders
+  // with no shift_id opened during this shift window (backfilled at close-order time).
+  const [{ data: shiftOpenOrders }, { data: nullShiftOpenOrders }] = await Promise.all([
+    supabase.from('pos_orders').select('id, table_name').eq('shift_id', shiftId).eq('status', 'open').limit(10),
+    supabase.from('pos_orders').select('id, table_name').is('shift_id', null).eq('status', 'open')
+      .gte('opened_at', shift.opened_at).limit(10),
+  ])
+  const openOrders = [...(shiftOpenOrders ?? []), ...(nullShiftOpenOrders ?? [])]
+  if (openOrders.length > 0) {
     const names = openOrders.map(o => o.table_name ?? 'Walk-in').join(', ')
     return NextResponse.json({
       error: `Cannot close shift — ${openOrders.length} table${openOrders.length > 1 ? 's' : ''} still open: ${names}`,
