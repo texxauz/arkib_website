@@ -72,6 +72,7 @@ export async function POST(req: NextRequest) {
         p_credit_card_collected: cardCol,
         p_qr_collected: qrCol,
         p_online_collected: onlineCol,
+        p_transaction_count: 1,
       }))
     } catch (err: any) {
       return NextResponse.json({ error: `Failed to reverse daily sales after retries: ${err.message}` }, { status: 500 })

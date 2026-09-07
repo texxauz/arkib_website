@@ -665,7 +665,10 @@ export function BarInventoryClient({
       const json = await res.json()
       if (!res.ok) throw new Error(json.error ?? 'Failed to log activity')
 
-      const { activity: newActivity, effects } = json
+      const { activity: newActivity, effects, warnings } = json
+      if (warnings?.length) {
+        for (const w of warnings) toast(w, 'error')
+      }
 
       // Update local state to reflect DB changes
       if (logForm.activity_type === 'Infusion Made' && volMl) {
