@@ -78,6 +78,23 @@ export async function POST(req: NextRequest) {
         if (error) console.error('decrement_spirit_ml failed:', error.message)
       }
 
+      // Restore menu_item stock_qty (mirrors close-order decrement in reverse)
+      const menuItemDelta = new Map<string, number>()
+      for (const item of items) {
+        if (item.item_type === 'menu_item' && item.item_id) {
+          menuItemDelta.set(item.item_id, (menuItemDelta.get(item.item_id) ?? 0) + item.quantity)
+        }
+      }
+      if (menuItemDelta.size > 0) {
+        const { data: stockRows } = await supabase
+          .from('menu_items').select('id, stock_qty').in('id', [...menuItemDelta.keys()])
+        for (const row of stockRows ?? []) {
+          if (row.stock_qty === null) continue
+          const delta = menuItemDelta.get(row.id) ?? 0
+          await supabase.from('menu_items').update({ stock_qty: row.stock_qty + delta }).eq('id', row.id)
+        }
+      }
+
       // Fix: prorate order-level discount across categories (matches close-order logic)
       const { data: config } = await supabase.from('pos_config').select('key, value').in('key', ['business_day_cutoff_hour'])
       const cutoffHour = parseInt(config?.find(c => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)

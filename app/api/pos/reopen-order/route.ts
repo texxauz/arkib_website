@@ -131,6 +131,25 @@ export async function POST(req: NextRequest) {
     }
   }
 
+  // Restore menu_item stock_qty (mirrors close-order decrement in reverse)
+  if (items?.length) {
+    const menuItemDelta = new Map<string, number>()
+    for (const item of items) {
+      if (item.item_type === 'menu_item' && item.item_id) {
+        menuItemDelta.set(item.item_id, (menuItemDelta.get(item.item_id) ?? 0) + item.quantity)
+      }
+    }
+    if (menuItemDelta.size > 0) {
+      const { data: stockRows } = await supabase
+        .from('menu_items').select('id, stock_qty').in('id', [...menuItemDelta.keys()])
+      for (const row of stockRows ?? []) {
+        if (row.stock_qty === null) continue
+        const delta = menuItemDelta.get(row.id) ?? 0
+        await supabase.from('menu_items').update({ stock_qty: row.stock_qty + delta }).eq('id', row.id)
+      }
+    }
+  }
+
   // Reverse cocktail_sales rows so re-closing doesn't double-count
   try {
     await retrySupabase(() => supabase.from('cocktail_sales').delete().eq('order_id', orderId))
