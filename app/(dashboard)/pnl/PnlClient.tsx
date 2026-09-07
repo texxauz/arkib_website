@@ -3,6 +3,9 @@ import { useMemo, useState } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { formatCurrency, EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
 import { Download, TrendingUp, TrendingDown, X, ArrowUp, ArrowDown, Minus } from 'lucide-react'
+import {
+  LineChart, Line, XAxis, YAxis, Tooltip, ResponsiveContainer, CartesianGrid, ReferenceLine,
+} from 'recharts'
 
 interface Props {
   salesData: {
@@ -262,6 +265,68 @@ export function PnlClient({ salesData, cogsData, expensesData, eventsData }: Pro
               </div>
             </div>
           )}
+
+          {/* Revenue & Net Profit Trend Line Chart */}
+          {months.length >= 2 && (() => {
+            const trendData = [...months].reverse().map(m => ({
+              label: new Date(m.key + '-01').toLocaleDateString('en-MY', { month: 'short', year: '2-digit' }),
+              revenue: Math.round(m.revenue),
+              netProfit: Math.round(m.netProfit),
+            }))
+            return (
+              <div className="card">
+                <p className="section-title mb-1">Revenue &amp; Net Profit Trend</p>
+                <p className="text-[#5A5865] text-xs mb-4">Month-over-month performance across the selected range</p>
+                <ResponsiveContainer width="100%" height={200}>
+                  <LineChart data={trendData} margin={{ top: 4, right: 8, left: 0, bottom: 0 }}>
+                    <CartesianGrid strokeDasharray="3 3" stroke="#2A2A30" vertical={false} />
+                    <XAxis dataKey="label" tick={{ fill: '#9896A4', fontSize: 11 }} axisLine={false} tickLine={false} />
+                    <YAxis
+                      tickFormatter={v => `RM${(v / 1000).toFixed(0)}k`}
+                      tick={{ fill: '#9896A4', fontSize: 11 }}
+                      axisLine={false}
+                      tickLine={false}
+                      width={52}
+                    />
+                    <Tooltip
+                      formatter={(v, name) => [formatCurrency(Number(v)), name === 'revenue' ? 'Revenue' : 'Net Profit']}
+                      contentStyle={{ background: '#1A1A1E', border: '1px solid #2A2A30', borderRadius: 8, fontSize: 12 }}
+                      itemStyle={{ color: '#F0EEF6' }}
+                      labelStyle={{ color: '#9896A4', marginBottom: 4 }}
+                    />
+                    <ReferenceLine y={0} stroke="#2A2A30" strokeDasharray="4 4" />
+                    <Line
+                      type="monotone"
+                      dataKey="revenue"
+                      stroke="#10B981"
+                      strokeWidth={2}
+                      dot={{ fill: '#10B981', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                    <Line
+                      type="monotone"
+                      dataKey="netProfit"
+                      stroke="#8B5CF6"
+                      strokeWidth={2}
+                      strokeDasharray="5 3"
+                      dot={{ fill: '#8B5CF6', strokeWidth: 0, r: 3 }}
+                      activeDot={{ r: 5 }}
+                    />
+                  </LineChart>
+                </ResponsiveContainer>
+                <div className="flex items-center gap-5 mt-2 justify-end">
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-0.5 bg-emerald-400 rounded-full" />
+                    <span className="text-[#5A5865] text-xs">Revenue</span>
+                  </div>
+                  <div className="flex items-center gap-1.5">
+                    <div className="w-5 h-0.5 bg-[#8B5CF6] rounded-full" style={{ borderTop: '2px dashed #8B5CF6', height: 0 }} />
+                    <span className="text-[#5A5865] text-xs">Net Profit</span>
+                  </div>
+                </div>
+              </div>
+            )
+          })()}
 
           {/* Month-over-month summary table */}
           <div className="card">

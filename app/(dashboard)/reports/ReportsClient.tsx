@@ -5,10 +5,11 @@ import { formatCurrency, formatMonth, EXPENSE_CATEGORY_LABELS } from '@/lib/util
 import {
   TrendingUp, TrendingDown, Lightbulb, Download,
   ChevronLeft, ChevronRight, CreditCard, Banknote, QrCode, Globe,
+  Star, AlertTriangle, TrendingDown as TrendDown,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
-  Cell, PieChart, Pie, Legend,
+  Cell, PieChart, Pie,
 } from 'recharts'
 import type { Database } from '@/types/database'
 
@@ -16,10 +17,13 @@ type DailySale = Database['public']['Tables']['daily_sales']['Row']
 type Expense = Database['public']['Tables']['expenses']['Row']
 type Cocktail = Database['public']['Tables']['cocktails']['Row']
 
+type CocktailVolume = Record<string, { units: number; revenue: number; cogs: number }>
+
 interface Props {
   initialSales: DailySale[]
   initialExpenses: Expense[]
   initialCocktails: Cocktail[]
+  initialCocktailVolume: CocktailVolume
   initialMonth: number
   initialYear: number
 }
@@ -39,7 +43,32 @@ const PAYMENT_COLORS: Record<string, string> = {
   Online: '#3B82F6',
 }
 
-function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Cocktail[]) {
+// Merge cocktail catalogue margin with this-month volume data
+function buildCocktailMatrix(cocktails: Cocktail[], volume: CocktailVolume) {
+  const maxUnits = Math.max(...Object.values(volume).map(v => v.units), 1)
+
+  return cocktails.map(c => {
+    const v = volume[c.name] ?? { units: 0, revenue: 0, cogs: 0 }
+    const margin = c.profit_margin ?? 0
+    const units = v.units
+    // Quadrant: high margin ≥ 65%, high volume ≥ 30% of top seller
+    const highMargin = margin >= 65
+    const highVolume = maxUnits > 0 && units >= maxUnits * 0.3
+    const quad: keyof typeof QUAD_META =
+      highMargin && highVolume ? 'star' :
+      highMargin && !highVolume ? 'opportunity' :
+      !highMargin && highVolume ? 'workhorse' :
+      'review'
+    return { ...c, units, volRevenue: v.revenue, volCogs: v.cogs, quad }
+  }).sort((a, b) => b.units - a.units || (b.profit_margin ?? 0) - (a.profit_margin ?? 0))
+}
+
+function generateInsights(
+  sales: DailySale[],
+  expenses: Expense[],
+  cocktails: Cocktail[],
+  volume: CocktailVolume,
+) {
   const insights: { type: 'good' | 'bad' | 'info'; text: string }[] = []
 
   if (sales.length > 0) {
@@ -49,16 +78,14 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
       if (!byDay[day]) byDay[day] = []
       byDay[day].push(s.total_revenue)
     })
-    const avgByDay = Object.entries(byDay).map(([d, revs]) => ({
-      day: d,
-      avg: revs.reduce((a, b) => a + b, 0) / revs.length,
-    }))
-    avgByDay.sort((a, b) => b.avg - a.avg)
+    const avgByDay = Object.entries(byDay)
+      .map(([d, revs]) => ({ day: d, avg: revs.reduce((a, b) => a + b, 0) / revs.length }))
+      .sort((a, b) => b.avg - a.avg)
     const best = avgByDay[0]
     const worst = avgByDay[avgByDay.length - 1]
     if (best && worst && best.day !== worst.day) {
       const diff = ((best.avg - worst.avg) / worst.avg * 100).toFixed(0)
-      insights.push({ type: 'info', text: `${best.day} generates ${diff}% higher revenue than ${worst.day}` })
+      insights.push({ type: 'info', text: `${best.day} is your strongest day (${diff}% above ${worst.day}). Consider scheduling promotions or events on ${worst.day} to lift the floor.` })
     }
 
     const weekdays = sales.filter(s => [1, 2, 3, 4].includes(new Date(s.date).getDay()))
@@ -66,15 +93,18 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
     if (weekdays.length > 0 && weekends.length > 0) {
       const avgWeekday = weekdays.reduce((s, r) => s + r.total_revenue, 0) / weekdays.length
       const avgWeekend = weekends.reduce((s, r) => s + r.total_revenue, 0) / weekends.length
-      if (avgWeekend > avgWeekday) {
-        insights.push({ type: 'good', text: `Weekend sales average ${formatCurrency(avgWeekend)} vs ${formatCurrency(avgWeekday)} on weekdays` })
+      if (avgWeekend > avgWeekday * 1.3) {
+        insights.push({ type: 'good', text: `Weekend revenue (avg ${formatCurrency(avgWeekend)}) is ${((avgWeekend / avgWeekday - 1) * 100).toFixed(0)}% higher than weekdays — your weekend pull is strong.` })
+      } else if (avgWeekday > avgWeekend) {
+        insights.push({ type: 'bad', text: `Weekday revenue (avg ${formatCurrency(avgWeekday)}) actually exceeds weekends (${formatCurrency(avgWeekend)}) — investigate what's pulling weekday traffic and replicate it on weekends.` })
       }
     }
 
     const totalTx = sales.reduce((s, r) => s + (r.transaction_count ?? 0), 0)
     const totalRev = sales.reduce((s, r) => s + r.total_revenue, 0)
     if (totalTx > 0) {
-      insights.push({ type: 'info', text: `Average order value this month: ${formatCurrency(totalRev / totalTx)} across ${totalTx} transactions` })
+      const aov = totalRev / totalTx
+      insights.push({ type: 'info', text: `Average order value: ${formatCurrency(aov)} across ${totalTx} tables. Each RM10 upsell per table = ${formatCurrency(totalTx * 10)} extra monthly revenue.` })
     }
   }
 
@@ -84,10 +114,42 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
       return acc
     }, {})
     const top = Object.entries(byCategory).sort((a, b) => b[1] - a[1])[0]
-    if (top) insights.push({ type: 'info', text: `Biggest expense: ${EXPENSE_CATEGORY_LABELS[top[0]] ?? top[0]} at ${formatCurrency(top[1])}` })
+    const totalExp = Object.values(byCategory).reduce((s, v) => s + v, 0)
+    const totalRev = sales.reduce((s, r) => s + r.total_revenue, 0)
+    if (top) {
+      const pct = totalRev > 0 ? ((top[1] / totalRev) * 100).toFixed(1) : '—'
+      insights.push({ type: 'info', text: `${EXPENSE_CATEGORY_LABELS[top[0]] ?? top[0]} is your biggest cost at ${formatCurrency(top[1])} (${pct}% of revenue).` })
+    }
+    if (totalRev > 0 && totalExp / totalRev > 0.6) {
+      insights.push({ type: 'bad', text: `Expenses are ${((totalExp / totalRev) * 100).toFixed(0)}% of revenue — above the 60% danger zone. Review recurring costs for cuts.` })
+    }
   }
 
-  if (cocktails.length > 0) {
+  // Cocktail volume insights
+  const volumeEntries = Object.entries(volume).sort((a, b) => b[1].units - a[1].units)
+  if (volumeEntries.length > 0) {
+    const [topName, topV] = volumeEntries[0]
+    const topCocktail = cocktails.find(c => c.name === topName)
+    if (topCocktail) {
+      const margin = topCocktail.profit_margin ?? 0
+      if (margin >= 65) {
+        insights.push({ type: 'good', text: `"${topName}" is both your best-seller (${topV.units} serves) AND has a ${margin.toFixed(0)}% margin — push it harder, it's your star.` })
+      } else {
+        insights.push({ type: 'bad', text: `Your best-seller "${topName}" (${topV.units} serves) only has a ${margin.toFixed(0)}% margin — review the recipe cost or selling price.` })
+      }
+    }
+
+    // High margin but low volume
+    const highMarginLowVol = cocktails
+      .filter(c => (c.profit_margin ?? 0) >= 70)
+      .filter(c => (volume[c.name]?.units ?? 0) < (volumeEntries[0]?.[1]?.units ?? 0) * 0.2)
+      .slice(0, 2)
+    if (highMarginLowVol.length > 0) {
+      insights.push({ type: 'info', text: `High-margin cocktails with low sales: ${highMarginLowVol.map(c => `"${c.name}" (${(c.profit_margin ?? 0).toFixed(0)}%)`).join(', ')} — feature these on your menu or train staff to recommend them.` })
+    }
+  }
+
+  if (cocktails.length > 0 && volumeEntries.length === 0) {
     const best = cocktails[0]
     const worst = cocktails[cocktails.length - 1]
     if (best?.profit_margin) insights.push({ type: 'good', text: `Highest margin cocktail: ${best.name} at ${best.profit_margin.toFixed(0)}%` })
@@ -97,7 +159,6 @@ function generateInsights(sales: DailySale[], expenses: Expense[], cocktails: Co
   return insights
 }
 
-// Custom tooltip for bar chart
 function RevenueTooltip({ active, payload, label }: { active?: boolean; payload?: Array<{ value: number }>; label?: string }) {
   if (!active || !payload?.length) return null
   return (
@@ -118,12 +179,39 @@ function PaymentTooltip({ active, payload }: { active?: boolean; payload?: Array
   )
 }
 
-export function ReportsClient({ initialSales, initialExpenses, initialCocktails, initialMonth, initialYear }: Props) {
+const QUAD_META = {
+  star: { label: 'Star', color: 'text-emerald-400', bg: 'bg-emerald-500/10 border-emerald-500/20', Icon: Star, tip: 'High volume · High margin — push harder' },
+  opportunity: { label: 'Opportunity', color: 'text-[#8B5CF6]', bg: 'bg-[#8B5CF6]/10 border-[#8B5CF6]/20', Icon: TrendingUp, tip: 'High margin · Low volume — feature & train staff' },
+  workhorse: { label: 'Workhorse', color: 'text-amber-400', bg: 'bg-amber-500/10 border-amber-500/20', Icon: AlertTriangle, tip: 'High volume · Low margin — review COGS or price' },
+  review: { label: 'Review', color: 'text-rose-400', bg: 'bg-rose-500/10 border-rose-500/20', Icon: TrendDown, tip: 'Low volume · Low margin — consider removing' },
+}
+
+function exportCSV(sales: DailySale[], expenses: Expense[]) {
+  const lines: string[] = ['Date,Revenue,Cocktails,Beer,Wine,Food,Others,Transactions']
+  for (const s of sales) {
+    lines.push(`${s.date},${s.total_revenue},${s.cocktails_revenue},${s.beer_revenue},${s.wine_revenue},${s.food_revenue},${s.others_revenue},${s.transaction_count ?? 0}`)
+  }
+  lines.push('')
+  lines.push('Date,Category,Description,Amount')
+  for (const e of expenses) {
+    lines.push(`${e.date},${e.category},"${(e.description ?? '').replace(/"/g, '""')}",${e.amount}`)
+  }
+  const blob = new Blob([lines.join('\n')], { type: 'text/csv' })
+  const url = URL.createObjectURL(blob)
+  const a = document.createElement('a')
+  a.href = url
+  a.download = `arkib-report.csv`
+  a.click()
+  URL.revokeObjectURL(url)
+}
+
+export function ReportsClient({ initialSales, initialExpenses, initialCocktails, initialCocktailVolume, initialMonth, initialYear }: Props) {
   const [month, setMonth] = useState(initialMonth)
   const [year, setYear] = useState(initialYear)
   const [sales, setSales] = useState<DailySale[]>(initialSales)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
   const [cocktails, setCocktails] = useState<Cocktail[]>(initialCocktails)
+  const [cocktailVolume, setCocktailVolume] = useState<CocktailVolume>(initialCocktailVolume)
   const [loading, setLoading] = useState(false)
 
   const fetchMonth = useCallback(async (m: number, y: number) => {
@@ -135,6 +223,7 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         setSales(data.sales)
         setExpenses(data.expenses)
         setCocktails(data.cocktails)
+        setCocktailVolume(data.cocktailVolume ?? {})
       }
     } finally {
       setLoading(false)
@@ -203,7 +292,10 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
 
   const totalCollected = paymentMixData.reduce((s, p) => s + p.value, 0)
 
-  const insights = generateInsights(sales, expenses, cocktails)
+  const cocktailMatrix = buildCocktailMatrix(cocktails, cocktailVolume)
+  const hasVolumeData = Object.keys(cocktailVolume).length > 0
+
+  const insights = generateInsights(sales, expenses, cocktails, cocktailVolume)
 
   const isCurrentMonth = (() => {
     const nowMYT = new Date(Date.now() + 8 * 60 * 60 * 1000)
@@ -217,7 +309,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         subtitle={formatMonth(month, year)}
         actions={
           <div className="flex items-center gap-2">
-            {/* Month navigator */}
             <div className="flex items-center gap-1 bg-[#141417] border border-[#2A2A30] rounded-lg px-1 py-1">
               <button
                 onClick={() => navigateMonth(-1)}
@@ -236,8 +327,8 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
                 <ChevronRight size={14} />
               </button>
             </div>
-            <button onClick={() => window.print()} className="btn-secondary flex items-center gap-2 text-xs">
-              <Download size={12} /> Export
+            <button onClick={() => exportCSV(sales, expenses)} className="btn-secondary flex items-center gap-2 text-xs">
+              <Download size={12} /> Export CSV
             </button>
           </div>
         }
@@ -254,6 +345,12 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
           <div key={k.label} className="card py-3 px-4">
             <p className="text-[#9896A4] text-xs mb-1">{k.label}</p>
             <p className={`font-bold text-lg ${k.color}`}>{k.value}</p>
+            {k.label === 'Net Profit' && totalRevenue > 0 && (
+              <p className="text-[#5A5865] text-[10px] mt-0.5">{profitMargin.toFixed(1)}% margin</p>
+            )}
+            {k.label === 'Avg Order Value' && totalTransactions > 0 && (
+              <p className="text-[#5A5865] text-[10px] mt-0.5">{totalTransactions} transactions</p>
+            )}
           </div>
         ))}
       </div>
@@ -263,7 +360,7 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         <p className="section-title mb-1 flex items-center gap-2">
           <TrendingUp size={14} className="text-emerald-400" /> Daily Revenue
         </p>
-        <p className="text-[#5A5865] text-xs mb-4">Weekends highlighted</p>
+        <p className="text-[#5A5865] text-xs mb-4">Weekends highlighted in purple</p>
         {dailyChartData.length > 0 ? (
           <ResponsiveContainer width="100%" height={200}>
             <BarChart data={dailyChartData} barCategoryGap="30%">
@@ -298,9 +395,8 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         </div>
       </div>
 
-      {/* Revenue mix + Payment mix side by side */}
+      {/* Revenue mix + Payment mix */}
       <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-        {/* Revenue breakdown donut */}
         <div className="card">
           <p className="section-title mb-4 flex items-center gap-2">
             <TrendingUp size={14} className="text-emerald-400" /> Revenue Mix
@@ -349,7 +445,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
           )}
         </div>
 
-        {/* Payment method split */}
         <div className="card">
           <p className="section-title mb-4 flex items-center gap-2">
             <CreditCard size={14} className="text-[#8B5CF6]" /> Payment Mix
@@ -407,7 +502,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         </div>
 
         <div className="grid grid-cols-1 lg:grid-cols-2 gap-6">
-          {/* Revenue */}
           <div>
             <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-3 flex items-center gap-2">
               <TrendingUp size={12} className="text-emerald-400" /> Revenue
@@ -432,7 +526,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
             </div>
           </div>
 
-          {/* Expenses */}
           <div>
             <p className="text-[#9896A4] text-xs uppercase tracking-wider mb-3 flex items-center gap-2">
               <TrendingDown size={12} className="text-rose-400" /> Expenses
@@ -455,7 +548,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
           </div>
         </div>
 
-        {/* Net Profit */}
         <div className={`mt-6 rounded-xl p-5 text-center ${netProfit >= 0 ? 'bg-emerald-500/5 border border-emerald-500/20' : 'bg-rose-500/5 border border-rose-500/20'}`}>
           <p className="text-[#9896A4] text-sm mb-1">Net Profit</p>
           <p className={`font-bold text-3xl ${netProfit >= 0 ? 'text-emerald-400' : 'text-rose-400'}`}>
@@ -471,7 +563,7 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
       {/* Analytics Insights */}
       <div className="card">
         <p className="section-title mb-4 flex items-center gap-2">
-          <Lightbulb size={16} className="text-[#D4AF37]" /> Analytics Insights
+          <Lightbulb size={16} className="text-[#D4AF37]" /> Actionable Insights
         </p>
         {insights.length > 0 ? (
           <div className="space-y-3">
@@ -481,10 +573,10 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
                 insight.type === 'bad' ? 'bg-rose-500/5 border-rose-500/20' :
                 'bg-[#1A1A1E] border-[#2A2A30]'
               }`}>
-                <span className="text-base mt-0.5">
+                <span className="text-base mt-0.5 shrink-0">
                   {insight.type === 'good' ? '📈' : insight.type === 'bad' ? '⚠️' : '💡'}
                 </span>
-                <p className="text-[#F0EEF6] text-sm">{insight.text}</p>
+                <p className="text-[#F0EEF6] text-sm leading-relaxed">{insight.text}</p>
               </div>
             ))}
           </div>
@@ -493,7 +585,100 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         )}
       </div>
 
-      {/* ── Weekly revenue trend ─────────────────────────────────────────── */}
+      {/* Cocktail Performance Matrix */}
+      {cocktailMatrix.length > 0 && (
+        <div className="card">
+          <div className="flex items-start justify-between mb-2">
+            <div>
+              <p className="section-title mb-0.5">Cocktail Performance Matrix</p>
+              <p className="text-[#5A5865] text-xs">{hasVolumeData ? 'Volume sold this month × profit margin' : 'Profit margin only — no sales recorded this month'}</p>
+            </div>
+            {hasVolumeData && (
+              <div className="flex flex-wrap gap-2 justify-end">
+                {(Object.entries(QUAD_META) as [keyof typeof QUAD_META, typeof QUAD_META[keyof typeof QUAD_META]][]).map(([k, m]) => (
+                  <div key={k} className={`flex items-center gap-1 px-2 py-0.5 rounded-full border text-[10px] ${m.bg} ${m.color}`}>
+                    <m.Icon size={9} />
+                    {m.label}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+          <div className="overflow-x-auto -mx-4 sm:mx-0 px-4 sm:px-0">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="text-[#9896A4] text-xs uppercase tracking-wider border-b border-[#2A2A30]">
+                  <th className="text-left py-2 pr-3">Cocktail</th>
+                  {hasVolumeData && <th className="text-right py-2 px-3">Serves</th>}
+                  {hasVolumeData && <th className="text-right py-2 px-3">Revenue</th>}
+                  <th className="text-right py-2 px-3">Margin</th>
+                  <th className="text-right py-2 pl-3">Cost</th>
+                  {hasVolumeData && <th className="text-right py-2 pl-3">Action</th>}
+                </tr>
+              </thead>
+              <tbody>
+                {cocktailMatrix.slice(0, 12).map(c => {
+                  const meta = hasVolumeData ? QUAD_META[c.quad] : null
+                  return (
+                    <tr key={c.id} className="border-b border-[#1A1A1E]">
+                      <td className="py-2 pr-3">
+                        <div className="flex items-center gap-2">
+                          {meta && <meta.Icon size={11} className={meta.color} />}
+                          <span className="text-[#F0EEF6]">{c.name}</span>
+                        </div>
+                      </td>
+                      {hasVolumeData && (
+                        <td className="py-2 px-3 text-right">
+                          <span className={`font-medium tabular-nums ${c.units > 0 ? 'text-[#F0EEF6]' : 'text-[#5A5865]'}`}>
+                            {c.units > 0 ? c.units : '—'}
+                          </span>
+                        </td>
+                      )}
+                      {hasVolumeData && (
+                        <td className="py-2 px-3 text-right text-[#9896A4] tabular-nums text-xs">
+                          {c.volRevenue > 0 ? formatCurrency(c.volRevenue) : '—'}
+                        </td>
+                      )}
+                      <td className="py-2 px-3 text-right">
+                        <span className={`font-medium ${(c.profit_margin ?? 0) >= 65 ? 'text-emerald-400' : (c.profit_margin ?? 0) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
+                          {(c.profit_margin ?? 0).toFixed(0)}%
+                        </span>
+                      </td>
+                      <td className="py-2 pl-3 text-right text-[#5A5865] text-xs tabular-nums">
+                        {formatCurrency(c.total_cost ?? 0)}
+                      </td>
+                      {hasVolumeData && meta && (
+                        <td className="py-2 pl-3 text-right">
+                          <span className={`text-[10px] ${meta.color}`}>{meta.label}</span>
+                        </td>
+                      )}
+                    </tr>
+                  )
+                })}
+              </tbody>
+            </table>
+          </div>
+          {hasVolumeData && (
+            <div className="mt-4 grid grid-cols-2 sm:grid-cols-4 gap-2 pt-3 border-t border-[#2A2A30]">
+              {(Object.entries(QUAD_META) as [keyof typeof QUAD_META, typeof QUAD_META[keyof typeof QUAD_META]][]).map(([k, m]) => {
+                const count = cocktailMatrix.filter(c => c.quad === k).length
+                return (
+                  <div key={k} className={`rounded-lg p-2.5 border ${m.bg}`}>
+                    <div className="flex items-center gap-1.5 mb-0.5">
+                      <m.Icon size={11} className={m.color} />
+                      <span className={`text-xs font-semibold ${m.color}`}>{m.label}</span>
+                      <span className="text-[#5A5865] text-[10px] ml-auto">{count}</span>
+                    </div>
+                    <p className="text-[#5A5865] text-[10px] leading-snug">{m.tip}</p>
+                  </div>
+                )
+              })}
+            </div>
+          )}
+        </div>
+      )}
+
+      {/* Weekly revenue trend */}
       {sales.length > 0 && (() => {
         const weekMap: Record<number, number> = {}
         for (const s of sales) {
@@ -526,7 +711,7 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         )
       })()}
 
-      {/* ── Break-even tracker ───────────────────────────────────────────── */}
+      {/* Break-even tracker */}
       {(() => {
         if (sales.length === 0 || totalExpenses === 0) return null
         const daysInMonth = new Date(year, month, 0).getDate()
@@ -606,37 +791,6 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
           </div>
         )
       })()}
-
-      {/* Cocktail performance */}
-      {cocktails.length > 0 && (
-        <div className="card">
-          <p className="section-title mb-4">Cocktail Performance</p>
-          <div className="space-y-2">
-            {cocktails.slice(0, 8).map(c => (
-              <div key={c.id} className="flex items-center gap-3">
-                <div className="flex-1">
-                  <div className="flex items-center justify-between mb-1">
-                    <span className="text-[#F0EEF6] text-sm">{c.name}</span>
-                    <span className={`text-xs font-medium ${(c.profit_margin ?? 0) >= 70 ? 'text-emerald-400' : (c.profit_margin ?? 0) >= 50 ? 'text-amber-400' : 'text-rose-400'}`}>
-                      {(c.profit_margin ?? 0).toFixed(0)}%
-                    </span>
-                  </div>
-                  <div className="w-full bg-[#1A1A1E] rounded-full h-1.5">
-                    <div
-                      className={`h-1.5 rounded-full ${(c.profit_margin ?? 0) >= 70 ? 'bg-emerald-400' : (c.profit_margin ?? 0) >= 50 ? 'bg-amber-400' : 'bg-rose-400'}`}
-                      style={{ width: `${Math.min(c.profit_margin ?? 0, 100)}%` }}
-                    />
-                  </div>
-                </div>
-                <div className="text-right w-20">
-                  <p className="text-[#5A5865] text-[10px]">Cost</p>
-                  <p className="text-[#9896A4] text-xs">{formatCurrency(c.total_cost ?? 0)}</p>
-                </div>
-              </div>
-            ))}
-          </div>
-        </div>
-      )}
     </div>
   )
 }
