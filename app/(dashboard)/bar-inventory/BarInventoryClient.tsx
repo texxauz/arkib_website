@@ -1042,25 +1042,25 @@ export function BarInventoryClient({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-[#2A2A30] bg-[#0D0D0F]">
-                  {['Name', 'Category', 'Full Btl', 'Open ml', 'Total ml', 'Used (Classics)', 'Remaining', ''].map(h => (
+                  {['Name', 'Category', 'Remaining', ''].map(h => (
                     <th key={h} className="text-left px-3 py-2.5 text-[#5A5865] text-xs font-medium whitespace-nowrap">{h}</th>
                   ))}
                 </tr>
               </thead>
               <tbody>
                 {filteredSpirits.map(s => {
-                  const total = spiritTotalMl(s)
                   const remaining = spiritRemainingMl(s)
-                  const isLow = remaining < 300
+                  const isEmpty = remaining <= 0
+                  const isLow = remaining > 0 && remaining < 300
+                  const remainingColor = isEmpty ? 'text-rose-400' : isLow ? 'text-amber-400' : 'text-emerald-400'
+                  const dot = isEmpty ? '🔴' : isLow ? '🟡' : '🟢'
                   return (
                     <tr key={s.id} className="border-b border-[#1A1A1E] hover:bg-[#0D0D0F] transition-colors">
                       <td className="px-3 py-2.5 text-[#F0EEF6] font-medium whitespace-nowrap">{s.name}</td>
                       <td className="px-3 py-2.5 text-[#9896A4] text-xs whitespace-nowrap">{s.category}</td>
-                      <td className="px-3 py-2.5 text-[#9896A4]">{s.full_bottles}</td>
-                      <td className="px-3 py-2.5 text-[#9896A4]">{s.open_ml}</td>
-                      <td className="px-3 py-2.5 text-[#9896A4]">{total}</td>
-                      <td className="px-3 py-2.5 text-[#9896A4]">{s.used_classics_ml}</td>
-                      <td className={`px-3 py-2.5 font-semibold ${isLow ? 'text-amber-400' : 'text-[#F0EEF6]'}`}>{remaining}ml</td>
+                      <td className={`px-3 py-2.5 font-semibold tabular-nums ${remainingColor}`}>
+                        <span className="mr-1.5">{dot}</span>{remaining}ml
+                      </td>
                       <td className="px-3 py-2.5">
                         <button onClick={() => setEditSpirit({ ...s })} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
                       </td>
