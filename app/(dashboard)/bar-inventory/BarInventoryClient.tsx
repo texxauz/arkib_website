@@ -1087,7 +1087,7 @@ export function BarInventoryClient({
           <table className="w-full text-sm">
             <thead>
               <tr className="border-b border-[#2A2A30] bg-[#0D0D0F]">
-                {['Infusion', 'Base Spirit', 'Opening', 'Produced', 'Used', 'Wasted', 'Balance', 'Serves', 'Status', ''].map(h => (
+                {['Infusion', 'Base Spirit', 'Balance', 'Serves', 'Status', ''].map(h => (
                   <th key={h} className="text-left px-3 py-2.5 text-[#5A5865] text-xs font-medium whitespace-nowrap">{h}</th>
                 ))}
               </tr>
@@ -1096,18 +1096,16 @@ export function BarInventoryClient({
               {infusions.map(i => {
                 const bal = infusionBalance(i)
                 const serves = infusionServes(i)
-                const isLow = bal < 100
+                const isEmpty = bal <= 0
+                const isLow = bal > 0 && bal < 100
+                const balColor = isEmpty ? 'text-rose-400' : isLow ? 'text-amber-400' : 'text-[#F0EEF6]'
                 return (
                   <tr key={i.id} className="border-b border-[#1A1A1E] hover:bg-[#0D0D0F] transition-colors">
                     <td className="px-3 py-2.5 text-[#F0EEF6] font-medium whitespace-nowrap">{i.name}</td>
                     <td className="px-3 py-2.5 text-[#9896A4] text-xs whitespace-nowrap">{i.base_spirit ?? '—'}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{i.opening_ml}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{i.produced_ml}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{i.used_premix_ml}</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{i.wasted_ml}</td>
-                    <td className={`px-3 py-2.5 font-semibold ${isLow ? 'text-amber-400' : 'text-[#F0EEF6]'}`}>{bal}ml</td>
-                    <td className="px-3 py-2.5 text-[#9896A4]">{serves !== null ? serves : '—'}</td>
-                    <td className="px-3 py-2.5"><StatusBadge ok={!isLow} /></td>
+                    <td className={`px-3 py-2.5 font-semibold tabular-nums ${balColor}`}>{bal}ml</td>
+                    <td className="px-3 py-2.5 text-[#9896A4] tabular-nums">{serves !== null ? serves : '—'}</td>
+                    <td className="px-3 py-2.5"><StatusBadge ok={!isEmpty && !isLow} /></td>
                     <td className="px-3 py-2.5">
                       <button onClick={() => setEditInfusion({ ...i })} className="text-[#5A5865] hover:text-[#A78BFA] text-xs">Edit</button>
                     </td>
