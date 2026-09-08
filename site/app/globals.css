@@ -1,0 +1,120 @@
+@import "tailwindcss";
+
+@theme {
+  /* ---- ARKIB colour system ---- */
+  --color-arkib-black: #11100e;
+  --color-black-soft: #171512;
+  --color-black-line: #262319;
+  --color-warm-paper: #e9e2d5;
+  --color-paper-dim: #ded5c3;
+  --color-tobacco: #b29a78;
+  --color-tobacco-dim: #8f7c60;
+  --color-smoke: #777065;
+  --color-ink: #1c1a17;
+
+  /* ---- Type ---- */
+  --font-serif: var(--font-fraunces), "Iowan Old Style", Georgia, serif;
+  --font-sans: var(--font-inter), -apple-system, "Segoe UI", sans-serif;
+  --font-mono: var(--font-mono-index), "IBM Plex Mono", ui-monospace, monospace;
+
+  /* ---- Motion ---- */
+  --ease-arkib: cubic-bezier(0.16, 1, 0.3, 1);
+
+  --breakpoint-xs: 22rem;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  background-color: var(--color-arkib-black);
+  color: var(--color-warm-paper);
+  font-family: var(--font-sans);
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+::selection {
+  background: var(--color-tobacco);
+  color: var(--color-ink);
+}
+
+::-webkit-scrollbar { width: 8px; height: 8px; }
+::-webkit-scrollbar-track { background: transparent; }
+::-webkit-scrollbar-thumb { background: var(--color-black-line); border-radius: 0; }
+::-webkit-scrollbar-thumb:hover { background: var(--color-tobacco-dim); }
+
+/* ---- Archival grain overlay, used behind EditorialImage placeholders ---- */
+.arkib-grain {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  opacity: 0.16;
+  mix-blend-mode: overlay;
+}
+
+/* ---- Utility: hairline rule ---- */
+.rule {
+  height: 1px;
+  background: currentColor;
+  opacity: 0.18;
+}
+
+/* ---- Utility: catalogue / index label ---- */
+.cat-label {
+  font-family: var(--font-mono);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  font-size: 0.6875rem;
+}
+
+/* ---- Scroll reveal (see Reveal.tsx) ---- */
+.reveal {
+  opacity: 0;
+  transform: translateY(22px);
+  transition: opacity 1s var(--ease-arkib), transform 1s var(--ease-arkib);
+}
+.reveal.is-visible {
+  opacity: 1;
+  transform: none;
+}
+
+/* ---- Hero entrance (see Hero.tsx) ---- */
+@keyframes arkib-fade-up {
+  from { opacity: 0; transform: translateY(24px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+@keyframes arkib-zoom-in {
+  from { transform: scale(1.08); }
+  to { transform: scale(1); }
+}
+.hero-in {
+  animation: arkib-fade-up 1.2s var(--ease-arkib) both;
+  animation-delay: 0.15s;
+}
+.hero-image-in {
+  animation: arkib-zoom-in 2.4s var(--ease-arkib) both;
+}
+
+/* ---- Focus visibility (accessibility) ---- */
+a:focus-visible,
+button:focus-visible {
+  outline: 1px solid var(--color-tobacco);
+  outline-offset: 3px;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  html {
+    scroll-behavior: auto;
+  }
+  * {
+    animation-duration: 0.01ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.01ms !important;
+  }
+}
