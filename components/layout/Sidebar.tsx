@@ -26,6 +26,7 @@ const MGMT_ITEMS = [
   { href: '/shifts',       label: 'Shifts',      icon: Clock,           key: 'shifts' },
   { href: '/reports',      label: 'Reports',     icon: BarChart3,       key: 'reports' },
   { href: '/pnl',          label: 'P&L',         icon: PieChart,        key: 'pnl' },
+  { href: '/calendar',     label: 'Calendar',    icon: CalendarDays,    key: 'calendar' },
   { href: '/treasury',     label: 'Treasury',    icon: Landmark,        key: 'treasury' },
   { href: '/landlord',     label: 'Landlord P&L',icon: ScrollText,      key: 'landlord' },
   { href: '/settings',     label: 'Settings',    icon: Settings,        key: 'settings' },
