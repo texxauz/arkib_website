@@ -5,8 +5,8 @@ import { useToast } from '@/components/ui/Toast'
 import { Trash2, Plus, AlertTriangle, FlaskConical, GlassWater, RefreshCw, DollarSign } from 'lucide-react'
 import { formatCurrency } from '@/lib/utils'
 
-interface Spirit { id: string; name: string; unit_ml: number; current_ml: number }
-interface Premix { id: string; name: string; serves_remaining: number }
+interface Spirit { id: string; name: string; bottle_size_ml: number; full_bottles: number; open_ml: number; used_classics_ml: number }
+interface Premix { id: string; name: string; opening_serves: number; produced_serves: number; sold_serves: number }
 interface MenuItem { id: string; name: string; stock_qty: number }
 interface Glassware { id: string; name: string; quantity: number; cost_per_unit: number; par_level: number; updated_at: string }
 
@@ -91,20 +91,23 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
   }
 
   // ── Item selection helper ────────────────────────────────────────
+  const spiritRemainingMl = (s: Spirit) => s.full_bottles * s.bottle_size_ml + s.open_ml - s.used_classics_ml
+  const premixLeft = (p: Premix) => p.opening_serves + p.produced_serves - p.sold_serves
+
   const spoilageItems = [
-    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name}`, unit: 'serves' })),
-    ...menuItems.map(m => ({ id: m.id, table: 'menu_items', label: `[Menu] ${m.name}`, unit: 'pcs' })),
+    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves' })),
+    ...menuItems.map(m => ({ id: m.id, table: 'menu_items', label: `[Menu] ${m.name}${m.stock_qty != null ? ` — ${m.stock_qty} pcs` : ''}`, unit: 'pcs' })),
   ]
   const rndItems = [
-    ...spirits.map(s => ({ id: s.id, table: 'bar_spirits', label: `[Spirit] ${s.name}`, unit: 'ml' })),
-    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name}`, unit: 'serves' })),
+    ...spirits.map(s => ({ id: s.id, table: 'bar_spirits', label: `[Spirit] ${s.name} — ${spiritRemainingMl(s).toFixed(0)} ml left`, unit: 'ml' })),
+    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves' })),
   ]
   const currentItems = tab === 'spoilage' ? spoilageItems : rndItems
 
   function handleItemSelect(val: string) {
     if (!val) { setForm(f => ({ ...f, item_name: '', item_id: '', item_table: '', unit: '' })); return }
     const item = currentItems.find(i => i.id === val)
-    if (item) setForm(f => ({ ...f, item_id: item.id, item_table: item.table, item_name: item.label.replace(/^\[.*?\] /, ''), unit: item.unit }))
+    if (item) setForm(f => ({ ...f, item_id: item.id, item_table: item.table, item_name: item.label.replace(/^\[.*?\] /, '').replace(/ — .*$/, ''), unit: item.unit }))
   }
 
   // ── Submit wastage entry ─────────────────────────────────────────
