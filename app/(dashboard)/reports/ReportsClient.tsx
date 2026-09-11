@@ -5,7 +5,7 @@ import { formatCurrency, formatMonth, EXPENSE_CATEGORY_LABELS } from '@/lib/util
 import {
   TrendingUp, TrendingDown, Lightbulb, Download,
   ChevronLeft, ChevronRight, CreditCard, Banknote, QrCode, Globe,
-  Star, AlertTriangle, TrendingDown as TrendDown,
+  Star, AlertTriangle, TrendingDown as TrendDown, Clock,
 } from 'lucide-react'
 import {
   BarChart, Bar, XAxis, YAxis, Tooltip, ResponsiveContainer,
@@ -18,12 +18,14 @@ type Expense = Database['public']['Tables']['expenses']['Row']
 type Cocktail = Database['public']['Tables']['cocktails']['Row']
 
 type CocktailVolume = Record<string, { units: number; revenue: number; cogs: number }>
+type RoomDwellEntry = { section: string; avgMinutes: number; sessions: number }
 
 interface Props {
   initialSales: DailySale[]
   initialExpenses: Expense[]
   initialCocktails: Cocktail[]
   initialCocktailVolume: CocktailVolume
+  initialRoomDwell: RoomDwellEntry[]
   initialMonth: number
   initialYear: number
 }
@@ -205,13 +207,14 @@ function exportCSV(sales: DailySale[], expenses: Expense[]) {
   URL.revokeObjectURL(url)
 }
 
-export function ReportsClient({ initialSales, initialExpenses, initialCocktails, initialCocktailVolume, initialMonth, initialYear }: Props) {
+export function ReportsClient({ initialSales, initialExpenses, initialCocktails, initialCocktailVolume, initialRoomDwell, initialMonth, initialYear }: Props) {
   const [month, setMonth] = useState(initialMonth)
   const [year, setYear] = useState(initialYear)
   const [sales, setSales] = useState<DailySale[]>(initialSales)
   const [expenses, setExpenses] = useState<Expense[]>(initialExpenses)
   const [cocktails, setCocktails] = useState<Cocktail[]>(initialCocktails)
   const [cocktailVolume, setCocktailVolume] = useState<CocktailVolume>(initialCocktailVolume)
+  const [roomDwell, setRoomDwell] = useState<RoomDwellEntry[]>(initialRoomDwell)
   const [loading, setLoading] = useState(false)
 
   const fetchMonth = useCallback(async (m: number, y: number) => {
@@ -224,6 +227,7 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
         setExpenses(data.expenses)
         setCocktails(data.cocktails)
         setCocktailVolume(data.cocktailVolume ?? {})
+        setRoomDwell(data.roomDwell ?? [])
       }
     } finally {
       setLoading(false)
@@ -791,6 +795,62 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
           </div>
         )
       })()}
+
+      {/* Room Dwell Time */}
+      {roomDwell.length > 0 && (
+        <div className="card">
+          <div className="mb-4">
+            <p className="section-title mb-0.5 flex items-center gap-2">
+              <Clock size={14} className="text-[#8B5CF6]" /> Room Dwell Time
+            </p>
+            <p className="text-[#5A5865] text-xs">Average time customers spend per room, based on closed POS orders this month</p>
+          </div>
+          <div className="space-y-4">
+            {roomDwell.map(room => {
+              const hours = Math.floor(room.avgMinutes / 60)
+              const mins = room.avgMinutes % 60
+              const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
+              // Max bar = longest avg room (for relative comparison)
+              const maxAvg = Math.max(...roomDwell.map(r => r.avgMinutes))
+              const pct = maxAvg > 0 ? (room.avgMinutes / maxAvg) * 100 : 0
+              return (
+                <div key={room.section}>
+                  <div className="flex items-center justify-between mb-1.5">
+                    <span className="text-[#F0EEF6] text-sm font-medium">{room.section}</span>
+                    <div className="flex items-center gap-4">
+                      <span className="text-[#5A5865] text-xs">{room.sessions} {room.sessions === 1 ? 'session' : 'sessions'}</span>
+                      <span className="text-[#8B5CF6] text-sm font-semibold tabular-nums w-16 text-right">{label}</span>
+                    </div>
+                  </div>
+                  <div className="w-full bg-[#1A1A1E] rounded-full h-2">
+                    <div
+                      className="h-2 rounded-full bg-[#8B5CF6] transition-all duration-500"
+                      style={{ width: `${pct}%` }}
+                    />
+                  </div>
+                </div>
+              )
+            })}
+          </div>
+          <div className="mt-4 pt-3 border-t border-[#2A2A30] grid grid-cols-2 gap-3">
+            <div className="bg-[#1A1A1E] rounded-lg p-3">
+              <p className="text-[#9896A4] text-xs mb-1">Total Sessions</p>
+              <p className="text-[#F0EEF6] font-semibold tabular-nums">{roomDwell.reduce((s, r) => s + r.sessions, 0)}</p>
+            </div>
+            <div className="bg-[#1A1A1E] rounded-lg p-3">
+              <p className="text-[#9896A4] text-xs mb-1">Overall Avg Stay</p>
+              {(() => {
+                const totalSessions = roomDwell.reduce((s, r) => s + r.sessions, 0)
+                const weightedMinutes = roomDwell.reduce((s, r) => s + r.avgMinutes * r.sessions, 0)
+                const overall = totalSessions > 0 ? Math.round(weightedMinutes / totalSessions) : 0
+                const h = Math.floor(overall / 60)
+                const m = overall % 60
+                return <p className="text-[#8B5CF6] font-semibold tabular-nums">{h > 0 ? `${h}h ${m}m` : `${m}m`}</p>
+              })()}
+            </div>
+          </div>
+        </div>
+      )}
     </div>
   )
 }
