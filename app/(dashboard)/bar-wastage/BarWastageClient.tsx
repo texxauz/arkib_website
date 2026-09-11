@@ -116,13 +116,23 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
   const spiritRemainingMl = (s: Spirit) => s.full_bottles * s.bottle_size_ml + s.open_ml - s.used_classics_ml
   const premixLeft = (p: Premix) => p.opening_serves + p.produced_serves - p.sold_serves
 
+  // Partial-match cost lookup — ingredient name just needs to appear anywhere in spirit/premix name or vice versa
+  const findCost = (name: string) => {
+    const n = name.toLowerCase()
+    const ing = ingredients.find(i => {
+      const iname = i.name.toLowerCase()
+      return iname === n || n.includes(iname) || iname.includes(n)
+    })
+    return ing?.cost_per_unit ?? null
+  }
+
   const spoilageItems = [
-    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves' })),
-    ...menuItems.map(m => ({ id: m.id, table: 'menu_items', label: `[Menu] ${m.name}${m.stock_qty != null ? ` — ${m.stock_qty} pcs` : ''}`, unit: 'pcs' })),
+    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves', cost: findCost(p.name) })),
+    ...menuItems.map(m => ({ id: m.id, table: 'menu_items', label: `[Menu] ${m.name}${m.stock_qty != null ? ` — ${m.stock_qty} pcs` : ''}`, unit: 'pcs', cost: findCost(m.name) })),
   ]
   const rndItems = [
-    ...spirits.map(s => ({ id: s.id, table: 'bar_spirits', label: `[Spirit] ${s.name} — ${spiritRemainingMl(s).toFixed(0)} ml left`, unit: 'ml' })),
-    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves' })),
+    ...spirits.map(s => ({ id: s.id, table: 'bar_spirits', label: `[Spirit] ${s.name} — ${spiritRemainingMl(s).toFixed(0)} ml left`, unit: 'ml', cost: findCost(s.name) })),
+    ...premixes.map(p => ({ id: p.id, table: 'bar_premixes', label: `[Premix] ${p.name} — ${premixLeft(p)} serves left`, unit: 'serves', cost: findCost(p.name) })),
   ]
   const currentItems = tab === 'spoilage' ? spoilageItems : rndItems
 
@@ -131,9 +141,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
     const item = currentItems.find(i => i.id === val)
     if (!item) return
     const cleanName = item.label.replace(/^\[.*?\] /, '').replace(/ — .*$/, '')
-    // Look up cost from ingredients table (case-insensitive name match)
-    const ing = ingredients.find(i => i.name.toLowerCase() === cleanName.toLowerCase())
-    const autoCost = ing?.cost_per_unit ? String(ing.cost_per_unit) : ''
+    const autoCost = item.cost != null ? String(item.cost) : ''
     setForm(f => ({ ...f, item_id: item.id, item_table: item.table, item_name: cleanName, unit: item.unit, unit_cost: autoCost }))
   }
 
