@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from 'next/server'
 import { createClient } from '@/lib/supabase/server'
+import { createClient as createAdminClient } from '@supabase/supabase-js'
 
 export async function GET(req: NextRequest) {
   const supabase = await createClient()
@@ -30,6 +31,12 @@ export async function POST(req: NextRequest) {
 
   const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
 
+  // Use admin client for inventory RPCs so non-admin staff can log wastage
+  const admin = createAdminClient(
+    process.env.NEXT_PUBLIC_SUPABASE_URL!,
+    process.env.SUPABASE_SERVICE_ROLE_KEY!,
+  )
+
   const body = await req.json()
   const { type, item_name, item_id, item_table, quantity, unit, unit_cost, notes, date } = body
 
@@ -43,35 +50,35 @@ export async function POST(req: NextRequest) {
   if (item_id && item_table) {
     if (type === 'spoilage') {
       if (item_table === 'bar_premixes') {
-        const { error } = await supabase.rpc('decrement_premix_serves', { p_id: item_id, p_delta: quantity })
+        const { error } = await admin.rpc('decrement_premix_serves', { p_id: item_id, p_delta: quantity })
         if (error) return NextResponse.json({ error: `Inventory update failed: ${error.message}` }, { status: 500 })
       } else if (item_table === 'menu_items') {
-        const { data: item } = await supabase.from('menu_items').select('stock_qty').eq('id', item_id).single()
+        const { data: item } = await admin.from('menu_items').select('stock_qty').eq('id', item_id).single()
         if (item?.stock_qty != null) {
-          const { error } = await supabase.from('menu_items').update({ stock_qty: Math.max(0, item.stock_qty - quantity) }).eq('id', item_id)
+          const { error } = await admin.from('menu_items').update({ stock_qty: Math.max(0, item.stock_qty - quantity) }).eq('id', item_id)
           if (error) return NextResponse.json({ error: `Stock update failed: ${error.message}` }, { status: 500 })
         }
       }
     } else if (type === 'rnd') {
       if (item_table === 'bar_spirits' && unit === 'ml') {
-        const { error } = await supabase.rpc('decrement_spirit_ml', { p_id: item_id, p_ml: quantity })
+        const { error } = await admin.rpc('decrement_spirit_ml', { p_id: item_id, p_ml: quantity })
         if (error) return NextResponse.json({ error: `Inventory update failed: ${error.message}` }, { status: 500 })
       } else if (item_table === 'bar_premixes') {
-        const { error } = await supabase.rpc('decrement_premix_serves', { p_id: item_id, p_delta: quantity })
+        const { error } = await admin.rpc('decrement_premix_serves', { p_id: item_id, p_delta: quantity })
         if (error) return NextResponse.json({ error: `Inventory update failed: ${error.message}` }, { status: 500 })
       }
     } else if (type === 'breakage' && item_table === 'bar_glassware') {
-      const { data: glass } = await supabase.from('bar_glassware').select('quantity').eq('id', item_id).single()
+      const { data: glass } = await admin.from('bar_glassware').select('quantity').eq('id', item_id).single()
       if (glass) {
-        const { error } = await supabase.from('bar_glassware')
+        const { error } = await admin.from('bar_glassware')
           .update({ quantity: Math.max(0, glass.quantity - quantity), updated_at: new Date().toISOString() })
           .eq('id', item_id)
         if (error) return NextResponse.json({ error: `Glassware update failed: ${error.message}` }, { status: 500 })
       }
     } else if (type === 'restock' && item_table === 'bar_glassware') {
-      const { data: glass } = await supabase.from('bar_glassware').select('quantity').eq('id', item_id).single()
+      const { data: glass } = await admin.from('bar_glassware').select('quantity').eq('id', item_id).single()
       if (glass) {
-        const { error } = await supabase.from('bar_glassware')
+        const { error } = await admin.from('bar_glassware')
           .update({ quantity: glass.quantity + quantity, updated_at: new Date().toISOString() })
           .eq('id', item_id)
         if (error) return NextResponse.json({ error: `Glassware update failed: ${error.message}` }, { status: 500 })
