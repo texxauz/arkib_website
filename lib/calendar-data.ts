@@ -68,6 +68,34 @@ export const MARKED_DAYS: MarkedDay[] = [
   { date: '2026-10-31', name: 'Halloween',                 country: 'BOTH', type: 'festive', color: 'text-orange-400' },
   { date: '2026-12-24', name: 'Christmas Eve',             country: 'BOTH', type: 'festive', color: 'text-red-400' },
   { date: '2026-12-31', name: "New Year's Eve",            country: 'BOTH', type: 'festive', color: 'text-yellow-400' },
+
+  // ─── 2027 Public Holidays ────────────────────────────────────────
+  { date: '2027-01-01', name: "New Year's Day",            country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-01-17', name: 'Chinese New Year',           country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-01-18', name: 'Chinese New Year Day 2',     country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-02-01', name: 'Federal Territory Day',      country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-03-09', name: 'Hari Raya Aidilfitri',       country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-03-10', name: 'Hari Raya Aidilfitri Day 2', country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-03-21', name: 'Nuzul Al-Quran',             country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-04-02', name: 'Good Friday',                country: 'SG',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-05-01', name: 'Labour Day',                 country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-05-16', name: 'Hari Raya Aidiladha',        country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-05-21', name: 'Wesak Day',                  country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-06-05', name: "Agong's Birthday",           country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-06-07', name: 'Awal Muharram',              country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-08-09', name: 'National Day',               country: 'SG',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-08-15', name: "Prophet's Birthday",         country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-08-31', name: 'National Day',               country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-09-16', name: 'Malaysia Day',               country: 'MY',   type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-10-29', name: 'Deepavali',                  country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+  { date: '2027-12-25', name: 'Christmas Day',              country: 'BOTH', type: 'public_holiday', color: 'text-rose-400' },
+
+  // ─── 2027 Festive / Commercial Days ─────────────────────────────
+  { date: '2027-02-14', name: "Valentine's Day",            country: 'BOTH', type: 'festive', color: 'text-pink-400' },
+  { date: '2027-03-17', name: "St. Patrick's Day",          country: 'BOTH', type: 'festive', color: 'text-emerald-400' },
+  { date: '2027-10-31', name: 'Halloween',                  country: 'BOTH', type: 'festive', color: 'text-orange-400' },
+  { date: '2027-12-24', name: 'Christmas Eve',              country: 'BOTH', type: 'festive', color: 'text-red-400' },
+  { date: '2027-12-31', name: "New Year's Eve",             country: 'BOTH', type: 'festive', color: 'text-yellow-400' },
 ]
 
 export function getMarkedDaysForMonth(year: number, month: number): MarkedDay[] {
