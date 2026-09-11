@@ -18,7 +18,7 @@ type Expense = Database['public']['Tables']['expenses']['Row']
 type Cocktail = Database['public']['Tables']['cocktails']['Row']
 
 type CocktailVolume = Record<string, { units: number; revenue: number; cogs: number }>
-type RoomDwellEntry = { section: string; avgMinutes: number; sessions: number }
+type RoomDwellEntry = { section: string; avgMinutes: number; minMinutes: number; maxMinutes: number; sessions: number }
 
 interface Props {
   initialSales: DailySale[]
@@ -805,12 +805,12 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
             </p>
             <p className="text-[#5A5865] text-xs">Average time customers spend per room, based on closed POS orders this month</p>
           </div>
-          <div className="space-y-4">
+          <div className="space-y-5">
             {roomDwell.map(room => {
-              const hours = Math.floor(room.avgMinutes / 60)
-              const mins = room.avgMinutes % 60
-              const label = hours > 0 ? `${hours}h ${mins}m` : `${mins}m`
-              // Max bar = longest avg room (for relative comparison)
+              const fmtMins = (m: number) => {
+                const h = Math.floor(m / 60); const rem = m % 60
+                return h > 0 ? `${h}h ${rem}m` : `${rem}m`
+              }
               const maxAvg = Math.max(...roomDwell.map(r => r.avgMinutes))
               const pct = maxAvg > 0 ? (room.avgMinutes / maxAvg) * 100 : 0
               return (
@@ -819,14 +819,18 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
                     <span className="text-[#F0EEF6] text-sm font-medium">{room.section}</span>
                     <div className="flex items-center gap-4">
                       <span className="text-[#5A5865] text-xs">{room.sessions} {room.sessions === 1 ? 'session' : 'sessions'}</span>
-                      <span className="text-[#8B5CF6] text-sm font-semibold tabular-nums w-16 text-right">{label}</span>
+                      <span className="text-[#8B5CF6] text-sm font-semibold tabular-nums w-16 text-right">{fmtMins(room.avgMinutes)} avg</span>
                     </div>
                   </div>
-                  <div className="w-full bg-[#1A1A1E] rounded-full h-2">
+                  <div className="w-full bg-[#1A1A1E] rounded-full h-2 mb-2">
                     <div
                       className="h-2 rounded-full bg-[#8B5CF6] transition-all duration-500"
                       style={{ width: `${pct}%` }}
                     />
+                  </div>
+                  <div className="flex items-center gap-4 text-xs text-[#5A5865]">
+                    <span>Min: <span className="text-[#9896A4]">{fmtMins(room.minMinutes)}</span></span>
+                    <span>Max: <span className="text-[#9896A4]">{fmtMins(room.maxMinutes)}</span></span>
                   </div>
                 </div>
               )

@@ -35,18 +35,22 @@ export default async function ReportsPage() {
     cocktailVolumeMap[cs.cocktail_name].cogs += (cs.quantity ?? 1) * (cs.unit_cost ?? 0)
   }
 
-  const roomMap: Record<string, { totalMinutes: number; sessions: number }> = {}
+  const roomMap: Record<string, { totalMinutes: number; sessions: number; minMinutes: number; maxMinutes: number }> = {}
   for (const o of rawOrders ?? []) {
     if (!o.section || !o.opened_at || !o.closed_at) continue
     const mins = (new Date(o.closed_at).getTime() - new Date(o.opened_at).getTime()) / 60000
     if (mins <= 0 || mins > 720) continue
-    if (!roomMap[o.section]) roomMap[o.section] = { totalMinutes: 0, sessions: 0 }
+    if (!roomMap[o.section]) roomMap[o.section] = { totalMinutes: 0, sessions: 0, minMinutes: mins, maxMinutes: mins }
     roomMap[o.section].totalMinutes += mins
     roomMap[o.section].sessions++
+    if (mins < roomMap[o.section].minMinutes) roomMap[o.section].minMinutes = mins
+    if (mins > roomMap[o.section].maxMinutes) roomMap[o.section].maxMinutes = mins
   }
-  const roomDwell = Object.entries(roomMap).map(([section, { totalMinutes, sessions }]) => ({
+  const roomDwell = Object.entries(roomMap).map(([section, { totalMinutes, sessions, minMinutes, maxMinutes }]) => ({
     section,
     avgMinutes: Math.round(totalMinutes / sessions),
+    minMinutes: Math.round(minMinutes),
+    maxMinutes: Math.round(maxMinutes),
     sessions,
   })).sort((a, b) => b.sessions - a.sessions)
 
