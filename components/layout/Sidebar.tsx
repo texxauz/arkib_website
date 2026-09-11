@@ -7,7 +7,7 @@ import {
   GlassWater, BarChart3, Settings,
   LogOut, ChevronRight, ChevronLeft, Menu, X,
   FlaskConical, Users, Clock, PieChart, ClipboardCheck,
-  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet, ShoppingCart, PartyPopper,
+  MonitorSmartphone, ChefHat, Timer, CalendarDays, Shield, Zap, SlidersHorizontal, Database, History, Landmark, ScrollText, Wallet, ShoppingCart, PartyPopper, Trash2,
 } from 'lucide-react'
 import { useState } from 'react'
 import { createClient } from '@/lib/supabase/client'
@@ -20,6 +20,7 @@ const MGMT_ITEMS = [
   { href: '/expenses',     label: 'Expenses',    icon: Receipt,         key: 'expenses' },
   { href: '/receipts',     label: 'Accounting',  icon: BookOpen,        key: 'receipts' },
   { href: '/bar-inventory',label: 'Bar Stock',   icon: FlaskConical,    key: 'bar-inventory' },
+  { href: '/bar-wastage',  label: 'Bar Wastage', icon: Trash2,          key: 'bar-wastage' },
   { href: '/purchase-requests', label: 'Purchase Requests', icon: ShoppingCart, key: 'purchase-requests' },
   { href: '/events',            label: 'Events',           icon: PartyPopper,  key: 'events' },
   { href: '/checklist',    label: 'Checklist',   icon: ClipboardCheck,  key: 'checklist' },

@@ -38,6 +38,7 @@ const MGMT_TABS = [
   { key: 'expenses', label: 'Expenses' },
   { key: 'receipts', label: 'Receipts' },
   { key: 'bar-inventory', label: 'Bar Stock' },
+  { key: 'bar-wastage', label: 'Bar Wastage' },
   { key: 'purchase-requests', label: 'Purchase Requests' },
   { key: 'checklist', label: 'Checklist' },
   { key: 'cocktails', label: 'Cocktails' },

@@ -66,6 +66,7 @@ export const EXPENSE_CATEGORY_LABELS: Record<string, string> = {
   claims: 'Claims',
   rental: 'Rental',
   utilities: 'Utilities',
+  wastage: 'Wastage',
   others: 'Others',
 }
 
