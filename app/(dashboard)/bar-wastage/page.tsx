@@ -13,11 +13,12 @@ export default async function BarWastagePage() {
 
   if (!isAdmin && (perms?.['bar-wastage'] ?? 'none') === 'none') redirect('/dashboard')
 
-  const [{ data: spirits }, { data: premixes }, { data: menuItems }, { data: glassware }] = await Promise.all([
+  const [{ data: spirits }, { data: premixes }, { data: menuItems }, { data: glassware }, { data: ingredients }] = await Promise.all([
     supabase.from('bar_spirits').select('id, name, bottle_size_ml, full_bottles, open_ml, used_classics_ml').order('name'),
     supabase.from('bar_premixes').select('id, name, opening_serves, produced_serves, sold_serves').order('name'),
     supabase.from('menu_items').select('id, name, stock_qty').not('stock_qty', 'is', null).order('name'),
     supabase.from('bar_glassware').select('*').order('name'),
+    supabase.from('ingredients').select('name, cost_per_unit, unit').eq('is_active', true),
   ])
 
   return (
@@ -27,6 +28,7 @@ export default async function BarWastagePage() {
       premixes={premixes ?? []}
       menuItems={menuItems ?? []}
       glassware={glassware ?? []}
+      ingredients={ingredients ?? []}
     />
   )
 }

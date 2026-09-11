@@ -15,12 +15,15 @@ interface WastageEntry {
   unit_cost: number; total_cost: number; notes: string | null; recorded_by_name: string | null
 }
 
+interface Ingredient { name: string; cost_per_unit: number | null; unit: string }
+
 interface Props {
   isAdmin: boolean
   spirits: Spirit[]
   premixes: Premix[]
   menuItems: MenuItem[]
   glassware: Glassware[]
+  ingredients: Ingredient[]
 }
 
 const TYPE_LABELS: Record<string, string> = {
@@ -37,7 +40,7 @@ const TYPE_COLOR: Record<string, string> = {
   restock: 'text-emerald-400',
 }
 
-export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassware: initialGlassware }: Props) {
+export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassware: initialGlassware, ingredients }: Props) {
   const [tab, setTab] = useState<'spoilage' | 'rnd' | 'glassware'>('spoilage')
   const [entries, setEntries] = useState<WastageEntry[]>([])
   const [glassware, setGlassware] = useState<Glassware[]>(initialGlassware)
@@ -105,9 +108,14 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
   const currentItems = tab === 'spoilage' ? spoilageItems : rndItems
 
   function handleItemSelect(val: string) {
-    if (!val) { setForm(f => ({ ...f, item_name: '', item_id: '', item_table: '', unit: '' })); return }
+    if (!val) { setForm(f => ({ ...f, item_name: '', item_id: '', item_table: '', unit: '', unit_cost: '' })); return }
     const item = currentItems.find(i => i.id === val)
-    if (item) setForm(f => ({ ...f, item_id: item.id, item_table: item.table, item_name: item.label.replace(/^\[.*?\] /, '').replace(/ — .*$/, ''), unit: item.unit }))
+    if (!item) return
+    const cleanName = item.label.replace(/^\[.*?\] /, '').replace(/ — .*$/, '')
+    // Look up cost from ingredients table (case-insensitive name match)
+    const ing = ingredients.find(i => i.name.toLowerCase() === cleanName.toLowerCase())
+    const autoCost = ing?.cost_per_unit ? String(ing.cost_per_unit) : ''
+    setForm(f => ({ ...f, item_id: item.id, item_table: item.table, item_name: cleanName, unit: item.unit, unit_cost: autoCost }))
   }
 
   // ── Submit wastage entry ─────────────────────────────────────────
