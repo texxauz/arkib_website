@@ -126,7 +126,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
       method: 'POST',
       headers: { 'Content-Type': 'application/json' },
       body: JSON.stringify({
-        type: form.type,
+        type: tab,
         item_name: form.item_name,
         item_id: form.item_id || null,
         item_table: form.item_table || null,
