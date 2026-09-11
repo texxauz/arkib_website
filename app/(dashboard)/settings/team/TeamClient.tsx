@@ -45,6 +45,8 @@ const MGMT_TABS = [
   { key: 'rent', label: 'Rent & Fixed' },
   { key: 'reports', label: 'Reports' },
   { key: 'pnl', label: 'P&L' },
+  { key: 'calendar', label: 'Calendar' },
+  { key: 'events', label: 'Events' },
   { key: 'landlord', label: 'Landlord P&L' },
 ]
 
