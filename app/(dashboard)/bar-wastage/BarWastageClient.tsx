@@ -312,70 +312,82 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
               </button>
             </div>
 
-            {/* Inventory cards */}
-            {glassware.length === 0 ? (
-              <div className="bg-[#141417] border border-[#2A2A30] rounded-xl px-4 py-10 text-center text-[#9997A3] text-sm">No glass types yet. Add one above.</div>
-            ) : (
-              <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
-                {glassware.map(g => {
-                  const below = g.par_level > 0 && g.quantity < g.par_level
-                  const fillPct = g.par_level > 0 ? Math.min(100, Math.round((g.quantity / g.par_level) * 100)) : 100
-                  return (
-                    <div key={g.id} className={`bg-[#141417] border rounded-xl p-4 space-y-3 ${below ? 'border-amber-500/40' : 'border-[#2A2A30]'}`}>
-                      {/* Name + status */}
-                      <div className="flex items-center justify-between">
-                        <span className="font-semibold">{g.name}</span>
-                        {below
-                          ? <span className="text-xs font-medium text-amber-400 bg-amber-400/10 px-2 py-0.5 rounded-full">Below Par</span>
-                          : <span className="text-xs font-medium text-emerald-400 bg-emerald-400/10 px-2 py-0.5 rounded-full">OK</span>}
-                      </div>
-
-                      {/* Big qty display */}
-                      <div className="flex items-end gap-3">
-                        <span className={`text-4xl font-bold tabular-nums ${below ? 'text-amber-400' : 'text-emerald-400'}`}>{g.quantity}</span>
-                        <span className="text-[#9997A3] text-sm mb-1.5">pcs in stock</span>
-                      </div>
-
-                      {/* Fill bar */}
-                      {g.par_level > 0 && (
-                        <div>
-                          <div className="flex justify-between text-xs text-[#9997A3] mb-1">
-                            <span>Par level: {g.par_level}</span>
-                            <span>{fillPct}%</span>
-                          </div>
-                          <div className="h-2 bg-[#0D0D10] rounded-full overflow-hidden">
-                            <div className={`h-full rounded-full transition-all ${below ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${fillPct}%` }} />
-                          </div>
-                        </div>
-                      )}
-
-                      {/* Cost + actions */}
-                      <div className="flex items-center justify-between pt-1">
-                        <span className="text-xs text-[#9997A3]">{g.cost_per_unit > 0 ? `${formatCurrency(g.cost_per_unit)}/pc` : 'No cost set'}</span>
-                        <div className="flex gap-1">
-                          <button onClick={() => { setGlassAction({ id: g.id, type: 'breakage' }); setGlassQty('') }}
-                            className="px-2.5 py-1 text-xs rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 font-medium">Breakage</button>
-                          <button onClick={() => { setGlassAction({ id: g.id, type: 'restock' }); setGlassQty('') }}
-                            className="px-2.5 py-1 text-xs rounded-lg bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 font-medium">
-                            <RefreshCw className="w-3 h-3 inline mr-1" />Restock
-                          </button>
-                          {isAdmin && (
-                            <>
-                              <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
-                                className="px-2.5 py-1 text-xs rounded-lg bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
-                              <button onClick={() => deleteGlassType(g.id, g.name)}
-                                className="px-2.5 py-1 text-xs rounded-lg bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
-                                <Trash2 className="w-3 h-3" />
+            {/* Inventory table */}
+            <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+              <div className="overflow-x-auto">
+                <table className="w-full text-sm">
+                  <thead>
+                    <tr className="border-b border-[#2A2A30] text-[#9997A3] text-xs uppercase tracking-wide">
+                      <th className="text-left px-4 py-3">Glass Type</th>
+                      <th className="text-center px-4 py-3 w-16">Qty</th>
+                      <th className="text-left px-4 py-3 w-40">Stock Level</th>
+                      <th className="text-right px-4 py-3 w-24">Cost/pc</th>
+                      <th className="text-right px-4 py-3">Actions</th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {glassware.length === 0 && (
+                      <tr><td colSpan={5} className="px-4 py-10 text-center text-[#9997A3]">No glass types yet. Add one above.</td></tr>
+                    )}
+                    {glassware.map(g => {
+                      const below = g.par_level > 0 && g.quantity < g.par_level
+                      const fillPct = g.par_level > 0 ? Math.min(100, Math.round((g.quantity / g.par_level) * 100)) : 100
+                      return (
+                        <tr key={g.id} className={`border-b border-[#1E1E24] hover:bg-[#1A1A1F] ${below ? 'bg-amber-500/[0.03]' : ''}`}>
+                          {/* Name */}
+                          <td className="px-4 py-3 font-medium">
+                            <div className="flex items-center gap-2">
+                              {g.name}
+                              {below && <span className="text-[10px] font-semibold text-amber-400 bg-amber-400/10 px-1.5 py-0.5 rounded-full">Below Par</span>}
+                            </div>
+                          </td>
+                          {/* Qty */}
+                          <td className="px-4 py-3 text-center">
+                            <span className={`text-lg font-bold tabular-nums ${below ? 'text-amber-400' : 'text-emerald-400'}`}>{g.quantity}</span>
+                          </td>
+                          {/* Fill bar */}
+                          <td className="px-4 py-3">
+                            {g.par_level > 0 ? (
+                              <div>
+                                <div className="h-1.5 bg-[#0D0D10] rounded-full overflow-hidden mb-1">
+                                  <div className={`h-full rounded-full ${below ? 'bg-amber-400' : 'bg-emerald-400'}`} style={{ width: `${fillPct}%` }} />
+                                </div>
+                                <p className="text-[10px] text-[#9997A3]">par {g.par_level} · {fillPct}%</p>
+                              </div>
+                            ) : <span className="text-[#5A5865] text-xs">No par set</span>}
+                          </td>
+                          {/* Cost */}
+                          <td className="px-4 py-3 text-right text-[#9997A3] tabular-nums">
+                            {g.cost_per_unit > 0 ? formatCurrency(g.cost_per_unit) : '—'}
+                          </td>
+                          {/* Actions */}
+                          <td className="px-4 py-3 text-right">
+                            <div className="flex items-center justify-end gap-1">
+                              <button onClick={() => { setGlassAction({ id: g.id, type: 'breakage' }); setGlassQty('') }}
+                                className="px-2 py-1 text-xs rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20 font-medium">Breakage</button>
+                              <button onClick={() => { setGlassAction({ id: g.id, type: 'restock' }); setGlassQty('') }}
+                                className="px-2 py-1 text-xs rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 font-medium">
+                                <RefreshCw className="w-3 h-3 inline mr-1" />Restock
                               </button>
-                            </>
-                          )}
-                        </div>
-                      </div>
-                    </div>
-                  )
-                })}
+                              {isAdmin && (
+                                <>
+                                  <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
+                                    className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
+                                  <button onClick={() => deleteGlassType(g.id, g.name)}
+                                    className="px-2 py-1 text-xs rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
+                                    <Trash2 className="w-3 h-3" />
+                                  </button>
+                                </>
+                              )}
+                            </div>
+                          </td>
+                        </tr>
+                      )
+                    })}
+                  </tbody>
+                </table>
               </div>
-            )}
+            </div>
 
             {/* Inline breakage/restock form */}
             {glassAction && (() => {
