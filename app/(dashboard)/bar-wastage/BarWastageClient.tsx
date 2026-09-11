@@ -44,6 +44,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
   const [tab, setTab] = useState<'spoilage' | 'rnd' | 'glassware'>('spoilage')
   const [entries, setEntries] = useState<WastageEntry[]>([])
   const [glassware, setGlassware] = useState<Glassware[]>(initialGlassware)
+  const [summary, setSummary] = useState<{ spoilage: number; rnd: number; breakage: number } | null>(null)
   const [loading, setLoading] = useState(false)
   const [showForm, setShowForm] = useState(false)
   const [showGlassForm, setShowGlassForm] = useState(false)
@@ -86,6 +87,24 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
   }, [tab])
 
   useEffect(() => { fetchEntries() }, [fetchEntries])
+
+  const fetchSummary = useCallback(async () => {
+    const month = new Date().toISOString().slice(0, 7) // YYYY-MM
+    const [s, r, b] = await Promise.all([
+      fetch(`/api/bar/wastage?limit=500&type=spoilage`).then(x => x.json()),
+      fetch(`/api/bar/wastage?limit=500&type=rnd`).then(x => x.json()),
+      fetch(`/api/bar/wastage?limit=500&type=breakage`).then(x => x.json()),
+    ])
+    const sum = (arr: WastageEntry[]) =>
+      arr.filter(e => e.date.startsWith(month)).reduce((t, e) => t + e.total_cost, 0)
+    setSummary({
+      spoilage: sum(s.entries ?? []),
+      rnd: sum(r.entries ?? []),
+      breakage: sum(b.entries ?? []),
+    })
+  }, [])
+
+  useEffect(() => { fetchSummary() }, [fetchSummary])
 
   const refreshGlassware = async () => {
     const res = await fetch('/api/bar/glassware')
@@ -142,7 +161,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
     toast('Entry recorded', 'success')
     setShowForm(false)
     setForm(f => ({ ...f, item_name: '', item_id: '', item_table: '', quantity: '', unit_cost: '', notes: '' }))
-    fetchEntries()
+    fetchEntries(); fetchSummary()
   }
 
   // ── Glassware breakage / restock ─────────────────────────────────
@@ -169,7 +188,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
     if (!res.ok) { toast(data.error ?? 'Failed', 'error'); return }
     toast(glassAction.type === 'breakage' ? 'Breakage recorded' : 'Restock recorded', 'success')
     setGlassAction(null); setGlassQty(''); setGlassNote('')
-    refreshGlassware(); fetchEntries()
+    refreshGlassware(); fetchEntries(); fetchSummary()
   }
 
   // ── Glassware CRUD ───────────────────────────────────────────────
@@ -223,7 +242,7 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
     if (!confirm('Delete this entry?')) return
     const res = await fetch('/api/bar/wastage', { method: 'DELETE', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ id }) })
     if (!res.ok) { toast('Failed', 'error'); return }
-    toast('Deleted', 'success'); fetchEntries()
+    toast('Deleted', 'success'); fetchEntries(); fetchSummary()
   }
 
   // ── Tabs ─────────────────────────────────────────────────────────
@@ -238,6 +257,36 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
       <TopBar title="Bar Wastage" />
 
       <div className="p-4 md:p-6 max-w-5xl mx-auto space-y-6">
+
+        {/* ── Monthly summary ───────────────────────────────────────── */}
+        <div className="grid grid-cols-2 md:grid-cols-4 gap-3">
+          {[
+            { label: 'Total This Month', value: summary ? summary.spoilage + summary.rnd + summary.breakage : null, color: 'text-[#F0EEF6]', bg: 'bg-[#1A1A1F]' },
+            { label: 'Spoilage', value: summary?.spoilage ?? null, color: 'text-rose-400', bg: 'bg-rose-500/5' },
+            { label: 'R&D Usage', value: summary?.rnd ?? null, color: 'text-violet-400', bg: 'bg-violet-500/5' },
+            { label: 'Breakage', value: summary?.breakage ?? null, color: 'text-amber-400', bg: 'bg-amber-500/5' },
+          ].map(card => (
+            <div key={card.label} className={`${card.bg} border border-[#2A2A30] rounded-xl p-4`}>
+              <p className="text-xs text-[#9997A3] mb-1">{card.label}</p>
+              <p className={`text-xl font-bold tabular-nums ${card.color}`}>
+                {card.value === null ? <span className="text-[#9997A3] text-sm">—</span> : formatCurrency(card.value)}
+              </p>
+            </div>
+          ))}
+        </div>
+
+        {/* Glassware below-par alert */}
+        {glassware.filter(g => g.par_level > 0 && g.quantity < g.par_level).length > 0 && (
+          <div className="flex items-center gap-2 px-4 py-3 bg-amber-500/10 border border-amber-500/20 rounded-xl text-sm text-amber-400 cursor-pointer"
+            onClick={() => setTab('glassware')}>
+            <AlertTriangle className="w-4 h-4 shrink-0" />
+            <span>
+              <strong>{glassware.filter(g => g.par_level > 0 && g.quantity < g.par_level).length}</strong> glass {glassware.filter(g => g.par_level > 0 && g.quantity < g.par_level).length === 1 ? 'type' : 'types'} below par level —&nbsp;
+              {glassware.filter(g => g.par_level > 0 && g.quantity < g.par_level).map(g => g.name).join(', ')}
+            </span>
+          </div>
+        )}
+
         {/* Tab switcher */}
         <div className="flex gap-1 bg-[#141417] rounded-xl p-1 border border-[#2A2A30]">
           {tabs.map(t => {
