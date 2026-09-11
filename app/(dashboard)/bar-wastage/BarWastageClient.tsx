@@ -250,12 +250,10 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
             <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
               <div className="p-4 flex items-center justify-between border-b border-[#2A2A30]">
                 <h2 className="font-semibold">Glassware Inventory</h2>
-                {isAdmin && (
-                  <button onClick={() => { setGlassForm({ id: '', name: '', quantity: '', cost_per_unit: '', par_level: '', mode: 'add' }); setShowGlassForm(true) }}
-                    className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6] hover:bg-[#7B5EA7] rounded-lg text-sm font-medium">
-                    <Plus className="w-4 h-4" /> Add Type
-                  </button>
-                )}
+                <button onClick={() => { setGlassForm({ id: '', name: '', quantity: '', cost_per_unit: '', par_level: '', mode: 'add' }); setShowGlassForm(true) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6] hover:bg-[#7B5EA7] rounded-lg text-sm font-medium">
+                  <Plus className="w-4 h-4" /> Add Type
+                </button>
               </div>
               <div className="overflow-x-auto">
                 <table className="w-full text-sm">
