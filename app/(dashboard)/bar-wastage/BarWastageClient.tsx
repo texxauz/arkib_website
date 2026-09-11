@@ -377,15 +377,13 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
                                 className="px-2 py-1 text-xs rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 font-medium">
                                 <RefreshCw className="w-3 h-3 inline mr-1" />Restock
                               </button>
+                              <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
+                                className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
                               {isAdmin && (
-                                <>
-                                  <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
-                                    className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
-                                  <button onClick={() => deleteGlassType(g.id, g.name)}
-                                    className="px-2 py-1 text-xs rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
-                                    <Trash2 className="w-3 h-3" />
-                                  </button>
-                                </>
+                                <button onClick={() => deleteGlassType(g.id, g.name)}
+                                  className="px-2 py-1 text-xs rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">
+                                  <Trash2 className="w-3 h-3" />
+                                </button>
                               )}
                             </div>
                           </td>

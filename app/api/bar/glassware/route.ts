@@ -39,10 +39,6 @@ export async function PUT(req: NextRequest) {
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
-  const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
-  const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
-  if (!isAdmin) return NextResponse.json({ error: 'Admin only' }, { status: 403 })
-
   const body = await req.json()
   const { id, name, quantity, cost_per_unit, par_level } = body
   if (!id) return NextResponse.json({ error: 'id required' }, { status: 400 })
