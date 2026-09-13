@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { requestId, status, reviewNotes } = await request.json()
+  const { requestId, status, reviewNotes, adjustedQuantity, supplier, estimatedDelivery, receivedQuantity } = await request.json()
   if (!requestId || !status) return NextResponse.json({ error: 'Missing fields' }, { status: 400 })
 
   const validTransitions: Record<string, string[]> = {
@@ -34,10 +34,21 @@ export async function POST(request: NextRequest) {
 
   if (status === 'approved' || status === 'rejected') {
     patch.reviewed_by = user.id
+    patch.reviewed_at = new Date().toISOString()
     patch.review_notes = reviewNotes ?? null
+    if (adjustedQuantity) patch.adjusted_quantity = adjustedQuantity
   }
-  if (status === 'ordered') patch.ordered_by = user.id
-  if (status === 'received') patch.received_by = user.id
+  if (status === 'ordered') {
+    patch.ordered_by = user.id
+    patch.ordered_at = new Date().toISOString()
+    if (supplier) patch.supplier = supplier
+    if (estimatedDelivery) patch.estimated_delivery = estimatedDelivery
+  }
+  if (status === 'received') {
+    patch.received_by = user.id
+    patch.received_at = new Date().toISOString()
+    if (receivedQuantity) patch.received_quantity = receivedQuantity
+  }
 
   const { data, error } = await supabase.from('purchase_requests').update(patch).eq('id', requestId).select().single()
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })

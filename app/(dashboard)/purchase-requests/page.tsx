@@ -15,7 +15,9 @@ export default async function PurchaseRequestsPage() {
   const { data: requests } = await supabase
     .from('purchase_requests')
     .select(`
-      *,
+      id, item_name, brand, quantity, unit, urgency, notes, needed_by,
+      status, requested_by, review_notes, adjusted_quantity, supplier,
+      estimated_delivery, received_quantity, created_at, updated_at,
       requester:users!purchase_requests_requested_by_fkey(full_name),
       reviewer:users!purchase_requests_reviewed_by_fkey(full_name),
       orderer:users!purchase_requests_ordered_by_fkey(full_name),
@@ -25,7 +27,7 @@ export default async function PurchaseRequestsPage() {
 
   return (
     <PurchaseRequestsClient
-      requests={requests ?? []}
+      requests={(requests ?? []) as any}
       currentUserId={user.id}
       currentUserRole={profile.role}
       currentUserName={profile.full_name}

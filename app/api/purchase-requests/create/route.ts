@@ -11,10 +11,12 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { itemName, brand, quantity, unit, urgency, notes } = await request.json()
+  const { itemName, brand, quantity, unit, urgency, notes, neededBy } = await request.json()
   if (!itemName || !quantity || !unit) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
+
+  const { data: profile2 } = await supabase.from('users').select('full_name').eq('id', user.id).single()
 
   const { data, error } = await supabase.from('purchase_requests').insert({
     item_name: itemName,
@@ -23,7 +25,9 @@ export async function POST(request: NextRequest) {
     unit,
     urgency: urgency ?? 'normal',
     notes: notes ?? null,
+    needed_by: neededBy ?? null,
     requested_by: user.id,
+    requested_by_name: profile2?.full_name ?? null,
     status: 'pending',
   }).select().single()
 

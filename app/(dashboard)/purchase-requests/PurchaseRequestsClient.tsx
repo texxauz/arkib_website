@@ -1,12 +1,24 @@
 'use client'
 
-import { useState } from 'react'
-import { useRouter } from 'next/navigation'
+import { useState, useEffect, useRef } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
 import { useToast } from '@/components/ui/Toast'
-import { Plus, X, ChevronDown, ShoppingCart, Clock, CheckCircle, XCircle, Truck, PackageCheck } from 'lucide-react'
+import {
+  Plus, X, ChevronDown, ShoppingCart, Clock, CheckCircle,
+  XCircle, Truck, PackageCheck, MessageSquare, Send, CalendarDays,
+} from 'lucide-react'
 
 interface NameRow { full_name: string }
+
+interface Comment {
+  id: string
+  request_id: string
+  author_id: string
+  author_name: string
+  message: string
+  created_at: string
+}
+
 interface PurchaseRequest {
   id: string
   item_name: string
@@ -15,9 +27,14 @@ interface PurchaseRequest {
   unit: string
   urgency: 'normal' | 'urgent'
   notes: string | null
+  needed_by: string | null
   status: 'pending' | 'approved' | 'rejected' | 'ordered' | 'received'
   requested_by: string
   review_notes: string | null
+  adjusted_quantity: number | null
+  supplier: string | null
+  estimated_delivery: string | null
+  received_quantity: number | null
   created_at: string
   updated_at: string
   requester: NameRow | null
@@ -34,10 +51,10 @@ interface Props {
 }
 
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
-  pending:  { label: 'Pending',  color: 'bg-amber-500/15 text-amber-400 border-amber-500/20',    icon: <Clock size={11} /> },
-  approved: { label: 'Approved', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20',       icon: <CheckCircle size={11} /> },
-  rejected: { label: 'Rejected', color: 'bg-rose-500/15 text-rose-400 border-rose-500/20',       icon: <XCircle size={11} /> },
-  ordered:  { label: 'Ordered',  color: 'bg-purple-500/15 text-purple-400 border-purple-500/20', icon: <Truck size={11} /> },
+  pending:  { label: 'Pending',  color: 'bg-amber-500/15 text-amber-400 border-amber-500/20',       icon: <Clock size={11} /> },
+  approved: { label: 'Approved', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20',          icon: <CheckCircle size={11} /> },
+  rejected: { label: 'Rejected', color: 'bg-rose-500/15 text-rose-400 border-rose-500/20',          icon: <XCircle size={11} /> },
+  ordered:  { label: 'Ordered',  color: 'bg-purple-500/15 text-purple-400 border-purple-500/20',    icon: <Truck size={11} /> },
   received: { label: 'Received', color: 'bg-emerald-500/15 text-emerald-400 border-emerald-500/20', icon: <PackageCheck size={11} /> },
 }
 
@@ -47,13 +64,16 @@ function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })
 }
 
+function formatTime(iso: string) {
+  return new Date(iso).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
+}
+
 // ── Create Modal ──────────────────────────────────────────────────────────────
 
 function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: PurchaseRequest) => void }) {
   const { toast } = useToast()
-  const [form, setForm] = useState({ itemName: '', brand: '', quantity: '', unit: 'bottles', urgency: 'normal', notes: '' })
+  const [form, setForm] = useState({ itemName: '', brand: '', quantity: '', unit: 'bottles', urgency: 'normal', notes: '', neededBy: '' })
   const [saving, setSaving] = useState(false)
-
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
 
   const handleSubmit = async (e: React.FormEvent) => {
@@ -64,7 +84,12 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
       const res = await fetch('/api/purchase-requests/create', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ itemName: form.itemName, brand: form.brand || null, quantity: Number(form.quantity), unit: form.unit, urgency: form.urgency, notes: form.notes || null }),
+        body: JSON.stringify({
+          itemName: form.itemName, brand: form.brand || null,
+          quantity: Number(form.quantity), unit: form.unit,
+          urgency: form.urgency, notes: form.notes || null,
+          neededBy: form.neededBy || null,
+        }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -79,51 +104,44 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
 
   return (
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md mx-4 overflow-hidden">
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">New Stock Request</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30] transition-colors"><X size={16} className="text-[#9896A4]" /></button>
         </div>
-
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Item Name <span className="text-rose-400">*</span></label>
-            <input
-              type="text" required placeholder="e.g. Johnnie Walker Black Label"
+            <input type="text" required placeholder="e.g. Johnnie Walker Black Label"
               value={form.itemName} onChange={e => set('itemName', e.target.value)}
-              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
-            />
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
           </div>
-
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Brand <span className="text-[#5A5865]">(optional)</span></label>
-            <input
-              type="text" placeholder="e.g. Diageo"
+            <input type="text" placeholder="e.g. Diageo"
               value={form.brand} onChange={e => set('brand', e.target.value)}
-              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
-            />
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
           </div>
-
           <div className="grid grid-cols-2 gap-3">
             <div>
               <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Quantity <span className="text-rose-400">*</span></label>
-              <input
-                type="number" required min="1" step="1" placeholder="e.g. 3"
+              <input type="number" required min="1" step="0.5" placeholder="e.g. 3"
                 value={form.quantity} onChange={e => set('quantity', e.target.value)}
-                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
-              />
+                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
             </div>
             <div>
               <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Unit</label>
-              <select
-                value={form.unit} onChange={e => set('unit', e.target.value)}
-                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
-              >
+              <select value={form.unit} onChange={e => set('unit', e.target.value)}
+                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]">
                 {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
               </select>
             </div>
           </div>
-
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Needed By <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="date" value={form.neededBy} onChange={e => set('neededBy', e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Urgency</label>
             <div className="flex gap-2">
@@ -131,24 +149,19 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
                 <button key={u} type="button" onClick={() => set('urgency', u)}
                   className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${form.urgency === u
                     ? u === 'urgent' ? 'bg-rose-500/15 border-rose-500/40 text-rose-400' : 'bg-[#8B5CF6]/15 border-[#8B5CF6]/40 text-[#A78BFA]'
-                    : 'border-[#2A2A30] text-[#9896A4] hover:bg-[#2A2A30]'}`}
-                >
+                    : 'border-[#2A2A30] text-[#9896A4] hover:bg-[#2A2A30]'}`}>
                   {u === 'urgent' ? 'Urgent' : 'Normal'}
                 </button>
               ))}
             </div>
           </div>
-
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Notes <span className="text-[#5A5865]">(optional)</span></label>
-            <textarea
-              placeholder="e.g. Need before this weekend, almost out"
+            <textarea placeholder="e.g. Almost out, need before Friday"
               value={form.notes} onChange={e => set('notes', e.target.value)}
               rows={2}
-              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none"
-            />
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none" />
           </div>
-
           <div className="flex gap-3 pt-1">
             <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
             <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-[#8B5CF6] text-white text-sm font-medium hover:bg-[#7C3AED] transition-colors disabled:opacity-50">
@@ -156,6 +169,126 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
             </button>
           </div>
         </form>
+      </div>
+    </div>
+  )
+}
+
+// ── Approve Modal ─────────────────────────────────────────────────────────────
+
+function ApproveModal({ req, onClose, onConfirm }: {
+  req: PurchaseRequest
+  onClose: () => void
+  onConfirm: (adjustedQty: number | null) => void
+}) {
+  const [adjQty, setAdjQty] = useState(String(req.quantity))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
+          <h2 className="text-[#F0EEF6] font-semibold">Approve Request</h2>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">
+              Approved Quantity <span className="text-[#5A5865]">(adjust if different from requested {req.quantity} {req.unit})</span>
+            </label>
+            <div className="flex gap-2">
+              <input type="number" min="0.5" step="0.5" value={adjQty} onChange={e => setAdjQty(e.target.value)}
+                className="flex-1 bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+              <span className="flex items-center text-[#9896A4] text-sm px-2">{req.unit}</span>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
+            <button
+              onClick={() => onConfirm(Number(adjQty) !== req.quantity ? Number(adjQty) : null)}
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors"
+            >
+              Approve
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Order Modal ───────────────────────────────────────────────────────────────
+
+function OrderModal({ onClose, onConfirm }: {
+  onClose: () => void
+  onConfirm: (supplier: string, estimatedDelivery: string) => void
+}) {
+  const [supplier, setSupplier] = useState('')
+  const [estDelivery, setEstDelivery] = useState('')
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
+          <h2 className="text-[#F0EEF6] font-semibold">Mark as Ordered</h2>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Supplier <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="text" placeholder="e.g. Pernod Ricard Malaysia" value={supplier} onChange={e => setSupplier(e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Est. Delivery Date <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="date" value={estDelivery} onChange={e => setEstDelivery(e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
+            <button onClick={() => onConfirm(supplier, estDelivery)}
+              className="flex-1 px-4 py-2 rounded-lg bg-[#8B5CF6] text-white text-sm font-medium hover:bg-[#7C3AED] transition-colors">
+              Confirm Order
+            </button>
+          </div>
+        </div>
+      </div>
+    </div>
+  )
+}
+
+// ── Receive Modal ─────────────────────────────────────────────────────────────
+
+function ReceiveModal({ req, onClose, onConfirm }: {
+  req: PurchaseRequest
+  onClose: () => void
+  onConfirm: (receivedQty: number) => void
+}) {
+  const expected = req.adjusted_quantity ?? req.quantity
+  const [rcvQty, setRcvQty] = useState(String(expected))
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
+          <h2 className="text-[#F0EEF6] font-semibold">Mark as Received</h2>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
+        </div>
+        <div className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">
+              Actual Quantity Received <span className="text-[#5A5865]">(expected: {expected} {req.unit})</span>
+            </label>
+            <div className="flex gap-2">
+              <input type="number" min="0.5" step="0.5" value={rcvQty} onChange={e => setRcvQty(e.target.value)}
+                className="flex-1 bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+              <span className="flex items-center text-[#9896A4] text-sm px-2">{req.unit}</span>
+            </div>
+          </div>
+          <div className="flex gap-3">
+            <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
+            <button onClick={() => onConfirm(Number(rcvQty))}
+              className="flex-1 px-4 py-2 rounded-lg bg-emerald-600 text-white text-sm font-medium hover:bg-emerald-700 transition-colors">
+              Confirm Receipt
+            </button>
+          </div>
+        </div>
       </div>
     </div>
   )
@@ -175,11 +308,9 @@ function RejectModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
         <div className="p-5 space-y-4">
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Reason <span className="text-[#5A5865]">(optional — shown to requester)</span></label>
-            <textarea
-              value={reason} onChange={e => setReason(e.target.value)}
+            <textarea value={reason} onChange={e => setReason(e.target.value)}
               rows={3} placeholder="e.g. Already sufficient stock, will revisit next month"
-              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none"
-            />
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none" />
           </div>
           <div className="flex gap-3">
             <button onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
@@ -191,16 +322,116 @@ function RejectModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
   )
 }
 
+// ── Comment Thread ────────────────────────────────────────────────────────────
+
+function CommentThread({ requestId, currentUserId, currentUserName }: {
+  requestId: string
+  currentUserId: string
+  currentUserName: string
+}) {
+  const { toast } = useToast()
+  const [comments, setComments] = useState<Comment[]>([])
+  const [loading, setLoading] = useState(true)
+  const [message, setMessage] = useState('')
+  const [sending, setSending] = useState(false)
+  const bottomRef = useRef<HTMLDivElement>(null)
+
+  useEffect(() => {
+    fetch(`/api/purchase-requests/comments?requestId=${requestId}`)
+      .then(r => r.json())
+      .then(d => setComments(d.comments ?? []))
+      .finally(() => setLoading(false))
+  }, [requestId])
+
+  useEffect(() => {
+    bottomRef.current?.scrollIntoView({ behavior: 'smooth' })
+  }, [comments])
+
+  const handleSend = async () => {
+    if (!message.trim()) return
+    setSending(true)
+    try {
+      const res = await fetch('/api/purchase-requests/comments', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId, message }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setComments(c => [...c, data.comment])
+      setMessage('')
+    } catch (e: any) {
+      toast(e.message ?? 'Failed to send', 'error')
+    } finally {
+      setSending(false)
+    }
+  }
+
+  return (
+    <div className="border-t border-[#2A2A30] pt-3 mt-1">
+      <p className="text-[#9896A4] text-xs font-medium mb-3 flex items-center gap-1.5">
+        <MessageSquare size={11} /> Comments {comments.length > 0 && `(${comments.length})`}
+      </p>
+
+      {loading ? (
+        <p className="text-[#5A5865] text-xs py-2">Loading…</p>
+      ) : comments.length === 0 ? (
+        <p className="text-[#5A5865] text-xs py-2 italic">No comments yet. Ask a question or leave a note.</p>
+      ) : (
+        <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
+          {comments.map(c => {
+            const isMe = c.author_id === currentUserId
+            return (
+              <div key={c.id} className={`flex flex-col ${isMe ? 'items-end' : 'items-start'}`}>
+                <div className={`max-w-[85%] px-3 py-2 rounded-xl text-sm ${
+                  isMe ? 'bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#F0EEF6]' : 'bg-[#1A1A1E] border border-[#2A2A30] text-[#F0EEF6]'
+                }`}>
+                  {c.message}
+                </div>
+                <p className="text-[#5A5865] text-[10px] mt-0.5 px-1">
+                  {isMe ? 'You' : c.author_name} · {formatDate(c.created_at)} {formatTime(c.created_at)}
+                </p>
+              </div>
+            )
+          })}
+          <div ref={bottomRef} />
+        </div>
+      )}
+
+      <div className="flex gap-2">
+        <input
+          type="text"
+          value={message}
+          onChange={e => setMessage(e.target.value)}
+          onKeyDown={e => { if (e.key === 'Enter' && !e.shiftKey) { e.preventDefault(); handleSend() } }}
+          placeholder="Ask a question or leave a note…"
+          className="flex-1 bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-[#F0EEF6] text-xs focus:outline-none focus:border-[#8B5CF6]"
+        />
+        <button
+          onClick={handleSend}
+          disabled={sending || !message.trim()}
+          className="p-2 rounded-lg bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#A78BFA] hover:bg-[#8B5CF6]/25 transition-colors disabled:opacity-40"
+        >
+          <Send size={13} />
+        </button>
+      </div>
+    </div>
+  )
+}
+
 // ── Request Card ──────────────────────────────────────────────────────────────
 
-function RequestCard({ req, isAdmin, onStatusChange }: {
+function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange }: {
   req: PurchaseRequest
   isAdmin: boolean
-  onStatusChange: (id: string, status: string, reviewNotes?: string) => void
+  currentUserId: string
+  currentUserName: string
+  onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [rejecting, setRejecting] = useState(false)
+  const [modal, setModal] = useState<'reject' | 'approve' | 'order' | 'receive' | null>(null)
   const meta = STATUS_META[req.status]
+  const effectiveQty = req.adjusted_quantity ?? req.quantity
 
   return (
     <>
@@ -215,14 +446,23 @@ function RequestCard({ req, isAdmin, onStatusChange }: {
               )}
             </div>
             <div className="flex items-center gap-3 flex-wrap">
-              <span className="text-[#9896A4] text-xs">{Number(req.quantity)} {req.unit}</span>
+              <span className="text-[#9896A4] text-xs">
+                {Number(effectiveQty)} {req.unit}
+                {req.adjusted_quantity && req.adjusted_quantity !== req.quantity && (
+                  <span className="text-[#5A5865] ml-1">(requested {Number(req.quantity)})</span>
+                )}
+              </span>
               <span className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${meta.color}`}>
                 {meta.icon} {meta.label}
               </span>
               <span className="text-[#5A5865] text-xs">by {req.requester?.full_name ?? '—'} · {formatDate(req.created_at)}</span>
+              {req.needed_by && (
+                <span className="flex items-center gap-1 text-[10px] text-amber-400">
+                  <CalendarDays size={10} /> Needed by {formatDate(req.needed_by)}
+                </span>
+              )}
             </div>
           </div>
-
           <button onClick={() => setExpanded(e => !e)} className="p-1.5 rounded hover:bg-[#2A2A30] transition-colors flex-shrink-0 mt-0.5">
             <ChevronDown size={14} className={`text-[#5A5865] transition-transform ${expanded ? 'rotate-180' : ''}`} />
           </button>
@@ -243,55 +483,71 @@ function RequestCard({ req, isAdmin, onStatusChange }: {
 
             <div className="space-y-1 text-xs text-[#5A5865]">
               {req.reviewer && <p>Reviewed by {req.reviewer.full_name}</p>}
+              {req.supplier && <p>Supplier: <span className="text-[#9896A4]">{req.supplier}</span></p>}
+              {req.estimated_delivery && <p>Est. delivery: <span className="text-[#9896A4]">{formatDate(req.estimated_delivery)}</span></p>}
               {req.orderer && <p>Ordered by {req.orderer.full_name}</p>}
+              {req.received_quantity != null && <p>Received qty: <span className="text-[#9896A4]">{req.received_quantity} {req.unit}</span></p>}
               {req.receiver && <p>Received by {req.receiver.full_name}</p>}
             </div>
 
-            {/* Action buttons — admin only */}
             {isAdmin && (
               <div className="flex gap-2 pt-1 flex-wrap">
                 {req.status === 'pending' && (
                   <>
-                    <button
-                      onClick={() => onStatusChange(req.id, 'approved')}
-                      className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium"
-                    >
+                    <button onClick={() => setModal('approve')}
+                      className="px-3 py-1.5 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium">
                       Approve
                     </button>
-                    <button
-                      onClick={() => setRejecting(true)}
-                      className="px-3 py-1.5 text-xs rounded-lg bg-rose-500/15 text-rose-400 border border-rose-500/20 hover:bg-rose-500/25 transition-colors font-medium"
-                    >
+                    <button onClick={() => setModal('reject')}
+                      className="px-3 py-1.5 text-xs rounded-lg bg-rose-500/15 text-rose-400 border border-rose-500/20 hover:bg-rose-500/25 transition-colors font-medium">
                       Reject
                     </button>
                   </>
                 )}
                 {req.status === 'approved' && (
-                  <button
-                    onClick={() => onStatusChange(req.id, 'ordered')}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium"
-                  >
+                  <button onClick={() => setModal('order')}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium">
                     Mark as Ordered
                   </button>
                 )}
                 {req.status === 'ordered' && (
-                  <button
-                    onClick={() => onStatusChange(req.id, 'received')}
-                    className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/20 hover:bg-blue-500/25 transition-colors font-medium"
-                  >
+                  <button onClick={() => setModal('receive')}
+                    className="px-3 py-1.5 text-xs rounded-lg bg-blue-500/15 text-blue-400 border border-blue-500/20 hover:bg-blue-500/25 transition-colors font-medium">
                     Mark as Received
                   </button>
                 )}
               </div>
             )}
+
+            <CommentThread requestId={req.id} currentUserId={currentUserId} currentUserName={currentUserName} />
           </div>
         )}
       </div>
 
-      {rejecting && (
+      {modal === 'reject' && (
         <RejectModal
-          onClose={() => setRejecting(false)}
-          onConfirm={reason => { setRejecting(false); onStatusChange(req.id, 'rejected', reason) }}
+          onClose={() => setModal(null)}
+          onConfirm={reason => { setModal(null); onStatusChange(req.id, 'rejected', { reviewNotes: reason }) }}
+        />
+      )}
+      {modal === 'approve' && (
+        <ApproveModal
+          req={req}
+          onClose={() => setModal(null)}
+          onConfirm={adjQty => { setModal(null); onStatusChange(req.id, 'approved', { adjustedQuantity: adjQty }) }}
+        />
+      )}
+      {modal === 'order' && (
+        <OrderModal
+          onClose={() => setModal(null)}
+          onConfirm={(supplier, estDelivery) => { setModal(null); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }}
+        />
+      )}
+      {modal === 'receive' && (
+        <ReceiveModal
+          req={req}
+          onClose={() => setModal(null)}
+          onConfirm={rcvQty => { setModal(null); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }}
         />
       )}
     </>
@@ -301,7 +557,6 @@ function RequestCard({ req, isAdmin, onStatusChange }: {
 // ── Main ──────────────────────────────────────────────────────────────────────
 
 export function PurchaseRequestsClient({ requests: initial, currentUserId, currentUserRole, currentUserName }: Props) {
-  const router = useRouter()
   const { toast } = useToast()
   const [requests, setRequests] = useState<PurchaseRequest[]>(initial)
   const [creating, setCreating] = useState(false)
@@ -314,12 +569,12 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
   const history = requests.filter(r => ['rejected', 'received'].includes(r.status))
   const pendingCount = requests.filter(r => r.status === 'pending').length
 
-  const handleStatusChange = async (id: string, status: string, reviewNotes?: string) => {
+  const handleStatusChange = async (id: string, status: string, extra?: Record<string, unknown>) => {
     try {
       const res = await fetch('/api/purchase-requests/update-status', {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
-        body: JSON.stringify({ requestId: id, status, reviewNotes }),
+        body: JSON.stringify({ requestId: id, status, ...extra }),
       })
       const data = await res.json()
       if (!res.ok) throw new Error(data.error)
@@ -352,17 +607,13 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
       />
 
       <div className="p-4 lg:p-6 max-w-3xl mx-auto">
-        {/* Tabs */}
         <div className="flex gap-1 bg-[#141417] border border-[#2A2A30] rounded-xl p-1 mb-6">
           {([
             { key: 'active', label: 'Active', count: active.length },
             { key: 'history', label: 'History', count: history.length },
           ] as const).map(t => (
-            <button
-              key={t.key}
-              onClick={() => setTab(t.key)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
-            >
+            <button key={t.key} onClick={() => setTab(t.key)}
+              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
               {t.label}
               {t.count > 0 && (
                 <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${tab === t.key ? 'bg-white/20' : 'bg-[#2A2A30]'}`}>
@@ -373,7 +624,6 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
           ))}
         </div>
 
-        {/* Pending alert for admin */}
         {isAdmin && pendingCount > 0 && tab === 'active' && (
           <div className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
             <Clock size={14} className="text-amber-400 flex-shrink-0" />
@@ -383,7 +633,6 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
           </div>
         )}
 
-        {/* List */}
         {shown.length === 0 ? (
           <div className="text-center py-16 text-[#5A5865]">
             <ShoppingCart size={32} className="mx-auto mb-3 opacity-30" />
@@ -401,6 +650,8 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 key={r.id}
                 req={r}
                 isAdmin={isAdmin}
+                currentUserId={currentUserId}
+                currentUserName={currentUserName}
                 onStatusChange={handleStatusChange}
               />
             ))}
@@ -408,9 +659,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
         )}
       </div>
 
-      {creating && (
-        <CreateModal onClose={() => setCreating(false)} onCreated={handleCreated} />
-      )}
+      {creating && <CreateModal onClose={() => setCreating(false)} onCreated={handleCreated} />}
     </div>
   )
 }
