@@ -24,7 +24,10 @@ export async function GET(request: NextRequest) {
     .range(offset, offset + limit - 1)
 
   if (search) {
-    query = query.or(`item_name.ilike.%${search}%,brand.ilike.%${search}%`)
+    const words = search.trim().split(/\s+/).filter(Boolean)
+    for (const word of words) {
+      query = query.or(`item_name.ilike.%${word}%,brand.ilike.%${word}%`)
+    }
   }
   if (category) {
     query = query.eq('category', category)

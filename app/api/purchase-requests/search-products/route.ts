@@ -12,13 +12,20 @@ export async function GET(request: NextRequest) {
 
   if (q.length < 2) return NextResponse.json({ products: [] })
 
+  // Split into words so "st remy" matches "ST.REMY AUTHENTIC VSOP"
+  const words = q.trim().split(/\s+/).filter(Boolean)
+
   let query = supabase
     .from('supplier_products')
     .select('id, item_name, brand, category, size, price_rm, supplier_id, suppliers(name)')
     .order('item_name')
     .limit(12)
 
-  query = query.or(`item_name.ilike.%${q}%,brand.ilike.%${q}%`)
+  // Each word must appear somewhere in item_name or brand
+  for (const word of words) {
+    query = query.or(`item_name.ilike.%${word}%,brand.ilike.%${word}%`)
+  }
+
   if (supplierId) query = query.eq('supplier_id', supplierId)
 
   const { data } = await query
