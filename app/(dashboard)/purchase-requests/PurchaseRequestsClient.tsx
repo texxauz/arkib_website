@@ -6,6 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import {
   Plus, X, ChevronDown, ShoppingCart, Clock, CheckCircle,
   XCircle, Truck, PackageCheck, MessageSquare, Send, CalendarDays,
+  Copy, Check, ClipboardList,
 } from 'lucide-react'
 
 interface NameRow { full_name: string }
@@ -50,6 +51,16 @@ interface Props {
   currentUserName: string
 }
 
+const TABS = [
+  { key: 'pending',  label: 'Pending',  },
+  { key: 'approved', label: 'Approved', },
+  { key: 'ordered',  label: 'Ordered',  },
+  { key: 'received', label: 'Received', },
+  { key: 'history',  label: 'History',  },
+] as const
+
+type TabKey = typeof TABS[number]['key']
+
 const STATUS_META: Record<string, { label: string; color: string; icon: React.ReactNode }> = {
   pending:  { label: 'Pending',  color: 'bg-amber-500/15 text-amber-400 border-amber-500/20',       icon: <Clock size={11} /> },
   approved: { label: 'Approved', color: 'bg-blue-500/15 text-blue-400 border-blue-500/20',          icon: <CheckCircle size={11} /> },
@@ -63,7 +74,6 @@ const UNITS = ['bottles', 'cases', 'cartons', 'cans', 'kegs', 'litres', 'pcs']
 function formatDate(iso: string) {
   return new Date(iso).toLocaleDateString('en-MY', { day: 'numeric', month: 'short', year: 'numeric' })
 }
-
 function formatTime(iso: string) {
   return new Date(iso).toLocaleTimeString('en-MY', { hour: '2-digit', minute: '2-digit', hour12: true })
 }
@@ -192,7 +202,7 @@ function ApproveModal({ req, onClose, onConfirm }: {
         <div className="p-5 space-y-4">
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">
-              Approved Quantity <span className="text-[#5A5865]">(adjust if different from requested {req.quantity} {req.unit})</span>
+              Approved Quantity <span className="text-[#5A5865]">(requested: {req.quantity} {req.unit})</span>
             </label>
             <div className="flex gap-2">
               <input type="number" min="0.5" step="0.5" value={adjQty} onChange={e => setAdjQty(e.target.value)}
@@ -233,7 +243,7 @@ function OrderModal({ onClose, onConfirm }: {
         <div className="p-5 space-y-4">
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Supplier <span className="text-[#5A5865]">(optional)</span></label>
-            <input type="text" placeholder="e.g. Pernod Ricard Malaysia" value={supplier} onChange={e => setSupplier(e.target.value)}
+            <input type="text" placeholder="e.g. Tong Woh Group" value={supplier} onChange={e => setSupplier(e.target.value)}
               className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
           </div>
           <div>
@@ -307,9 +317,9 @@ function RejectModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (
         </div>
         <div className="p-5 space-y-4">
           <div>
-            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Reason <span className="text-[#5A5865]">(optional — shown to requester)</span></label>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Reason <span className="text-[#5A5865]">(optional)</span></label>
             <textarea value={reason} onChange={e => setReason(e.target.value)}
-              rows={3} placeholder="e.g. Already sufficient stock, will revisit next month"
+              rows={3} placeholder="e.g. Already sufficient stock"
               className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none" />
           </div>
           <div className="flex gap-3">
@@ -372,11 +382,10 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
       <p className="text-[#9896A4] text-xs font-medium mb-3 flex items-center gap-1.5">
         <MessageSquare size={11} /> Comments {comments.length > 0 && `(${comments.length})`}
       </p>
-
       {loading ? (
         <p className="text-[#5A5865] text-xs py-2">Loading…</p>
       ) : comments.length === 0 ? (
-        <p className="text-[#5A5865] text-xs py-2 italic">No comments yet. Ask a question or leave a note.</p>
+        <p className="text-[#5A5865] text-xs py-2 italic">No comments yet.</p>
       ) : (
         <div className="space-y-2 mb-3 max-h-48 overflow-y-auto">
           {comments.map(c => {
@@ -397,7 +406,6 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
           <div ref={bottomRef} />
         </div>
       )}
-
       <div className="flex gap-2">
         <input
           type="text"
@@ -407,11 +415,8 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
           placeholder="Ask a question or leave a note…"
           className="flex-1 bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-[#F0EEF6] text-xs focus:outline-none focus:border-[#8B5CF6]"
         />
-        <button
-          onClick={handleSend}
-          disabled={sending || !message.trim()}
-          className="p-2 rounded-lg bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#A78BFA] hover:bg-[#8B5CF6]/25 transition-colors disabled:opacity-40"
-        >
+        <button onClick={handleSend} disabled={sending || !message.trim()}
+          className="p-2 rounded-lg bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#A78BFA] hover:bg-[#8B5CF6]/25 transition-colors disabled:opacity-40">
           <Send size={13} />
         </button>
       </div>
@@ -419,7 +424,7 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
   )
 }
 
-// ── Request Card ──────────────────────────────────────────────────────────────
+// ── Request Card (used in Pending tab) ────────────────────────────────────────
 
 function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange }: {
   req: PurchaseRequest
@@ -470,17 +475,13 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
 
         {expanded && (
           <div className="px-4 pb-4 border-t border-[#2A2A30] pt-3 space-y-3">
-            {req.notes && (
-              <p className="text-[#9896A4] text-xs italic">"{req.notes}"</p>
-            )}
-
+            {req.notes && <p className="text-[#9896A4] text-xs italic">"{req.notes}"</p>}
             {req.review_notes && (
               <div className="bg-rose-500/10 border border-rose-500/20 rounded-lg px-3 py-2">
                 <p className="text-rose-400 text-xs font-medium mb-0.5">Rejection reason</p>
                 <p className="text-rose-300 text-xs">{req.review_notes}</p>
               </div>
             )}
-
             <div className="space-y-1 text-xs text-[#5A5865]">
               {req.reviewer && <p>Reviewed by {req.reviewer.full_name}</p>}
               {req.supplier && <p>Supplier: <span className="text-[#9896A4]">{req.supplier}</span></p>}
@@ -525,32 +526,160 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
       </div>
 
       {modal === 'reject' && (
-        <RejectModal
-          onClose={() => setModal(null)}
-          onConfirm={reason => { setModal(null); onStatusChange(req.id, 'rejected', { reviewNotes: reason }) }}
-        />
+        <RejectModal onClose={() => setModal(null)} onConfirm={reason => { setModal(null); onStatusChange(req.id, 'rejected', { reviewNotes: reason }) }} />
       )}
       {modal === 'approve' && (
-        <ApproveModal
-          req={req}
-          onClose={() => setModal(null)}
-          onConfirm={adjQty => { setModal(null); onStatusChange(req.id, 'approved', { adjustedQuantity: adjQty }) }}
-        />
+        <ApproveModal req={req} onClose={() => setModal(null)} onConfirm={adjQty => { setModal(null); onStatusChange(req.id, 'approved', { adjustedQuantity: adjQty }) }} />
       )}
       {modal === 'order' && (
-        <OrderModal
-          onClose={() => setModal(null)}
-          onConfirm={(supplier, estDelivery) => { setModal(null); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }}
-        />
+        <OrderModal onClose={() => setModal(null)} onConfirm={(supplier, estDelivery) => { setModal(null); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }} />
       )}
       {modal === 'receive' && (
-        <ReceiveModal
-          req={req}
-          onClose={() => setModal(null)}
-          onConfirm={rcvQty => { setModal(null); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }}
+        <ReceiveModal req={req} onClose={() => setModal(null)} onConfirm={rcvQty => { setModal(null); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }} />
+      )}
+    </>
+  )
+}
+
+// ── Approved Table Row ────────────────────────────────────────────────────────
+
+function ApprovedRow({ req, isAdmin, onStatusChange }: {
+  req: PurchaseRequest
+  isAdmin: boolean
+  onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
+}) {
+  const [modal, setModal] = useState(false)
+  const effectiveQty = req.adjusted_quantity ?? req.quantity
+
+  return (
+    <>
+      <tr className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+        <td className="px-4 py-3">
+          <div>
+            <p className="text-[#F0EEF6] text-sm font-medium">{req.item_name}</p>
+            {req.brand && <p className="text-[#5A5865] text-xs">{req.brand}</p>}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-[#F0EEF6] text-sm tabular-nums">
+          {Number(effectiveQty)}
+          {req.adjusted_quantity && req.adjusted_quantity !== req.quantity && (
+            <span className="text-[#5A5865] text-xs ml-1">(req. {Number(req.quantity)})</span>
+          )}
+        </td>
+        <td className="px-4 py-3 text-[#9896A4] text-sm">{req.unit}</td>
+        <td className="px-4 py-3">
+          {req.urgency === 'urgent'
+            ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-rose-500/15 text-rose-400 border-rose-500/20 uppercase">Urgent</span>
+            : <span className="text-[#5A5865] text-xs">Normal</span>}
+        </td>
+        <td className="px-4 py-3 text-[#9896A4] text-xs">
+          {req.needed_by ? formatDate(req.needed_by) : '—'}
+        </td>
+        <td className="px-4 py-3 text-[#5A5865] text-xs">{req.requester?.full_name ?? '—'}</td>
+        {isAdmin && (
+          <td className="px-4 py-3">
+            <button onClick={() => setModal(true)}
+              className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
+              Mark Ordered
+            </button>
+          </td>
+        )}
+      </tr>
+      {modal && (
+        <OrderModal
+          onClose={() => setModal(false)}
+          onConfirm={(supplier, estDelivery) => { setModal(false); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }}
         />
       )}
     </>
+  )
+}
+
+// ── Ordered Table Row ─────────────────────────────────────────────────────────
+
+function OrderedRow({ req, isAdmin, onStatusChange }: {
+  req: PurchaseRequest
+  isAdmin: boolean
+  onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
+}) {
+  const [modal, setModal] = useState(false)
+  const effectiveQty = req.adjusted_quantity ?? req.quantity
+
+  return (
+    <>
+      <tr className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+        <td className="px-4 py-3">
+          <div>
+            <p className="text-[#F0EEF6] text-sm font-medium">{req.item_name}</p>
+            {req.brand && <p className="text-[#5A5865] text-xs">{req.brand}</p>}
+          </div>
+        </td>
+        <td className="px-4 py-3 text-[#F0EEF6] text-sm tabular-nums">{Number(effectiveQty)} {req.unit}</td>
+        <td className="px-4 py-3 text-[#9896A4] text-sm">{req.supplier ?? '—'}</td>
+        <td className="px-4 py-3 text-[#9896A4] text-xs">
+          {req.estimated_delivery ? formatDate(req.estimated_delivery) : '—'}
+        </td>
+        <td className="px-4 py-3 text-[#5A5865] text-xs">{req.orderer?.full_name ?? '—'}</td>
+        {isAdmin && (
+          <td className="px-4 py-3">
+            <button onClick={() => setModal(true)}
+              className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
+              Mark Received
+            </button>
+          </td>
+        )}
+      </tr>
+      {modal && (
+        <ReceiveModal
+          req={req}
+          onClose={() => setModal(false)}
+          onConfirm={rcvQty => { setModal(false); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }}
+        />
+      )}
+    </>
+  )
+}
+
+// ── Copy Button ───────────────────────────────────────────────────────────────
+
+function CopyButton({ text }: { text: string }) {
+  const [copied, setCopied] = useState(false)
+  const handleCopy = async () => {
+    try {
+      await navigator.clipboard.writeText(text)
+      setCopied(true)
+      setTimeout(() => setCopied(false), 2000)
+    } catch {}
+  }
+  return (
+    <button onClick={handleCopy}
+      className="flex items-center gap-1.5 px-3 py-1.5 rounded-lg bg-[#2A2A30] text-[#9896A4] text-xs font-medium hover:bg-[#3A3A40] hover:text-[#F0EEF6] transition-colors">
+      {copied ? <Check size={12} className="text-emerald-400" /> : <Copy size={12} />}
+      {copied ? 'Copied!' : 'Copy Order List'}
+    </button>
+  )
+}
+
+// ── Empty State ───────────────────────────────────────────────────────────────
+
+function EmptyState({ tab, onNew }: { tab: TabKey; onNew?: () => void }) {
+  const messages: Record<TabKey, string> = {
+    pending: 'No pending requests',
+    approved: 'No approved requests',
+    ordered: 'Nothing on order',
+    received: 'No received items',
+    history: 'No history yet',
+  }
+  return (
+    <div className="text-center py-16 text-[#5A5865]">
+      <ShoppingCart size={32} className="mx-auto mb-3 opacity-30" />
+      <p className="text-sm">{messages[tab]}</p>
+      {tab === 'pending' && onNew && (
+        <button onClick={onNew} className="mt-3 text-[#8B5CF6] text-sm hover:text-[#A78BFA] transition-colors">
+          + Submit a request
+        </button>
+      )}
+    </div>
   )
 }
 
@@ -560,14 +689,18 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
   const { toast } = useToast()
   const [requests, setRequests] = useState<PurchaseRequest[]>(initial)
   const [creating, setCreating] = useState(false)
-  const [tab, setTab] = useState<'active' | 'history'>('active')
+  const [tab, setTab] = useState<TabKey>('pending')
 
   const isAdmin = currentUserRole === 'owner' || currentUserRole === 'manager'
   const canRequest = isAdmin || currentUserRole === 'full_timer'
 
-  const active = requests.filter(r => ['pending', 'approved', 'ordered'].includes(r.status))
-  const history = requests.filter(r => ['rejected', 'received'].includes(r.status))
-  const pendingCount = requests.filter(r => r.status === 'pending').length
+  const byStatus = {
+    pending:  requests.filter(r => r.status === 'pending'),
+    approved: requests.filter(r => r.status === 'approved'),
+    ordered:  requests.filter(r => r.status === 'ordered'),
+    received: requests.filter(r => r.status === 'received'),
+    history:  requests.filter(r => r.status === 'rejected'),
+  }
 
   const handleStatusChange = async (id: string, status: string, extra?: Record<string, unknown>) => {
     try {
@@ -590,7 +723,22 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
     setCreating(false)
   }
 
-  const shown = tab === 'active' ? active : history
+  // Generate copy text for approved items
+  const approvedCopyText = (() => {
+    const items = byStatus.approved
+    if (items.length === 0) return ''
+    const date = new Date().toLocaleDateString('en-MY', { day: 'numeric', month: 'long', year: 'numeric' })
+    const lines = items.map((r, i) => {
+      const qty = r.adjusted_quantity ?? r.quantity
+      const parts = [`${i + 1}. ${r.item_name}`]
+      if (r.brand) parts[0] += ` (${r.brand})`
+      parts[0] += ` — ${qty} ${r.unit}`
+      if (r.urgency === 'urgent') parts[0] += ' ⚡ URGENT'
+      if (r.needed_by) parts[0] += ` — needed by ${formatDate(r.needed_by)}`
+      return parts[0]
+    })
+    return `ARKIB Stock Order — ${date}\n\n${lines.join('\n')}`
+  })()
 
   return (
     <div className="min-h-screen bg-[#0D0D10]">
@@ -606,56 +754,190 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
         }
       />
 
-      <div className="p-4 lg:p-6 max-w-3xl mx-auto">
-        <div className="flex gap-1 bg-[#141417] border border-[#2A2A30] rounded-xl p-1 mb-6">
-          {([
-            { key: 'active', label: 'Active', count: active.length },
-            { key: 'history', label: 'History', count: history.length },
-          ] as const).map(t => (
-            <button key={t.key} onClick={() => setTab(t.key)}
-              className={`flex-1 flex items-center justify-center gap-2 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
-              {t.label}
-              {t.count > 0 && (
-                <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${tab === t.key ? 'bg-white/20' : 'bg-[#2A2A30]'}`}>
-                  {t.count}
-                </span>
-              )}
-            </button>
-          ))}
+      <div className="p-4 lg:p-6 max-w-5xl mx-auto">
+        {/* Tabs */}
+        <div className="flex gap-1 bg-[#141417] border border-[#2A2A30] rounded-xl p-1 mb-6 overflow-x-auto">
+          {TABS.map(t => {
+            const count = byStatus[t.key].length
+            return (
+              <button key={t.key} onClick={() => setTab(t.key)}
+                className={`flex-shrink-0 flex items-center justify-center gap-1.5 px-4 py-2 rounded-lg text-sm font-medium transition-colors ${tab === t.key ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}>
+                {t.label}
+                {count > 0 && (
+                  <span className={`text-[10px] px-1.5 py-0.5 rounded-full font-bold ${tab === t.key ? 'bg-white/20' : 'bg-[#2A2A30]'}`}>
+                    {count}
+                  </span>
+                )}
+              </button>
+            )
+          })}
         </div>
 
-        {isAdmin && pendingCount > 0 && tab === 'active' && (
-          <div className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+        {/* Pending alert */}
+        {isAdmin && byStatus.pending.length > 0 && tab !== 'pending' && (
+          <button onClick={() => setTab('pending')}
+            className="w-full mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2 hover:bg-amber-500/15 transition-colors text-left">
             <Clock size={14} className="text-amber-400 flex-shrink-0" />
             <p className="text-amber-400 text-sm font-medium">
-              {pendingCount} request{pendingCount > 1 ? 's' : ''} awaiting your approval
+              {byStatus.pending.length} request{byStatus.pending.length > 1 ? 's' : ''} awaiting approval
             </p>
-          </div>
+          </button>
         )}
 
-        {shown.length === 0 ? (
-          <div className="text-center py-16 text-[#5A5865]">
-            <ShoppingCart size={32} className="mx-auto mb-3 opacity-30" />
-            <p className="text-sm">{tab === 'active' ? 'No active requests' : 'No history yet'}</p>
-            {tab === 'active' && canRequest && (
-              <button onClick={() => setCreating(true)} className="mt-3 text-[#8B5CF6] text-sm hover:text-[#A78BFA] transition-colors">
-                + Submit a request
-              </button>
+        {/* ── Pending Tab ── */}
+        {tab === 'pending' && (
+          <>
+            {isAdmin && byStatus.pending.length > 0 && (
+              <div className="mb-4 px-4 py-3 rounded-xl bg-amber-500/10 border border-amber-500/20 flex items-center gap-2">
+                <Clock size={14} className="text-amber-400 flex-shrink-0" />
+                <p className="text-amber-400 text-sm font-medium">
+                  {byStatus.pending.length} request{byStatus.pending.length > 1 ? 's' : ''} awaiting your approval
+                </p>
+              </div>
             )}
-          </div>
-        ) : (
-          <div className="space-y-2">
-            {shown.map(r => (
-              <RequestCard
-                key={r.id}
-                req={r}
-                isAdmin={isAdmin}
-                currentUserId={currentUserId}
-                currentUserName={currentUserName}
-                onStatusChange={handleStatusChange}
-              />
-            ))}
-          </div>
+            {byStatus.pending.length === 0
+              ? <EmptyState tab="pending" onNew={canRequest ? () => setCreating(true) : undefined} />
+              : (
+                <div className="space-y-2">
+                  {byStatus.pending.map(r => (
+                    <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} />
+                  ))}
+                </div>
+              )}
+          </>
+        )}
+
+        {/* ── Approved Tab — table view with copy ── */}
+        {tab === 'approved' && (
+          <>
+            {byStatus.approved.length === 0
+              ? <EmptyState tab="approved" />
+              : (
+                <>
+                  <div className="flex items-center justify-between mb-3">
+                    <p className="text-[#5A5865] text-xs">{byStatus.approved.length} item{byStatus.approved.length > 1 ? 's' : ''} ready to order</p>
+                    <div className="flex items-center gap-2">
+                      <CopyButton text={approvedCopyText} />
+                    </div>
+                  </div>
+                  <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+                    <div className="overflow-x-auto">
+                      <table className="w-full">
+                        <thead>
+                          <tr className="border-b border-[#2A2A30]">
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Qty</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Unit</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Priority</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Needed By</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Requester</th>
+                            {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Action</th>}
+                          </tr>
+                        </thead>
+                        <tbody>
+                          {byStatus.approved.map(r => (
+                            <ApprovedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} />
+                          ))}
+                        </tbody>
+                      </table>
+                    </div>
+                  </div>
+                </>
+              )}
+          </>
+        )}
+
+        {/* ── Ordered Tab — table view ── */}
+        {tab === 'ordered' && (
+          <>
+            {byStatus.ordered.length === 0
+              ? <EmptyState tab="ordered" />
+              : (
+                <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-[#2A2A30]">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Qty</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Supplier</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Est. Delivery</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Ordered By</th>
+                          {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Action</th>}
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {byStatus.ordered.map(r => (
+                          <OrderedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} />
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+          </>
+        )}
+
+        {/* ── Received Tab ── */}
+        {tab === 'received' && (
+          <>
+            {byStatus.received.length === 0
+              ? <EmptyState tab="received" />
+              : (
+                <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-[#2A2A30]">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Ordered</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Received</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Supplier</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Received By</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Date</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {byStatus.received.map(r => (
+                          <tr key={r.id} className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+                            <td className="px-4 py-3">
+                              <div>
+                                <p className="text-[#F0EEF6] text-sm font-medium">{r.item_name}</p>
+                                {r.brand && <p className="text-[#5A5865] text-xs">{r.brand}</p>}
+                              </div>
+                            </td>
+                            <td className="px-4 py-3 text-[#9896A4] text-sm tabular-nums">{Number(r.adjusted_quantity ?? r.quantity)} {r.unit}</td>
+                            <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">
+                              {r.received_quantity != null ? `${r.received_quantity} ${r.unit}` : '—'}
+                            </td>
+                            <td className="px-4 py-3 text-[#9896A4] text-sm">{r.supplier ?? '—'}</td>
+                            <td className="px-4 py-3 text-[#5A5865] text-xs">{r.receiver?.full_name ?? '—'}</td>
+                            <td className="px-4 py-3 text-[#5A5865] text-xs">{formatDate(r.updated_at)}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+              )}
+          </>
+        )}
+
+        {/* ── History Tab (rejected) ── */}
+        {tab === 'history' && (
+          <>
+            {byStatus.history.length === 0
+              ? <EmptyState tab="history" />
+              : (
+                <div className="space-y-2">
+                  {byStatus.history.map(r => (
+                    <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} />
+                  ))}
+                </div>
+              )}
+          </>
         )}
       </div>
 

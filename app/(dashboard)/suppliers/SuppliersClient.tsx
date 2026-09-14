@@ -1,143 +1,244 @@
 'use client'
-import { useState } from 'react'
+
+import { useState, useEffect } from 'react'
 import { TopBar } from '@/components/layout/TopBar'
-import { Modal } from '@/components/ui/Modal'
-import { useToast } from '@/components/ui/Toast'
-import { EmptyState } from '@/components/ui/EmptyState'
-import { EXPENSE_CATEGORY_LABELS } from '@/lib/utils'
-import { createClient } from '@/lib/supabase/client'
-import { Plus, Truck, Edit2, Phone, Mail } from 'lucide-react'
-import type { Database, ExpenseCategory } from '@/types/database'
+import { Building2, Search, Package, ChevronDown, Phone, Mail, User, X, Loader2 } from 'lucide-react'
 
-type Supplier = Database['public']['Tables']['suppliers']['Row']
-
-const emptyForm = {
-  name: '', contact_person: '', phone: '', email: '', address: '',
-  category: 'alcohol' as ExpenseCategory, payment_terms: '', notes: '',
+interface Supplier {
+  id: string
+  name: string
+  contact_name: string | null
+  contact_phone: string | null
+  contact_email: string | null
+  notes: string | null
 }
 
-const CATEGORIES = Object.entries(EXPENSE_CATEGORY_LABELS) as [ExpenseCategory, string][]
+interface Product {
+  id: string
+  item_name: string
+  brand: string | null
+  category: string | null
+  size: string | null
+  price_rm: number | null
+  trade_offer: string | null
+}
 
-export function SuppliersClient({ initialSuppliers }: { initialSuppliers: Supplier[] }) {
-  const [suppliers, setSuppliers] = useState<Supplier[]>(initialSuppliers)
-  const [modalOpen, setModalOpen] = useState(false)
-  const [form, setForm] = useState(emptyForm)
-  const [editId, setEditId] = useState<string | null>(null)
-  const [loading, setLoading] = useState(false)
-  const { toast } = useToast()
-  const supabase = createClient()
+interface Props {
+  suppliers: Supplier[]
+  supplierCategories: Record<string, string[]>
+  userRole: string
+}
 
-  const openCreate = () => { setEditId(null); setForm(emptyForm); setModalOpen(true) }
-  const openEdit = (s: Supplier) => {
-    setEditId(s.id)
-    setForm({
-      name: s.name, contact_person: s.contact_person ?? '', phone: s.phone ?? '',
-      email: s.email ?? '', address: s.address ?? '',
-      category: (s.category ?? 'alcohol') as ExpenseCategory,
-      payment_terms: s.payment_terms ?? '', notes: s.notes ?? '',
-    })
-    setModalOpen(true)
-  }
+export function SuppliersClient({ suppliers, supplierCategories, userRole }: Props) {
+  const [selectedSupplier, setSelectedSupplier] = useState<Supplier | null>(
+    suppliers.length === 1 ? suppliers[0] : null
+  )
+  const [products, setProducts] = useState<Product[]>([])
+  const [loadingProducts, setLoadingProducts] = useState(false)
+  const [search, setSearch] = useState('')
+  const [categoryFilter, setCategoryFilter] = useState('')
+  const [page, setPage] = useState(0)
+  const PAGE_SIZE = 50
 
-  const handleSubmit = async (e: React.FormEvent) => {
-    e.preventDefault()
-    setLoading(true)
-    const payload = { name: form.name, contact_person: form.contact_person || null, phone: form.phone || null, email: form.email || null, address: form.address || null, category: form.category, payment_terms: form.payment_terms || null, notes: form.notes || null }
+  useEffect(() => {
+    if (!selectedSupplier) return
+    setProducts([])
+    setPage(0)
+    setSearch('')
+    setCategoryFilter('')
+    loadProducts(selectedSupplier.id, '', '', 0)
+  }, [selectedSupplier])
 
-    const { error, data } = editId
-      ? await supabase.from('suppliers').update(payload).eq('id', editId).select().single()
-      : await supabase.from('suppliers').insert(payload).select().single()
-
-    if (error) { toast(error.message, 'error') }
-    else {
-      toast(editId ? 'Supplier updated' : 'Supplier added', 'success')
-      setSuppliers(prev => editId ? prev.map(s => s.id === editId ? data! : s) : [...prev, data!])
-      setModalOpen(false)
+  const loadProducts = async (supplierId: string, searchTerm: string, cat: string, pageNum: number) => {
+    setLoadingProducts(true)
+    try {
+      const params = new URLSearchParams({
+        supplierId,
+        search: searchTerm,
+        category: cat,
+        offset: String(pageNum * PAGE_SIZE),
+        limit: String(PAGE_SIZE),
+      })
+      const res = await fetch(`/api/suppliers/products?${params}`)
+      const data = await res.json()
+      if (pageNum === 0) setProducts(data.products ?? [])
+      else setProducts(p => [...p, ...(data.products ?? [])])
+    } finally {
+      setLoadingProducts(false)
     }
-    setLoading(false)
   }
 
-  const f = (key: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLSelectElement | HTMLTextAreaElement>) =>
-    setForm(prev => ({ ...prev, [key]: e.target.value }))
+  const handleSearch = (q: string) => {
+    setSearch(q)
+    setPage(0)
+    if (selectedSupplier) loadProducts(selectedSupplier.id, q, categoryFilter, 0)
+  }
+
+  const handleCategory = (cat: string) => {
+    setCategoryFilter(cat)
+    setPage(0)
+    if (selectedSupplier) loadProducts(selectedSupplier.id, search, cat, 0)
+  }
+
+  const handleLoadMore = () => {
+    const next = page + 1
+    setPage(next)
+    if (selectedSupplier) loadProducts(selectedSupplier.id, search, categoryFilter, next)
+  }
+
+  const categories = selectedSupplier ? (supplierCategories[selectedSupplier.id] ?? []) : []
 
   return (
-    <div className="space-y-6">
-      <TopBar
-        title="Suppliers"
-        subtitle={`${suppliers.filter(s => s.is_active).length} active suppliers`}
-        actions={
-          <button onClick={openCreate} className="btn-primary flex items-center gap-2">
-            <Plus size={14} /> Add Supplier
-          </button>
-        }
-      />
+    <div className="min-h-screen bg-[#0D0D10]">
+      <TopBar title="Suppliers" subtitle="Product catalogues and pricing" />
 
-      {suppliers.length === 0 ? (
-        <EmptyState icon={<Truck size={40} />} title="No suppliers yet" action={<button onClick={openCreate} className="btn-primary">Add Supplier</button>} />
-      ) : (
-        <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
-          {suppliers.map(s => (
-            <div key={s.id} className="card-hover">
-              <div className="flex items-start justify-between mb-3">
-                <div>
-                  <p className="text-[#F0EEF6] font-semibold text-sm">{s.name}</p>
-                  <span className="badge-purple text-[10px] mt-1">{EXPENSE_CATEGORY_LABELS[s.category ?? 'others']}</span>
+      <div className="p-4 lg:p-6 max-w-7xl mx-auto">
+        {/* Supplier selector (if more than one) */}
+        {suppliers.length > 1 && (
+          <div className="mb-6 grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3 gap-3">
+            {suppliers.map(s => (
+              <button key={s.id} onClick={() => setSelectedSupplier(s)}
+                className={`text-left px-4 py-3 rounded-xl border transition-colors ${
+                  selectedSupplier?.id === s.id
+                    ? 'bg-[#8B5CF6]/15 border-[#8B5CF6]/30 text-[#F0EEF6]'
+                    : 'bg-[#141417] border-[#2A2A30] text-[#9896A4] hover:bg-[#1A1A1E]'
+                }`}>
+                <div className="flex items-center gap-2 mb-1">
+                  <Building2 size={14} className={selectedSupplier?.id === s.id ? 'text-[#8B5CF6]' : 'text-[#5A5865]'} />
+                  <span className="font-medium text-sm">{s.name}</span>
                 </div>
-                <button onClick={() => openEdit(s)} className="btn-ghost p-1.5"><Edit2 size={12} /></button>
-              </div>
-              <div className="space-y-1">
-                {s.contact_person && <p className="text-[#9896A4] text-xs">{s.contact_person}</p>}
-                {s.phone && <div className="flex items-center gap-1.5 text-[#9896A4] text-xs"><Phone size={10} />{s.phone}</div>}
-                {s.email && <div className="flex items-center gap-1.5 text-[#9896A4] text-xs"><Mail size={10} />{s.email}</div>}
-                {s.payment_terms && <p className="text-[#5A5865] text-xs mt-1">Terms: {s.payment_terms}</p>}
-              </div>
-            </div>
-          ))}
-        </div>
-      )}
+                {supplierCategories[s.id] && (
+                  <p className="text-xs text-[#5A5865]">{supplierCategories[s.id].length} categories</p>
+                )}
+              </button>
+            ))}
+          </div>
+        )}
 
-      <Modal isOpen={modalOpen} onClose={() => setModalOpen(false)} title={editId ? 'Edit Supplier' : 'Add Supplier'}>
-        <form onSubmit={handleSubmit} className="space-y-4">
-          <div>
-            <label className="label">Supplier Name</label>
-            <input type="text" value={form.name} onChange={f('name')} className="input" required />
+        {suppliers.length === 0 && (
+          <div className="text-center py-20 text-[#5A5865]">
+            <Building2 size={36} className="mx-auto mb-3 opacity-30" />
+            <p className="text-sm">No suppliers yet</p>
           </div>
-          <div>
-            <label className="label">Category</label>
-            <select value={form.category} onChange={f('category')} className="input">
-              {CATEGORIES.map(([k, l]) => <option key={k} value={k}>{l}</option>)}
-            </select>
-          </div>
-          <div className="grid grid-cols-2 gap-3">
-            <div>
-              <label className="label">Contact Person</label>
-              <input type="text" value={form.contact_person} onChange={f('contact_person')} className="input" />
+        )}
+
+        {selectedSupplier && (
+          <>
+            {/* Supplier info card */}
+            <div className="bg-[#141417] border border-[#2A2A30] rounded-xl px-5 py-4 mb-6">
+              <div className="flex flex-col sm:flex-row sm:items-start sm:justify-between gap-3">
+                <div>
+                  <div className="flex items-center gap-2 mb-1">
+                    <Building2 size={16} className="text-[#8B5CF6]" />
+                    <h2 className="text-[#F0EEF6] font-semibold">{selectedSupplier.name}</h2>
+                  </div>
+                  {selectedSupplier.notes && (
+                    <p className="text-[#5A5865] text-xs mt-1">{selectedSupplier.notes}</p>
+                  )}
+                </div>
+                <div className="flex flex-wrap gap-4 text-xs text-[#9896A4]">
+                  {selectedSupplier.contact_name && (
+                    <span className="flex items-center gap-1"><User size={11} /> {selectedSupplier.contact_name}</span>
+                  )}
+                  {selectedSupplier.contact_phone && (
+                    <span className="flex items-center gap-1"><Phone size={11} /> {selectedSupplier.contact_phone}</span>
+                  )}
+                  {selectedSupplier.contact_email && (
+                    <span className="flex items-center gap-1"><Mail size={11} /> {selectedSupplier.contact_email}</span>
+                  )}
+                </div>
+              </div>
             </div>
-            <div>
-              <label className="label">Phone</label>
-              <input type="tel" value={form.phone} onChange={f('phone')} className="input" />
+
+            {/* Filters */}
+            <div className="flex flex-col sm:flex-row gap-3 mb-4">
+              <div className="relative flex-1">
+                <Search size={13} className="absolute left-3 top-1/2 -translate-y-1/2 text-[#5A5865]" />
+                <input
+                  type="text"
+                  placeholder="Search items, brands…"
+                  value={search}
+                  onChange={e => handleSearch(e.target.value)}
+                  className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg pl-8 pr-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
+                />
+                {search && (
+                  <button onClick={() => handleSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4]">
+                    <X size={12} />
+                  </button>
+                )}
+              </div>
+              {categories.length > 0 && (
+                <div className="relative">
+                  <select value={categoryFilter} onChange={e => handleCategory(e.target.value)}
+                    className="bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#9896A4] text-sm focus:outline-none focus:border-[#8B5CF6] appearance-none pr-8 min-w-[180px]">
+                    <option value="">All categories</option>
+                    {categories.map(c => <option key={c} value={c}>{c}</option>)}
+                  </select>
+                  <ChevronDown size={12} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5A5865] pointer-events-none" />
+                </div>
+              )}
             </div>
-            <div>
-              <label className="label">Email</label>
-              <input type="email" value={form.email} onChange={f('email')} className="input" />
-            </div>
-            <div>
-              <label className="label">Payment Terms</label>
-              <input type="text" value={form.payment_terms} onChange={f('payment_terms')} className="input" placeholder="Net 30" />
-            </div>
-          </div>
-          <div>
-            <label className="label">Address</label>
-            <input type="text" value={form.address} onChange={f('address')} className="input" />
-          </div>
-          <div className="flex gap-3 pt-2">
-            <button type="button" onClick={() => setModalOpen(false)} className="btn-secondary flex-1">Cancel</button>
-            <button type="submit" disabled={loading} className="btn-primary flex-1 disabled:opacity-50">
-              {loading ? 'Saving...' : (editId ? 'Update' : 'Add Supplier')}
-            </button>
-          </div>
-        </form>
-      </Modal>
+
+            {/* Products table */}
+            {loadingProducts && products.length === 0 ? (
+              <div className="flex items-center justify-center py-16 text-[#5A5865]">
+                <Loader2 size={20} className="animate-spin mr-2" /> Loading products…
+              </div>
+            ) : products.length === 0 ? (
+              <div className="text-center py-16 text-[#5A5865]">
+                <Package size={32} className="mx-auto mb-3 opacity-30" />
+                <p className="text-sm">No products found</p>
+              </div>
+            ) : (
+              <>
+                <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden mb-4">
+                  <div className="overflow-x-auto">
+                    <table className="w-full">
+                      <thead>
+                        <tr className="border-b border-[#2A2A30]">
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Brand</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Category</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Size</th>
+                          <th className="px-4 py-3 text-right text-xs font-medium text-[#5A5865]">Price (RM)</th>
+                          <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Trade Offer</th>
+                        </tr>
+                      </thead>
+                      <tbody>
+                        {products.map(p => (
+                          <tr key={p.id} className="border-b border-[#2A2A30] last:border-0 hover:bg-[#1A1A1E] transition-colors">
+                            <td className="px-4 py-2.5 text-[#F0EEF6] text-sm">{p.item_name}</td>
+                            <td className="px-4 py-2.5 text-[#9896A4] text-sm">{p.brand || '—'}</td>
+                            <td className="px-4 py-2.5">
+                              {p.category && (
+                                <span className="text-[10px] px-2 py-0.5 rounded-full bg-[#2A2A30] text-[#9896A4] font-medium">{p.category}</span>
+                              )}
+                            </td>
+                            <td className="px-4 py-2.5 text-[#5A5865] text-xs">{p.size || '—'}</td>
+                            <td className="px-4 py-2.5 text-[#F0EEF6] text-sm font-medium tabular-nums text-right">
+                              {p.price_rm != null ? Number(p.price_rm).toFixed(2) : '—'}
+                            </td>
+                            <td className="px-4 py-2.5 text-[#5A5865] text-xs">{p.trade_offer || '—'}</td>
+                          </tr>
+                        ))}
+                      </tbody>
+                    </table>
+                  </div>
+                </div>
+                {products.length >= PAGE_SIZE && (
+                  <div className="text-center">
+                    <button onClick={handleLoadMore} disabled={loadingProducts}
+                      className="px-5 py-2 rounded-lg bg-[#141417] border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#1A1A1E] transition-colors disabled:opacity-50 flex items-center gap-2 mx-auto">
+                      {loadingProducts ? <Loader2 size={13} className="animate-spin" /> : null}
+                      Load more
+                    </button>
+                  </div>
+                )}
+              </>
+            )}
+          </>
+        )}
+      </div>
     </div>
   )
 }
