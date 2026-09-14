@@ -826,7 +826,39 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
 
   return (
     <>
-      <tr className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+      {/* Mobile card */}
+      <tr className="sm:hidden border-b border-[#2A2A30]">
+        <td colSpan={isAdmin ? 10 : 9} className="px-4 py-3">
+          <div className="flex items-start justify-between gap-2 mb-2">
+            <div className="min-w-0">
+              <p className="text-[#F0EEF6] text-sm font-medium leading-tight">{req.item_name}</p>
+              {req.brand && <p className="text-[#5A5865] text-xs">{req.brand}</p>}
+              {req.urgency === 'urgent' && <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-rose-500/15 text-rose-400 border-rose-500/20 uppercase mt-1 inline-block">Urgent</span>}
+            </div>
+            {req.unit_price != null && (
+              <p className="text-emerald-400 text-sm font-semibold tabular-nums shrink-0">RM {(req.unit_price * effectiveQty).toFixed(2)}</p>
+            )}
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#9896A4] mb-2">
+            {(req.supplier_name ?? req.supplier) && <span>{req.supplier_name ?? req.supplier}</span>}
+            <span>{Number(effectiveQty)} {req.unit}</span>
+            {req.unit_price != null && <span>@ RM {req.unit_price.toFixed(2)}/unit</span>}
+            {req.needed_by && <span>By {formatDate(req.needed_by)}</span>}
+          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={() => setModal(true)}
+                className="flex-1 px-3 py-2 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium text-center">
+                Mark Ordered
+              </button>
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={14} /></button>
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"><Trash2 size={14} /></button>
+            </div>
+          )}
+        </td>
+      </tr>
+      {/* Desktop row */}
+      <tr className="hidden sm:table-row border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
         <td className="px-4 py-3">
           <div>
             <p className="text-[#F0EEF6] text-sm font-medium">{req.item_name}</p>
@@ -848,39 +880,21 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
             ? <span className="text-[10px] font-bold px-1.5 py-0.5 rounded border bg-rose-500/15 text-rose-400 border-rose-500/20 uppercase">Urgent</span>
             : <span className="text-[#5A5865] text-xs">Normal</span>}
         </td>
-        <td className="px-4 py-3 text-[#9896A4] text-xs">
-          {req.needed_by ? formatDate(req.needed_by) : '—'}
-        </td>
+        <td className="px-4 py-3 text-[#9896A4] text-xs">{req.needed_by ? formatDate(req.needed_by) : '—'}</td>
         <td className="px-4 py-3 text-[#5A5865] text-xs">{req.requester?.full_name ?? '—'}</td>
-        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums">
-          {req.unit_price != null ? `RM ${req.unit_price.toFixed(2)}` : '—'}
-        </td>
-        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">
-          {req.unit_price != null ? `RM ${(req.unit_price * effectiveQty).toFixed(2)}` : '—'}
-        </td>
+        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums">{req.unit_price != null ? `RM ${req.unit_price.toFixed(2)}` : '—'}</td>
+        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">{req.unit_price != null ? `RM ${(req.unit_price * effectiveQty).toFixed(2)}` : '—'}</td>
         {isAdmin && (
           <td className="px-4 py-3">
             <div className="flex items-center gap-2">
-              <button onClick={() => setModal(true)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
-                Mark Ordered
-              </button>
-              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
-                <Pencil size={14} />
-              </button>
-              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
-                <Trash2 size={14} />
-              </button>
+              <button onClick={() => setModal(true)} className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">Mark Ordered</button>
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit"><Pencil size={14} /></button>
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete"><Trash2 size={14} /></button>
             </div>
           </td>
         )}
       </tr>
-      {modal && (
-        <OrderModal
-          onClose={() => setModal(false)}
-          onConfirm={(supplier, estDelivery) => { setModal(false); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }}
-        />
-      )}
+      {modal && <OrderModal onClose={() => setModal(false)} onConfirm={(supplier, estDelivery) => { setModal(false); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }} />}
       {editOpen && <EditModal req={req} onClose={() => setEditOpen(false)} onSaved={updated => { setEditOpen(false); onEdit(updated) }} />}
     </>
   )
@@ -901,7 +915,31 @@ function OrderedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
 
   return (
     <>
-      <tr className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+      {/* Mobile card */}
+      <tr className="sm:hidden border-b border-[#2A2A30]">
+        <td colSpan={isAdmin ? 6 : 5} className="px-4 py-3">
+          <div className="flex items-start justify-between gap-2 mb-1">
+            <div className="min-w-0">
+              <p className="text-[#F0EEF6] text-sm font-medium leading-tight">{req.item_name}</p>
+              {req.brand && <p className="text-[#5A5865] text-xs">{req.brand}</p>}
+            </div>
+            <span className="text-[#F0EEF6] text-sm tabular-nums shrink-0">{Number(effectiveQty)} {req.unit}</span>
+          </div>
+          <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#9896A4] mb-2">
+            {req.supplier && <span>{req.supplier}</span>}
+            {req.estimated_delivery && <span>Est. {formatDate(req.estimated_delivery)}</span>}
+          </div>
+          {isAdmin && (
+            <div className="flex items-center gap-2 pt-1">
+              <button onClick={() => setModal(true)} className="flex-1 px-3 py-2 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium text-center">Mark Received</button>
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors"><Pencil size={14} /></button>
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"><Trash2 size={14} /></button>
+            </div>
+          )}
+        </td>
+      </tr>
+      {/* Desktop row */}
+      <tr className="hidden sm:table-row border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
         <td className="px-4 py-3">
           <div>
             <p className="text-[#F0EEF6] text-sm font-medium">{req.item_name}</p>
@@ -910,34 +948,19 @@ function OrderedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
         </td>
         <td className="px-4 py-3 text-[#F0EEF6] text-sm tabular-nums">{Number(effectiveQty)} {req.unit}</td>
         <td className="px-4 py-3 text-[#9896A4] text-sm">{req.supplier ?? '—'}</td>
-        <td className="px-4 py-3 text-[#9896A4] text-xs">
-          {req.estimated_delivery ? formatDate(req.estimated_delivery) : '—'}
-        </td>
+        <td className="px-4 py-3 text-[#9896A4] text-xs">{req.estimated_delivery ? formatDate(req.estimated_delivery) : '—'}</td>
         <td className="px-4 py-3 text-[#5A5865] text-xs">{req.orderer?.full_name ?? '—'}</td>
         {isAdmin && (
           <td className="px-4 py-3">
             <div className="flex items-center gap-2">
-              <button onClick={() => setModal(true)}
-                className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
-                Mark Received
-              </button>
-              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
-                <Pencil size={14} />
-              </button>
-              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
-                <Trash2 size={14} />
-              </button>
+              <button onClick={() => setModal(true)} className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">Mark Received</button>
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit"><Pencil size={14} /></button>
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete"><Trash2 size={14} /></button>
             </div>
           </td>
         )}
       </tr>
-      {modal && (
-        <ReceiveModal
-          req={req}
-          onClose={() => setModal(false)}
-          onConfirm={rcvQty => { setModal(false); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }}
-        />
-      )}
+      {modal && <ReceiveModal req={req} onClose={() => setModal(false)} onConfirm={rcvQty => { setModal(false); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }} />}
       {editOpen && <EditModal req={req} onClose={() => setEditOpen(false)} onSaved={updated => { setEditOpen(false); onEdit(updated) }} />}
     </>
   )
@@ -1161,7 +1184,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                   <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
                     <div className="overflow-x-auto">
                       <table className="w-full">
-                        <thead>
+                        <thead className="hidden sm:table-header-group">
                           <tr className="border-b border-[#2A2A30]">
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Supplier</th>
@@ -1197,7 +1220,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead>
+                      <thead className="hidden sm:table-header-group">
                         <tr className="border-b border-[#2A2A30]">
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Qty</th>
@@ -1228,7 +1251,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="bg-[#141417] border border-[#2A2A30] rounded-xl overflow-hidden">
                   <div className="overflow-x-auto">
                     <table className="w-full">
-                      <thead>
+                      <thead className="hidden sm:table-header-group">
                         <tr className="border-b border-[#2A2A30]">
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Ordered</th>
@@ -1241,28 +1264,51 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                       </thead>
                       <tbody>
                         {byStatus.received.map(r => (
-                          <tr key={r.id} className="border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
-                            <td className="px-4 py-3">
-                              <div>
-                                <p className="text-[#F0EEF6] text-sm font-medium">{r.item_name}</p>
-                                {r.brand && <p className="text-[#5A5865] text-xs">{r.brand}</p>}
-                              </div>
-                            </td>
-                            <td className="px-4 py-3 text-[#9896A4] text-sm tabular-nums">{Number(r.adjusted_quantity ?? r.quantity)} {r.unit}</td>
-                            <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">
-                              {r.received_quantity != null ? `${r.received_quantity} ${r.unit}` : '—'}
-                            </td>
-                            <td className="px-4 py-3 text-[#9896A4] text-sm">{r.supplier ?? '—'}</td>
-                            <td className="px-4 py-3 text-[#5A5865] text-xs">{r.receiver?.full_name ?? '—'}</td>
-                            <td className="px-4 py-3 text-[#5A5865] text-xs">{formatDate(r.updated_at)}</td>
-                            {isAdmin && (
-                              <td className="px-4 py-3">
-                                <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
-                                  <Trash2 size={13} />
-                                </button>
+                          <>
+                            {/* Mobile card */}
+                            <tr key={r.id + '-m'} className="sm:hidden border-b border-[#2A2A30]">
+                              <td colSpan={isAdmin ? 7 : 6} className="px-4 py-3">
+                                <div className="flex items-start justify-between gap-2 mb-1">
+                                  <div className="min-w-0">
+                                    <p className="text-[#F0EEF6] text-sm font-medium leading-tight">{r.item_name}</p>
+                                    {r.brand && <p className="text-[#5A5865] text-xs">{r.brand}</p>}
+                                  </div>
+                                  <span className="text-emerald-400 text-sm tabular-nums font-medium shrink-0">
+                                    {r.received_quantity != null ? `${r.received_quantity} ${r.unit}` : `${Number(r.adjusted_quantity ?? r.quantity)} ${r.unit}`}
+                                  </span>
+                                </div>
+                                <div className="flex flex-wrap gap-x-4 gap-y-1 text-xs text-[#9896A4]">
+                                  {r.supplier && <span>{r.supplier}</span>}
+                                  <span>{formatDate(r.updated_at)}</span>
+                                  {r.receiver?.full_name && <span>by {r.receiver.full_name}</span>}
+                                </div>
+                                {isAdmin && (
+                                  <div className="flex justify-end mt-2">
+                                    <button onClick={() => handleDelete(r.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"><Trash2 size={14} /></button>
+                                  </div>
+                                )}
                               </td>
-                            )}
-                          </tr>
+                            </tr>
+                            {/* Desktop row */}
+                            <tr key={r.id} className="hidden sm:table-row border-b border-[#2A2A30] hover:bg-[#1A1A1E] transition-colors">
+                              <td className="px-4 py-3">
+                                <div>
+                                  <p className="text-[#F0EEF6] text-sm font-medium">{r.item_name}</p>
+                                  {r.brand && <p className="text-[#5A5865] text-xs">{r.brand}</p>}
+                                </div>
+                              </td>
+                              <td className="px-4 py-3 text-[#9896A4] text-sm tabular-nums">{Number(r.adjusted_quantity ?? r.quantity)} {r.unit}</td>
+                              <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">{r.received_quantity != null ? `${r.received_quantity} ${r.unit}` : '—'}</td>
+                              <td className="px-4 py-3 text-[#9896A4] text-sm">{r.supplier ?? '—'}</td>
+                              <td className="px-4 py-3 text-[#5A5865] text-xs">{r.receiver?.full_name ?? '—'}</td>
+                              <td className="px-4 py-3 text-[#5A5865] text-xs">{formatDate(r.updated_at)}</td>
+                              {isAdmin && (
+                                <td className="px-4 py-3">
+                                  <button onClick={() => handleDelete(r.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete"><Trash2 size={14} /></button>
+                                </td>
+                              )}
+                            </tr>
+                          </>
                         ))}
                       </tbody>
                     </table>
