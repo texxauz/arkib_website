@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import {
   Plus, X, ChevronDown, ShoppingCart, Clock, CheckCircle,
   XCircle, Truck, PackageCheck, MessageSquare, Send, CalendarDays,
-  Copy, Check, ClipboardList,
+  Copy, Check, ClipboardList, Trash2,
 } from 'lucide-react'
 
 interface NameRow { full_name: string }
@@ -541,12 +541,13 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
 
 // ── Request Card (used in Pending tab) ────────────────────────────────────────
 
-function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange }: {
+function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange, onDelete }: {
   req: PurchaseRequest
   isAdmin: boolean
   currentUserId: string
   currentUserName: string
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
+  onDelete: (id: string) => void
 }) {
   const [expanded, setExpanded] = useState(false)
   const [modal, setModal] = useState<'reject' | 'approve' | 'order' | 'receive' | null>(null)
@@ -615,7 +616,7 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
             </div>
 
             {isAdmin && (
-              <div className="flex gap-2 pt-1 flex-wrap">
+              <div className="flex gap-2 pt-1 flex-wrap items-center">
                 {req.status === 'pending' && (
                   <>
                     <button onClick={() => setModal('approve')}
@@ -640,6 +641,11 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
                     Mark as Received
                   </button>
                 )}
+                <button onClick={() => onDelete(req.id)}
+                  className="ml-auto p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  title="Delete request">
+                  <Trash2 size={13} />
+                </button>
               </div>
             )}
 
@@ -666,10 +672,11 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
 
 // ── Approved Table Row ────────────────────────────────────────────────────────
 
-function ApprovedRow({ req, isAdmin, onStatusChange }: {
+function ApprovedRow({ req, isAdmin, onStatusChange, onDelete }: {
   req: PurchaseRequest
   isAdmin: boolean
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
+  onDelete: (id: string) => void
 }) {
   const [modal, setModal] = useState(false)
   const effectiveQty = req.adjusted_quantity ?? req.quantity
@@ -707,10 +714,15 @@ function ApprovedRow({ req, isAdmin, onStatusChange }: {
         </td>
         {isAdmin && (
           <td className="px-4 py-3">
-            <button onClick={() => setModal(true)}
-              className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
-              Mark Ordered
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setModal(true)}
+                className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
+                Mark Ordered
+              </button>
+              <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
+                <Trash2 size={13} />
+              </button>
+            </div>
           </td>
         )}
       </tr>
@@ -726,10 +738,11 @@ function ApprovedRow({ req, isAdmin, onStatusChange }: {
 
 // ── Ordered Table Row ─────────────────────────────────────────────────────────
 
-function OrderedRow({ req, isAdmin, onStatusChange }: {
+function OrderedRow({ req, isAdmin, onStatusChange, onDelete }: {
   req: PurchaseRequest
   isAdmin: boolean
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
+  onDelete: (id: string) => void
 }) {
   const [modal, setModal] = useState(false)
   const effectiveQty = req.adjusted_quantity ?? req.quantity
@@ -751,10 +764,15 @@ function OrderedRow({ req, isAdmin, onStatusChange }: {
         <td className="px-4 py-3 text-[#5A5865] text-xs">{req.orderer?.full_name ?? '—'}</td>
         {isAdmin && (
           <td className="px-4 py-3">
-            <button onClick={() => setModal(true)}
-              className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
-              Mark Received
-            </button>
+            <div className="flex items-center gap-2">
+              <button onClick={() => setModal(true)}
+                className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
+                Mark Received
+              </button>
+              <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
+                <Trash2 size={13} />
+              </button>
+            </div>
           </td>
         )}
       </tr>
@@ -829,6 +847,23 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
     ordered:  requests.filter(r => r.status === 'ordered'),
     received: requests.filter(r => r.status === 'received'),
     history:  requests.filter(r => r.status === 'rejected'),
+  }
+
+  const handleDelete = async (id: string) => {
+    if (!confirm('Delete this request? This cannot be undone.')) return
+    try {
+      const res = await fetch('/api/purchase-requests/delete', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ requestId: id }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      setRequests(rs => rs.filter(r => r.id !== id))
+      toast('Request deleted', 'success')
+    } catch (e: any) {
+      toast(e.message ?? 'Failed to delete', 'error')
+    }
   }
 
   const handleStatusChange = async (id: string, status: string, extra?: Record<string, unknown>) => {
@@ -933,7 +968,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="space-y-2">
                   {byStatus.pending.map(r => (
                     <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
-                      currentUserName={currentUserName} onStatusChange={handleStatusChange} />
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} />
                   ))}
                 </div>
               )}
@@ -981,7 +1016,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                         </thead>
                         <tbody>
                           {byStatus.approved.map(r => (
-                            <ApprovedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} />
+                            <ApprovedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} />
                           ))}
                         </tbody>
                       </table>
@@ -1013,7 +1048,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                       </thead>
                       <tbody>
                         {byStatus.ordered.map(r => (
-                          <OrderedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} />
+                          <OrderedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} />
                         ))}
                       </tbody>
                     </table>
@@ -1040,6 +1075,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Supplier</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Received By</th>
                           <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Date</th>
+                          {isAdmin && <th className="px-4 py-3" />}
                         </tr>
                       </thead>
                       <tbody>
@@ -1058,6 +1094,13 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                             <td className="px-4 py-3 text-[#9896A4] text-sm">{r.supplier ?? '—'}</td>
                             <td className="px-4 py-3 text-[#5A5865] text-xs">{r.receiver?.full_name ?? '—'}</td>
                             <td className="px-4 py-3 text-[#5A5865] text-xs">{formatDate(r.updated_at)}</td>
+                            {isAdmin && (
+                              <td className="px-4 py-3">
+                                <button onClick={() => handleDelete(r.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
+                                  <Trash2 size={13} />
+                                </button>
+                              </td>
+                            )}
                           </tr>
                         ))}
                       </tbody>
@@ -1077,7 +1120,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="space-y-2">
                   {byStatus.history.map(r => (
                     <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
-                      currentUserName={currentUserName} onStatusChange={handleStatusChange} />
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} />
                   ))}
                 </div>
               )}
