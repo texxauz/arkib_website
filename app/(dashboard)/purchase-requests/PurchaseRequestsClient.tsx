@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import {
   Plus, X, ChevronDown, ShoppingCart, Clock, CheckCircle,
   XCircle, Truck, PackageCheck, MessageSquare, Send, CalendarDays,
-  Copy, Check, ClipboardList, Trash2,
+  Copy, Check, ClipboardList, Trash2, Pencil,
 } from 'lucide-react'
 
 interface NameRow { full_name: string }
@@ -419,6 +419,138 @@ function ReceiveModal({ req, onClose, onConfirm }: {
   )
 }
 
+// ── Edit Modal ────────────────────────────────────────────────────────────────
+
+function EditModal({ req, onClose, onSaved }: {
+  req: PurchaseRequest
+  onClose: () => void
+  onSaved: (updated: PurchaseRequest) => void
+}) {
+  const { toast } = useToast()
+  const [form, setForm] = useState({
+    itemName: req.item_name,
+    brand: req.brand ?? '',
+    quantity: String(req.adjusted_quantity ?? req.quantity),
+    unit: req.unit,
+    urgency: req.urgency,
+    notes: req.notes ?? '',
+    neededBy: req.needed_by ? req.needed_by.slice(0, 10) : '',
+    unitPrice: req.unit_price != null ? String(req.unit_price) : '',
+  })
+  const [saving, setSaving] = useState(false)
+  const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  const estimatedCost = form.unitPrice && form.quantity
+    ? Number(form.unitPrice) * Number(form.quantity) : null
+
+  const handleSubmit = async (e: React.FormEvent) => {
+    e.preventDefault()
+    setSaving(true)
+    try {
+      const res = await fetch('/api/purchase-requests/edit', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({
+          requestId: req.id,
+          itemName: form.itemName,
+          brand: form.brand || null,
+          quantity: Number(form.quantity),
+          unit: form.unit,
+          urgency: form.urgency,
+          notes: form.notes || null,
+          neededBy: form.neededBy || null,
+          unitPrice: form.unitPrice !== '' ? Number(form.unitPrice) : null,
+        }),
+      })
+      const data = await res.json()
+      if (!res.ok) throw new Error(data.error)
+      toast('Request updated', 'success')
+      onSaved(data.request)
+    } catch (e: any) {
+      toast(e.message ?? 'Failed to save', 'error')
+    } finally {
+      setSaving(false)
+    }
+  }
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+        <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
+          <h2 className="text-[#F0EEF6] font-semibold">Edit Request</h2>
+          <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
+        </div>
+        <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Item Name <span className="text-rose-400">*</span></label>
+            <input type="text" required value={form.itemName} onChange={e => set('itemName', e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Brand <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="text" value={form.brand} onChange={e => set('brand', e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          <div className="grid grid-cols-2 gap-3">
+            <div>
+              <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Quantity <span className="text-rose-400">*</span></label>
+              <input type="number" required min="0.5" step="0.5" value={form.quantity} onChange={e => set('quantity', e.target.value)}
+                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+            </div>
+            <div>
+              <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Unit</label>
+              <select value={form.unit} onChange={e => set('unit', e.target.value)}
+                className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]">
+                {UNITS.map(u => <option key={u} value={u}>{u}</option>)}
+              </select>
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Unit Price (RM) <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="number" min="0" step="0.01" placeholder="e.g. 170.00" value={form.unitPrice} onChange={e => set('unitPrice', e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          {estimatedCost != null && (
+            <div className="flex items-center justify-between bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2">
+              <span className="text-[#5A5865] text-xs">Total cost</span>
+              <span className="text-emerald-400 text-sm font-semibold tabular-nums">RM {estimatedCost.toFixed(2)}</span>
+            </div>
+          )}
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Needed By <span className="text-[#5A5865]">(optional)</span></label>
+            <input type="date" value={form.neededBy} onChange={e => set('neededBy', e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]" />
+          </div>
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Urgency</label>
+            <div className="flex gap-2">
+              {(['normal', 'urgent'] as const).map(u => (
+                <button key={u} type="button" onClick={() => set('urgency', u)}
+                  className={`flex-1 py-2 rounded-lg text-sm font-medium border transition-colors ${form.urgency === u
+                    ? u === 'urgent' ? 'bg-rose-500/15 border-rose-500/40 text-rose-400' : 'bg-[#8B5CF6]/15 border-[#8B5CF6]/40 text-[#A78BFA]'
+                    : 'border-[#2A2A30] text-[#9896A4] hover:bg-[#2A2A30]'}`}>
+                  {u === 'urgent' ? 'Urgent' : 'Normal'}
+                </button>
+              ))}
+            </div>
+          </div>
+          <div>
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Notes <span className="text-[#5A5865]">(optional)</span></label>
+            <textarea value={form.notes} onChange={e => set('notes', e.target.value)}
+              rows={2} className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6] resize-none" />
+          </div>
+          <div className="flex gap-3 pt-1">
+            <button type="button" onClick={onClose} className="flex-1 px-4 py-2 rounded-lg border border-[#2A2A30] text-[#9896A4] text-sm hover:bg-[#2A2A30] transition-colors">Cancel</button>
+            <button type="submit" disabled={saving} className="flex-1 px-4 py-2 rounded-lg bg-[#8B5CF6] text-white text-sm font-medium hover:bg-[#7C3AED] transition-colors disabled:opacity-50">
+              {saving ? 'Saving…' : 'Save Changes'}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  )
+}
+
 // ── Reject Modal ──────────────────────────────────────────────────────────────
 
 function RejectModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (reason: string) => void }) {
@@ -541,16 +673,17 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
 
 // ── Request Card (used in Pending tab) ────────────────────────────────────────
 
-function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange, onDelete }: {
+function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusChange, onDelete, onEdit }: {
   req: PurchaseRequest
   isAdmin: boolean
   currentUserId: string
   currentUserName: string
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
   onDelete: (id: string) => void
+  onEdit: (updated: PurchaseRequest) => void
 }) {
   const [expanded, setExpanded] = useState(false)
-  const [modal, setModal] = useState<'reject' | 'approve' | 'order' | 'receive' | null>(null)
+  const [modal, setModal] = useState<'reject' | 'approve' | 'order' | 'receive' | 'edit' | null>(null)
   const meta = STATUS_META[req.status]
   const effectiveQty = req.adjusted_quantity ?? req.quantity
 
@@ -641,8 +774,13 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
                     Mark as Received
                   </button>
                 )}
+                <button onClick={() => setModal('edit')}
+                  className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors ml-auto"
+                  title="Edit request">
+                  <Pencil size={13} />
+                </button>
                 <button onClick={() => onDelete(req.id)}
-                  className="ml-auto p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
                   title="Delete request">
                   <Trash2 size={13} />
                 </button>
@@ -666,19 +804,24 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
       {modal === 'receive' && (
         <ReceiveModal req={req} onClose={() => setModal(null)} onConfirm={rcvQty => { setModal(null); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }} />
       )}
+      {modal === 'edit' && (
+        <EditModal req={req} onClose={() => setModal(null)} onSaved={updated => { setModal(null); onEdit(updated) }} />
+      )}
     </>
   )
 }
 
 // ── Approved Table Row ────────────────────────────────────────────────────────
 
-function ApprovedRow({ req, isAdmin, onStatusChange, onDelete }: {
+function ApprovedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
   req: PurchaseRequest
   isAdmin: boolean
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
   onDelete: (id: string) => void
+  onEdit: (updated: PurchaseRequest) => void
 }) {
   const [modal, setModal] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const effectiveQty = req.adjusted_quantity ?? req.quantity
 
   return (
@@ -719,6 +862,9 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete }: {
                 className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
                 Mark Ordered
               </button>
+              <button onClick={() => setEditOpen(true)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
+                <Pencil size={13} />
+              </button>
               <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
                 <Trash2 size={13} />
               </button>
@@ -732,19 +878,22 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete }: {
           onConfirm={(supplier, estDelivery) => { setModal(false); onStatusChange(req.id, 'ordered', { supplier, estimatedDelivery: estDelivery }) }}
         />
       )}
+      {editOpen && <EditModal req={req} onClose={() => setEditOpen(false)} onSaved={updated => { setEditOpen(false); onEdit(updated) }} />}
     </>
   )
 }
 
 // ── Ordered Table Row ─────────────────────────────────────────────────────────
 
-function OrderedRow({ req, isAdmin, onStatusChange, onDelete }: {
+function OrderedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
   req: PurchaseRequest
   isAdmin: boolean
   onStatusChange: (id: string, status: string, extra?: Record<string, unknown>) => void
   onDelete: (id: string) => void
+  onEdit: (updated: PurchaseRequest) => void
 }) {
   const [modal, setModal] = useState(false)
+  const [editOpen, setEditOpen] = useState(false)
   const effectiveQty = req.adjusted_quantity ?? req.quantity
 
   return (
@@ -769,6 +918,9 @@ function OrderedRow({ req, isAdmin, onStatusChange, onDelete }: {
                 className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
                 Mark Received
               </button>
+              <button onClick={() => setEditOpen(true)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
+                <Pencil size={13} />
+              </button>
               <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
                 <Trash2 size={13} />
               </button>
@@ -783,6 +935,7 @@ function OrderedRow({ req, isAdmin, onStatusChange, onDelete }: {
           onConfirm={rcvQty => { setModal(false); onStatusChange(req.id, 'received', { receivedQuantity: rcvQty }) }}
         />
       )}
+      {editOpen && <EditModal req={req} onClose={() => setEditOpen(false)} onSaved={updated => { setEditOpen(false); onEdit(updated) }} />}
     </>
   )
 }
@@ -847,6 +1000,10 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
     ordered:  requests.filter(r => r.status === 'ordered'),
     received: requests.filter(r => r.status === 'received'),
     history:  requests.filter(r => r.status === 'rejected'),
+  }
+
+  const handleEdit = (updated: PurchaseRequest) => {
+    setRequests(rs => rs.map(r => r.id === updated.id ? { ...r, ...updated } : r))
   }
 
   const handleDelete = async (id: string) => {
@@ -968,7 +1125,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="space-y-2">
                   {byStatus.pending.map(r => (
                     <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
-                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} />
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} onEdit={handleEdit} />
                   ))}
                 </div>
               )}
@@ -1016,7 +1173,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                         </thead>
                         <tbody>
                           {byStatus.approved.map(r => (
-                            <ApprovedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} />
+                            <ApprovedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} onEdit={handleEdit} />
                           ))}
                         </tbody>
                       </table>
@@ -1048,7 +1205,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                       </thead>
                       <tbody>
                         {byStatus.ordered.map(r => (
-                          <OrderedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} />
+                          <OrderedRow key={r.id} req={r} isAdmin={isAdmin} onStatusChange={handleStatusChange} onDelete={handleDelete} onEdit={handleEdit} />
                         ))}
                       </tbody>
                     </table>
@@ -1120,7 +1277,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                 <div className="space-y-2">
                   {byStatus.history.map(r => (
                     <RequestCard key={r.id} req={r} isAdmin={isAdmin} currentUserId={currentUserId}
-                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} />
+                      currentUserName={currentUserName} onStatusChange={handleStatusChange} onDelete={handleDelete} onEdit={handleEdit} />
                   ))}
                 </div>
               )}
