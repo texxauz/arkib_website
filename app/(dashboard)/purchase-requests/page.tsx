@@ -18,6 +18,7 @@ export default async function PurchaseRequestsPage() {
       id, item_name, brand, quantity, unit, urgency, notes, needed_by,
       status, requested_by, review_notes, adjusted_quantity, supplier,
       estimated_delivery, received_quantity, created_at, updated_at,
+      supplier_product_id, supplier_id, supplier_name, unit_price,
       requester:users!purchase_requests_requested_by_fkey(full_name),
       reviewer:users!purchase_requests_reviewed_by_fkey(full_name),
       orderer:users!purchase_requests_ordered_by_fkey(full_name),

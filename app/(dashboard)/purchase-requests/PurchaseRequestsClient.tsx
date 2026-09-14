@@ -42,6 +42,21 @@ interface PurchaseRequest {
   reviewer: NameRow | null
   orderer: NameRow | null
   receiver: NameRow | null
+  supplier_product_id: string | null
+  supplier_id: string | null
+  supplier_name: string | null
+  unit_price: number | null
+}
+
+interface ProductSearchResult {
+  id: string
+  item_name: string
+  brand: string | null
+  category: string | null
+  size: string | null
+  price_rm: number | null
+  supplier_id: string
+  suppliers: { name: string } | null
 }
 
 interface Props {
@@ -82,9 +97,54 @@ function formatTime(iso: string) {
 
 function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (r: PurchaseRequest) => void }) {
   const { toast } = useToast()
-  const [form, setForm] = useState({ itemName: '', brand: '', quantity: '', unit: 'bottles', urgency: 'normal', notes: '', neededBy: '' })
+  const [form, setForm] = useState({
+    itemName: '', brand: '', quantity: '', unit: 'bottles',
+    urgency: 'normal', notes: '', neededBy: '',
+    supplierProductId: '', supplierId: '', supplierName: '', unitPrice: '',
+  })
   const [saving, setSaving] = useState(false)
+  const [productSearch, setProductSearch] = useState('')
+  const [searchResults, setSearchResults] = useState<ProductSearchResult[]>([])
+  const [searching, setSearching] = useState(false)
+  const [selectedProduct, setSelectedProduct] = useState<ProductSearchResult | null>(null)
   const set = (k: string, v: string) => setForm(f => ({ ...f, [k]: v }))
+
+  useEffect(() => {
+    if (productSearch.length < 2) { setSearchResults([]); return }
+    const t = setTimeout(async () => {
+      setSearching(true)
+      try {
+        const res = await fetch(`/api/purchase-requests/search-products?q=${encodeURIComponent(productSearch)}`)
+        const data = await res.json()
+        setSearchResults(data.products ?? [])
+      } finally { setSearching(false) }
+    }, 300)
+    return () => clearTimeout(t)
+  }, [productSearch])
+
+  const selectProduct = (p: ProductSearchResult) => {
+    setSelectedProduct(p)
+    setProductSearch('')
+    setSearchResults([])
+    set('itemName', p.item_name)
+    set('brand', p.brand ?? '')
+    set('supplierProductId', p.id)
+    set('supplierId', p.supplier_id)
+    set('supplierName', p.suppliers?.name ?? '')
+    set('unitPrice', p.price_rm != null ? String(p.price_rm) : '')
+  }
+
+  const clearProduct = () => {
+    setSelectedProduct(null)
+    set('supplierProductId', '')
+    set('supplierId', '')
+    set('supplierName', '')
+    set('unitPrice', '')
+  }
+
+  const estimatedCost = form.unitPrice && form.quantity
+    ? (parseFloat(form.unitPrice) * parseFloat(form.quantity))
+    : null
 
   const handleSubmit = async (e: React.FormEvent) => {
     e.preventDefault()
@@ -99,6 +159,10 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           quantity: Number(form.quantity), unit: form.unit,
           urgency: form.urgency, notes: form.notes || null,
           neededBy: form.neededBy || null,
+          supplierProductId: form.supplierProductId || null,
+          supplierId: form.supplierId || null,
+          supplierName: form.supplierName || null,
+          unitPrice: form.unitPrice ? parseFloat(form.unitPrice) : null,
         }),
       })
       const data = await res.json()
@@ -120,6 +184,54 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30] transition-colors"><X size={16} className="text-[#9896A4]" /></button>
         </div>
         <form onSubmit={handleSubmit} className="p-5 space-y-4">
+          {/* Catalogue search */}
+          <div className="relative">
+            <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Search Supplier Catalogue</label>
+            <input
+              type="text"
+              placeholder="Type to search products…"
+              value={productSearch}
+              onChange={e => setProductSearch(e.target.value)}
+              className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
+            />
+            {searching && (
+              <p className="text-[#5A5865] text-xs mt-1">Searching…</p>
+            )}
+            {searchResults.length > 0 && (
+              <div className="absolute left-0 right-0 mt-1 bg-[#141417] border border-[#2A2A30] rounded-xl shadow-xl z-10 max-h-64 overflow-y-auto">
+                {searchResults.map(p => (
+                  <div
+                    key={p.id}
+                    onClick={() => selectProduct(p)}
+                    className="px-4 py-3 hover:bg-[#1A1A1E] cursor-pointer flex justify-between items-start gap-2"
+                  >
+                    <div className="min-w-0">
+                      <p className="text-[#F0EEF6] text-sm font-medium truncate">{p.item_name}</p>
+                      <p className="text-[#5A5865] text-xs">
+                        {[p.brand, p.suppliers?.name].filter(Boolean).join(' · ')}
+                      </p>
+                    </div>
+                    {p.price_rm != null && (
+                      <span className="text-emerald-400 text-xs font-medium tabular-nums flex-shrink-0">RM {p.price_rm.toFixed(2)}</span>
+                    )}
+                  </div>
+                ))}
+              </div>
+            )}
+          </div>
+
+          {/* Selected product pill */}
+          {selectedProduct && (
+            <div className="bg-emerald-500/10 border border-emerald-500/20 rounded-lg px-3 py-2 flex items-center justify-between gap-2">
+              <p className="text-emerald-400 text-xs">
+                ✓ From catalogue: <span className="font-medium">{selectedProduct.item_name}</span>
+                {selectedProduct.suppliers?.name && ` · ${selectedProduct.suppliers.name}`}
+                {selectedProduct.price_rm != null && ` · RM ${selectedProduct.price_rm.toFixed(2)}`}
+              </p>
+              <button type="button" onClick={clearProduct} className="text-[#5A5865] text-xs hover:text-[#9896A4] flex-shrink-0">× Clear</button>
+            </div>
+          )}
+
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Item Name <span className="text-rose-400">*</span></label>
             <input type="text" required placeholder="e.g. Johnnie Walker Black Label"
@@ -147,6 +259,9 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
               </select>
             </div>
           </div>
+          {estimatedCost != null && !isNaN(estimatedCost) && (
+            <p className="text-emerald-400 text-xs font-medium">Estimated cost: RM {estimatedCost.toFixed(2)}</p>
+          )}
           <div>
             <label className="text-xs text-[#9896A4] font-medium block mb-1.5">Needed By <span className="text-[#5A5865]">(optional)</span></label>
             <input type="date" value={form.neededBy} onChange={e => set('neededBy', e.target.value)}
@@ -457,6 +572,14 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
                   <span className="text-[#5A5865] ml-1">(requested {Number(req.quantity)})</span>
                 )}
               </span>
+              {req.unit_price != null && (
+                <span className="text-emerald-400 text-xs font-medium tabular-nums">
+                  RM {(req.unit_price * (req.adjusted_quantity ?? req.quantity)).toFixed(2)}
+                </span>
+              )}
+              {req.supplier_name && !req.supplier && (
+                <span className="text-[#5A5865] text-xs">· {req.supplier_name}</span>
+              )}
               <span className={`flex items-center gap-1 text-[10px] font-semibold px-1.5 py-0.5 rounded-full border ${meta.color}`}>
                 {meta.icon} {meta.label}
               </span>
@@ -576,6 +699,12 @@ function ApprovedRow({ req, isAdmin, onStatusChange }: {
           {req.needed_by ? formatDate(req.needed_by) : '—'}
         </td>
         <td className="px-4 py-3 text-[#5A5865] text-xs">{req.requester?.full_name ?? '—'}</td>
+        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums">
+          {req.unit_price != null ? `RM ${req.unit_price.toFixed(2)}` : '—'}
+        </td>
+        <td className="px-4 py-3 text-emerald-400 text-sm tabular-nums font-medium">
+          {req.unit_price != null ? `RM ${(req.unit_price * effectiveQty).toFixed(2)}` : '—'}
+        </td>
         {isAdmin && (
           <td className="px-4 py-3">
             <button onClick={() => setModal(true)}
@@ -730,14 +859,17 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
     const date = new Date().toLocaleDateString('en-MY', { day: 'numeric', month: 'long', year: 'numeric' })
     const lines = items.map((r, i) => {
       const qty = r.adjusted_quantity ?? r.quantity
-      const parts = [`${i + 1}. ${r.item_name}`]
-      if (r.brand) parts[0] += ` (${r.brand})`
-      parts[0] += ` — ${qty} ${r.unit}`
-      if (r.urgency === 'urgent') parts[0] += ' ⚡ URGENT'
-      if (r.needed_by) parts[0] += ` — needed by ${formatDate(r.needed_by)}`
-      return parts[0]
+      let line = `${i + 1}. ${r.item_name}`
+      if (r.brand) line += ` (${r.brand})`
+      line += ` — ${qty} ${r.unit}`
+      if (r.unit_price != null) line += ` — RM ${(r.unit_price * qty).toFixed(2)}`
+      if (r.urgency === 'urgent') line += ' ⚡ URGENT'
+      if (r.needed_by) line += ` — needed by ${formatDate(r.needed_by)}`
+      return line
     })
-    return `ARKIB Stock Order — ${date}\n\n${lines.join('\n')}`
+    const total = items.reduce((sum, r) => r.unit_price ? sum + r.unit_price * (r.adjusted_quantity ?? r.quantity) : sum, 0)
+    const totalLine = total > 0 ? `\nTotal: RM ${total.toFixed(2)}` : ''
+    return `ARKIB Stock Order — ${date}\n\n${lines.join('\n')}${totalLine}`
   })()
 
   return (
@@ -816,7 +948,17 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
               : (
                 <>
                   <div className="flex items-center justify-between mb-3">
-                    <p className="text-[#5A5865] text-xs">{byStatus.approved.length} item{byStatus.approved.length > 1 ? 's' : ''} ready to order</p>
+                    <div>
+                      <p className="text-[#5A5865] text-xs">{byStatus.approved.length} item{byStatus.approved.length > 1 ? 's' : ''} ready to order</p>
+                      {byStatus.approved.some(r => r.unit_price != null) && (
+                        <p className="text-emerald-400 text-sm font-semibold mt-0.5">
+                          Total: RM {byStatus.approved.reduce((sum, r) => {
+                            if (r.unit_price == null) return sum
+                            return sum + r.unit_price * (r.adjusted_quantity ?? r.quantity)
+                          }, 0).toFixed(2)}
+                        </p>
+                      )}
+                    </div>
                     <div className="flex items-center gap-2">
                       <CopyButton text={approvedCopyText} />
                     </div>
@@ -832,6 +974,8 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Priority</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Needed By</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Requester</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Unit Price</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Total</th>
                             {isAdmin && <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Action</th>}
                           </tr>
                         </thead>

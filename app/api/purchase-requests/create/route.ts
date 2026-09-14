@@ -11,7 +11,7 @@ export async function POST(request: NextRequest) {
     return NextResponse.json({ error: 'Forbidden' }, { status: 403 })
   }
 
-  const { itemName, brand, quantity, unit, urgency, notes, neededBy } = await request.json()
+  const { itemName, brand, quantity, unit, urgency, notes, neededBy, supplierProductId, supplierId, supplierName, unitPrice } = await request.json()
   if (!itemName || !quantity || !unit) {
     return NextResponse.json({ error: 'Missing required fields' }, { status: 400 })
   }
@@ -29,6 +29,10 @@ export async function POST(request: NextRequest) {
     requested_by: user.id,
     requested_by_name: profile2?.full_name ?? null,
     status: 'pending',
+    supplier_product_id: supplierProductId ?? null,
+    supplier_id: supplierId ?? null,
+    supplier_name: supplierName ?? null,
+    unit_price: unitPrice ?? null,
   }).select().single()
 
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
