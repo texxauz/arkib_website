@@ -18,7 +18,7 @@ type Expense = Database['public']['Tables']['expenses']['Row']
 type Cocktail = Database['public']['Tables']['cocktails']['Row']
 
 type CocktailVolume = Record<string, { units: number; revenue: number; cogs: number }>
-type RoomDwellEntry = { section: string; avgMinutes: number; minMinutes: number; maxMinutes: number; sessions: number }
+type RoomDwellEntry = { section: string; avgMinutes: number; minMinutes: number; maxMinutes: number; sessions: number; totalRevenue: number }
 
 interface Props {
   initialSales: DailySale[]
@@ -828,18 +828,25 @@ export function ReportsClient({ initialSales, initialExpenses, initialCocktails,
                       style={{ width: `${pct}%` }}
                     />
                   </div>
-                  <div className="flex items-center gap-4 text-xs text-[#5A5865]">
-                    <span>Min: <span className="text-[#9896A4]">{fmtMins(room.minMinutes)}</span></span>
-                    <span>Max: <span className="text-[#9896A4]">{fmtMins(room.maxMinutes)}</span></span>
+                  <div className="flex items-center justify-between">
+                    <div className="flex items-center gap-4 text-xs text-[#5A5865]">
+                      <span>Min: <span className="text-[#9896A4]">{fmtMins(room.minMinutes)}</span></span>
+                      <span>Max: <span className="text-[#9896A4]">{fmtMins(room.maxMinutes)}</span></span>
+                    </div>
+                    <span className="text-emerald-400 text-sm font-semibold tabular-nums">RM {room.totalRevenue.toFixed(2)}</span>
                   </div>
                 </div>
               )
             })}
           </div>
-          <div className="mt-4 pt-3 border-t border-[#2A2A30] grid grid-cols-2 gap-3">
+          <div className="mt-4 pt-3 border-t border-[#2A2A30] grid grid-cols-3 gap-3">
             <div className="bg-[#1A1A1E] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs mb-1">Total Sessions</p>
               <p className="text-[#F0EEF6] font-semibold tabular-nums">{roomDwell.reduce((s, r) => s + r.sessions, 0)}</p>
+            </div>
+            <div className="bg-[#1A1A1E] rounded-lg p-3">
+              <p className="text-[#9896A4] text-xs mb-1">Total Revenue</p>
+              <p className="text-emerald-400 font-semibold tabular-nums">RM {roomDwell.reduce((s, r) => s + r.totalRevenue, 0).toFixed(2)}</p>
             </div>
             <div className="bg-[#1A1A1E] rounded-lg p-3">
               <p className="text-[#9896A4] text-xs mb-1">Overall Avg Stay</p>
