@@ -174,7 +174,7 @@ export function InventoryClient({ ingredients: initial, suppliers }: { ingredien
                     <p className="text-[#F0EEF6] font-medium text-sm">{ing.name}</p>
                     <p className="text-[#5A5865] text-xs capitalize">{ing.category}</p>
                   </div>
-                  <button onClick={() => openEdit(ing)} className="btn-ghost p-1.5"><Edit2 size={12} /></button>
+                  <button onClick={() => openEdit(ing)} className="btn-ghost p-2.5"><Edit2 size={14} /></button>
                 </div>
                 <div className="flex items-center justify-between mt-3">
                   <div>

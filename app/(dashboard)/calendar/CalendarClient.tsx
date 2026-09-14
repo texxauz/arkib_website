@@ -341,7 +341,7 @@ export function CalendarClient({ initialMonth, initialYear }: Props) {
                 {/* Holiday badges */}
                 {dayMarked.filter(d => d.type === 'public_holiday').slice(0, 2).map(h => (
                   <div key={h.name} className="flex items-center justify-between gap-0.5 mb-0.5">
-                    <span className="text-[9px] leading-tight text-rose-300 truncate flex-1">{h.name}</span>
+                    <span className="text-[10px] leading-tight text-rose-300 truncate flex-1">{h.name}</span>
                     <span className="text-[8px] text-rose-400 shrink-0 ml-0.5">
                       {h.country === 'MY' ? '🇲🇾' : h.country === 'SG' ? '🇸🇬' : '🇲🇾🇸🇬'}
                     </span>

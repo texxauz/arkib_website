@@ -406,9 +406,9 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
                       </span>
                       <button
                         onClick={() => openEditIngredient(ing)}
-                        className="opacity-0 group-hover:opacity-100 flex items-center gap-1.5 text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-all px-2 py-1 rounded-lg hover:bg-[#8B5CF6]/10"
+                        className="sm:opacity-0 sm:group-hover:opacity-100 flex items-center gap-1.5 text-xs text-[#8B5CF6] hover:text-[#A78BFA] transition-all px-2.5 py-2 rounded-lg hover:bg-[#8B5CF6]/10"
                       >
-                        <Pencil size={12} /> Edit
+                        <Pencil size={13} /> Edit
                       </button>
                     </div>
                   )
@@ -516,7 +516,7 @@ export function CocktailsClient({ cocktails: initialCocktails, ingredients: init
                     className="input w-20" placeholder="ml"
                   />
                   <button type="button" onClick={() => setRecipe(prev => prev.filter((_, j) => j !== i))}
-                    className="text-[#5A5865] hover:text-rose-400 p-1.5"><Trash2 size={14} /></button>
+                    className="text-[#5A5865] hover:text-rose-400 p-2.5"><Trash2 size={14} /></button>
                 </div>
               ))}
               <button type="button" onClick={() => setRecipe(prev => [...prev, { ingredient_id: '', quantity_ml: '' }])}

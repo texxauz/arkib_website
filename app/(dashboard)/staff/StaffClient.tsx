@@ -116,7 +116,7 @@ export function StaffClient({ initialEmployees }: { initialEmployees: Employee[]
                     <p className="text-[#9896A4] text-xs">{emp.position}</p>
                   </div>
                 </div>
-                <button onClick={() => openEdit(emp)} className="btn-ghost p-1.5"><Edit2 size={12} /></button>
+                <button onClick={() => openEdit(emp)} className="btn-ghost p-2.5"><Edit2 size={14} /></button>
               </div>
               <div className="space-y-1.5">
                 <div className="flex items-center gap-2 text-xs text-[#9896A4]">

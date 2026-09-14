@@ -162,7 +162,7 @@ export function EventsClient({ initialEvents, isAdmin }: { initialEvents: Event[
       )}
 
       {/* Summary cards */}
-      <div className="grid grid-cols-3 gap-3 mb-6">
+      <div className="grid grid-cols-1 sm:grid-cols-3 gap-3 mb-6">
         <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
           <div className="flex items-center gap-2 text-[#8B8A9A] text-xs mb-1"><TrendingUp size={14} /> Revenue</div>
           <div className="text-lg font-semibold text-emerald-400">{fmt(totals.revenue)}</div>
@@ -215,7 +215,7 @@ export function EventsClient({ initialEvents, isAdmin }: { initialEvents: Event[
 
                 {isExpanded && (
                   <div className="px-4 pb-4 border-t border-[#2A2A30] pt-3 space-y-3">
-                    <div className="grid grid-cols-3 gap-3 text-sm">
+                    <div className="grid grid-cols-3 sm:grid-cols-3 gap-3 text-sm">
                       <div>
                         <div className="text-[#8B8A9A] text-xs mb-0.5">Revenue</div>
                         <div className="font-medium text-emerald-400">{fmt(ev.revenue)}</div>

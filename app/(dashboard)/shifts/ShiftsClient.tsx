@@ -278,7 +278,7 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       />
 
       {/* Tabs */}
-      <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit">
+      <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-xl p-1 w-fit max-w-full overflow-x-auto">
         {([
           { key: 'clock', label: 'Clock In/Out', icon: Clock },
           ...(isAdmin ? [{ key: 'history', label: 'History', icon: Calendar }] : []),
@@ -344,11 +344,11 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
           {/* PIN modal */}
           {kioskActive && (
             <div
-              className="fixed inset-0 z-50 flex items-center justify-center bg-black/80 backdrop-blur-sm"
+              className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto bg-black/80 backdrop-blur-sm p-4"
               onClick={e => { if (e.target === e.currentTarget) { setKioskActive(null); setKioskPin('') } }}
             >
               <div
-                className="bg-[#0F0F14] border border-[#2E2E3A] rounded-3xl p-8 w-[300px] flex flex-col items-center shadow-2xl"
+                className="bg-[#0F0F14] border border-[#2E2E3A] rounded-3xl p-8 w-full max-w-[300px] flex flex-col items-center shadow-2xl my-4"
                 style={{ animation: kioskShake ? 'kiosk-shake 0.35s ease' : undefined }}
               >
                 <div className={`w-16 h-16 rounded-full flex items-center justify-center text-2xl font-bold mb-3 ${
@@ -561,10 +561,10 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
                   )}
 
                   {/* Column headers */}
-                  <div className="grid grid-cols-4 gap-2 px-3 py-2 bg-[#0D0D10] rounded-lg mb-2">
+                  <div className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-3 py-2 bg-[#0D0D10] rounded-lg mb-2">
                     <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Date</span>
-                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Clock In</span>
-                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold">Clock Out</span>
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold sm:block hidden">Clock In</span>
+                    <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold sm:block hidden">Clock Out</span>
                     <span className="text-[#5A5865] text-[10px] uppercase tracking-wider font-semibold text-right">{d.isFullTime ? 'Hours' : 'Pay'}</span>
                   </div>
 
@@ -574,15 +574,16 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
                       const h = calcHours(s.clock_in, s.clock_out!)
                       const pay = h * s.hourly_rate
                       return (
-                        <div key={s.id} className="grid grid-cols-4 gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1A1A1E] transition-colors">
+                        <div key={s.id} className="grid grid-cols-2 sm:grid-cols-4 gap-2 px-3 py-2.5 rounded-lg hover:bg-[#1A1A1E] transition-colors">
                           <div>
                             <p className="text-[#F0EEF6] text-sm font-medium">{formatShiftDate(s.clock_in)}</p>
+                            <p className="text-[#5A5865] text-xs sm:hidden">{formatTime(s.clock_in)} – {formatTime(s.clock_out!)}</p>
                             {s.is_public_holiday && <span className="text-amber-400 text-[10px] px-1.5 py-0.5 bg-amber-500/10 rounded mt-0.5 inline-block">Public Holiday</span>}
                           </div>
-                          <div>
+                          <div className="hidden sm:block">
                             <p className="text-[#F0EEF6] text-sm">{formatTime(s.clock_in)}</p>
                           </div>
-                          <div>
+                          <div className="hidden sm:block">
                             <p className="text-[#F0EEF6] text-sm">{formatTime(s.clock_out!)}</p>
                             {!d.isFullTime && <p className="text-[#5A5865] text-xs">{h.toFixed(1)}h × RM{s.hourly_rate}/hr</p>}
                           </div>

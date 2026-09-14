@@ -1542,8 +1542,8 @@ export function BarInventoryClient({
                           <p className="text-[#5A5865] text-xs">{formatCurrency(m.price)}</p>
                         </div>
                         <div className="flex gap-1 flex-shrink-0">
-                          <button onClick={() => openEditMenuItem(m)} className="btn-ghost p-1.5 text-xs">Edit</button>
-                          <button onClick={() => handleDeleteMenuItem(m.id)} className="btn-ghost p-1.5 text-xs text-rose-400">Remove</button>
+                          <button onClick={() => openEditMenuItem(m)} className="btn-ghost p-2 text-xs">Edit</button>
+                          <button onClick={() => handleDeleteMenuItem(m.id)} className="btn-ghost p-2 text-xs text-rose-400">Remove</button>
                         </div>
                       </div>
                     ))}
