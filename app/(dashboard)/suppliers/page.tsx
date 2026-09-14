@@ -12,15 +12,19 @@ export default async function SuppliersPage() {
   const { data: profile } = await supabase.from('users').select('role').eq('id', user.id).single()
   if (!profile || !['owner', 'manager', 'full_timer'].includes(profile.role)) redirect('/')
 
-  const { data: suppliers } = await supabase
+  const { data: suppliers, error: suppErr } = await supabase
     .from('suppliers')
-    .select('id, name, contact_name, contact_phone, contact_email, notes')
+    .select('id, name')
     .order('name')
 
-  const { data: categories } = await supabase
+  console.log('suppliers:', suppliers, 'error:', suppErr)
+
+  const { data: categories, error: catErr } = await supabase
     .from('supplier_products')
     .select('category, supplier_id')
     .order('category')
+
+  console.log('categories count:', categories?.length, 'error:', catErr)
 
   // Build category list per supplier
   const catMap: Record<string, Set<string>> = {}

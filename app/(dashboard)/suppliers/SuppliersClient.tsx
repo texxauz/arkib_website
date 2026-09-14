@@ -7,10 +7,10 @@ import { Building2, Search, Package, ChevronDown, Phone, Mail, User, X, Loader2 
 interface Supplier {
   id: string
   name: string
-  contact_name: string | null
-  contact_phone: string | null
-  contact_email: string | null
-  notes: string | null
+  contact_name?: string | null
+  contact_phone?: string | null
+  contact_email?: string | null
+  notes?: string | null
 }
 
 interface Product {
