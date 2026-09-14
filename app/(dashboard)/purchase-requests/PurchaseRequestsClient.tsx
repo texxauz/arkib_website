@@ -833,6 +833,9 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
             {req.brand && <p className="text-[#5A5865] text-xs">{req.brand}</p>}
           </div>
         </td>
+        <td className="px-4 py-3 text-[#9896A4] text-sm whitespace-nowrap">
+          {req.supplier_name ?? req.supplier ?? <span className="text-[#5A5865]">—</span>}
+        </td>
         <td className="px-4 py-3 text-[#F0EEF6] text-sm tabular-nums">
           {Number(effectiveQty)}
           {req.adjusted_quantity && req.adjusted_quantity !== req.quantity && (
@@ -1161,6 +1164,7 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
                         <thead>
                           <tr className="border-b border-[#2A2A30]">
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Item</th>
+                            <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Supplier</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Qty</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Unit</th>
                             <th className="px-4 py-3 text-left text-xs font-medium text-[#5A5865]">Priority</th>
