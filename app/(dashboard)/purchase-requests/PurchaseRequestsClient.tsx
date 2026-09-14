@@ -177,8 +177,8 @@ function CreateModal({ onClose, onCreated }: { onClose: () => void; onCreated: (
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">New Stock Request</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30] transition-colors"><X size={16} className="text-[#9896A4]" /></button>
@@ -308,8 +308,8 @@ function ApproveModal({ req, onClose, onConfirm }: {
 }) {
   const [adjQty, setAdjQty] = useState(String(req.quantity))
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm overflow-hidden my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">Approve Request</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
@@ -349,8 +349,8 @@ function OrderModal({ onClose, onConfirm }: {
   const [supplier, setSupplier] = useState('')
   const [estDelivery, setEstDelivery] = useState('')
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm overflow-hidden my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">Mark as Ordered</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
@@ -389,8 +389,8 @@ function ReceiveModal({ req, onClose, onConfirm }: {
   const expected = req.adjusted_quantity ?? req.quantity
   const [rcvQty, setRcvQty] = useState(String(expected))
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm overflow-hidden my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">Mark as Received</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
@@ -474,8 +474,8 @@ function EditModal({ req, onClose, onSaved }: {
   }
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md mx-4 overflow-hidden max-h-[90vh] overflow-y-auto">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-md overflow-hidden max-h-[90vh] overflow-y-auto my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">Edit Request</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
@@ -556,8 +556,8 @@ function EditModal({ req, onClose, onSaved }: {
 function RejectModal({ onClose, onConfirm }: { onClose: () => void; onConfirm: (reason: string) => void }) {
   const [reason, setReason] = useState('')
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
-      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm mx-4 overflow-hidden">
+    <div className="fixed inset-0 z-50 flex items-start sm:items-center justify-center overflow-y-auto p-4 bg-black/70" onClick={e => { if (e.target === e.currentTarget) onClose() }}>
+      <div className="bg-[#141417] border border-[#2A2A30] rounded-xl w-full max-w-sm overflow-hidden my-4">
         <div className="flex items-center justify-between px-5 py-4 border-b border-[#2A2A30]">
           <h2 className="text-[#F0EEF6] font-semibold">Reject Request</h2>
           <button onClick={onClose} className="p-1.5 rounded hover:bg-[#2A2A30]"><X size={16} className="text-[#9896A4]" /></button>
@@ -663,8 +663,8 @@ function CommentThread({ requestId, currentUserId, currentUserName }: {
           className="flex-1 bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-1.5 text-[#F0EEF6] text-xs focus:outline-none focus:border-[#8B5CF6]"
         />
         <button onClick={handleSend} disabled={sending || !message.trim()}
-          className="p-2 rounded-lg bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#A78BFA] hover:bg-[#8B5CF6]/25 transition-colors disabled:opacity-40">
-          <Send size={13} />
+          className="p-2.5 rounded-lg bg-[#8B5CF6]/15 border border-[#8B5CF6]/20 text-[#A78BFA] hover:bg-[#8B5CF6]/25 transition-colors disabled:opacity-40">
+          <Send size={14} />
         </button>
       </div>
     </div>
@@ -775,14 +775,14 @@ function RequestCard({ req, isAdmin, currentUserId, currentUserName, onStatusCha
                   </button>
                 )}
                 <button onClick={() => setModal('edit')}
-                  className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors ml-auto"
+                  className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors ml-auto"
                   title="Edit request">
-                  <Pencil size={13} />
+                  <Pencil size={14} />
                 </button>
                 <button onClick={() => onDelete(req.id)}
-                  className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
+                  className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors"
                   title="Delete request">
-                  <Trash2 size={13} />
+                  <Trash2 size={14} />
                 </button>
               </div>
             )}
@@ -865,11 +865,11 @@ function ApprovedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
                 className="px-2.5 py-1 text-xs rounded-lg bg-purple-500/15 text-purple-400 border border-purple-500/20 hover:bg-purple-500/25 transition-colors font-medium whitespace-nowrap">
                 Mark Ordered
               </button>
-              <button onClick={() => setEditOpen(true)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
-                <Pencil size={13} />
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
+                <Pencil size={14} />
               </button>
-              <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
-                <Trash2 size={13} />
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
+                <Trash2 size={14} />
               </button>
             </div>
           </td>
@@ -921,11 +921,11 @@ function OrderedRow({ req, isAdmin, onStatusChange, onDelete, onEdit }: {
                 className="px-2.5 py-1 text-xs rounded-lg bg-emerald-600/15 text-emerald-400 border border-emerald-600/20 hover:bg-emerald-600/25 transition-colors font-medium whitespace-nowrap">
                 Mark Received
               </button>
-              <button onClick={() => setEditOpen(true)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
-                <Pencil size={13} />
+              <button onClick={() => setEditOpen(true)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-[#A78BFA] hover:bg-[#8B5CF6]/10 transition-colors" title="Edit">
+                <Pencil size={14} />
               </button>
-              <button onClick={() => onDelete(req.id)} className="p-1.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
-                <Trash2 size={13} />
+              <button onClick={() => onDelete(req.id)} className="p-2.5 rounded-lg text-[#5A5865] hover:text-rose-400 hover:bg-rose-500/10 transition-colors" title="Delete">
+                <Trash2 size={14} />
               </button>
             </div>
           </td>

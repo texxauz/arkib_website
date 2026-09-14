@@ -224,7 +224,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
     <div className="space-y-3">
       <div>
         <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">Management</p>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           {MGMT_TABS.map(tab => {
             const p = perms[tab.key] ?? 'none'
             return (
@@ -239,7 +239,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       </div>
       <div>
         <p className="text-[#5A5865] text-[10px] font-semibold uppercase tracking-widest mb-1.5">POS System</p>
-        <div className="grid grid-cols-2 gap-1.5">
+        <div className="grid grid-cols-1 sm:grid-cols-2 gap-1.5">
           {POS_TABS.map(tab => {
             const p = perms[tab.key] ?? 'none'
             return (
@@ -312,11 +312,11 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
               {/* Actions */}
               {!isMe && (
                 <div className="flex items-center gap-2 flex-shrink-0">
-                  <button onClick={() => openEdit(m)} className="btn-ghost p-2" title="Edit access">
-                    <Pencil size={14} />
+                  <button onClick={() => openEdit(m)} className="btn-ghost p-2.5" title="Edit access">
+                    <Pencil size={15} />
                   </button>
                   <button onClick={() => handleToggleActive(m)}
-                    className={`p-2 rounded-lg transition-all ${m.is_active ? 'text-[#9896A4] hover:text-rose-400 hover:bg-rose-500/10' : 'text-emerald-400 hover:bg-emerald-500/10'}`}
+                    className={`p-2.5 rounded-lg transition-all ${m.is_active ? 'text-[#9896A4] hover:text-rose-400 hover:bg-rose-500/10' : 'text-emerald-400 hover:bg-emerald-500/10'}`}
                     title={m.is_active ? 'Suspend access' : 'Restore access'}>
                     {m.is_active ? <ToggleRight size={18} /> : <ToggleLeft size={18} />}
                   </button>
@@ -330,7 +330,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       {/* Invite Modal */}
       <Modal isOpen={inviteOpen} onClose={() => setInviteOpen(false)} title="Create Team Account" size="lg">
         <form onSubmit={handleInvite} className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Full Name</label>
               <input className="input" value={inviteForm.full_name} onChange={e => setInviteForm(p => ({ ...p, full_name: e.target.value }))} required placeholder="Ali Hassan" />
@@ -376,7 +376,7 @@ export function TeamClient({ members, currentUserId }: { members: UserProfile[],
       {/* Edit Access Modal */}
       <Modal isOpen={!!editTarget} onClose={() => setEditTarget(null)} title={`Edit Access — ${editTarget?.full_name}`} size="lg">
         <div className="space-y-4">
-          <div className="grid grid-cols-2 gap-3">
+          <div className="grid grid-cols-1 sm:grid-cols-2 gap-3">
             <div>
               <label className="label">Full Name</label>
               <input className="input" value={editName} onChange={e => setEditName(e.target.value)} />

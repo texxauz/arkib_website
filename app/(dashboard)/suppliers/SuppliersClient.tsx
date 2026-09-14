@@ -162,8 +162,8 @@ export function SuppliersClient({ suppliers, supplierCategories, userRole }: Pro
                   className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg pl-8 pr-3 py-2 text-[#F0EEF6] text-sm focus:outline-none focus:border-[#8B5CF6]"
                 />
                 {search && (
-                  <button onClick={() => handleSearch('')} className="absolute right-2.5 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4]">
-                    <X size={12} />
+                  <button onClick={() => handleSearch('')} className="absolute right-2 top-1/2 -translate-y-1/2 text-[#5A5865] hover:text-[#9896A4] p-1">
+                    <X size={14} />
                   </button>
                 )}
               </div>
