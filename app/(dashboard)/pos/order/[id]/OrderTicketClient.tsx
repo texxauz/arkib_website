@@ -168,15 +168,21 @@ export function OrderTicketClient({
 
     const existing = activeItems.find(i => i.item_id === item.id && i.item_type === type)
     if (existing) {
-      // Optimistic update using functional form to avoid stale closure
-      setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: i.quantity + 1 } : i))
       const newQty = existing.quantity + 1
+      // If already sent, reset to pending so it re-appears in the KDS send queue
+      const resetStatus = existing.status !== 'pending'
+      setItems(prev => prev.map(i => i.id === existing.id
+        ? { ...i, quantity: newQty, ...(resetStatus ? { status: 'pending' } : {}) }
+        : i
+      ))
+      const updatePayload: Record<string, unknown> = { quantity: newQty }
+      if (resetStatus) updatePayload.status = 'pending'
       const { error } = await supabase
         .from('pos_order_items')
-        .update({ quantity: newQty })
+        .update(updatePayload)
         .eq('id', existing.id)
       if (error) {
-        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: existing.quantity } : i))
+        setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: existing.quantity, status: existing.status } : i))
         toast(error.message, 'error')
       }
       return
@@ -249,14 +255,20 @@ export function OrderTicketClient({
       setVoidModal({ open: true, itemId, reason: '', itemStatus })
       return
     }
-    // Optimistic update
-    setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: newQty } : i))
+    // If incrementing an already-sent item, reset to pending so it re-enters the KDS queue
+    const resetStatus = delta > 0 && item.status !== 'pending'
+    setItems(prev => prev.map(i => i.id === itemId
+      ? { ...i, quantity: newQty, ...(resetStatus ? { status: 'pending' } : {}) }
+      : i
+    ))
+    const updatePayload: Record<string, unknown> = { quantity: newQty }
+    if (resetStatus) updatePayload.status = 'pending'
     const { error } = await supabase
       .from('pos_order_items')
-      .update({ quantity: newQty })
+      .update(updatePayload)
       .eq('id', itemId)
     if (error) {
-      setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: item.quantity } : i))
+      setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: item.quantity, status: item.status } : i))
       toast(error.message, 'error')
     }
   }, [items, supabase, toast])
