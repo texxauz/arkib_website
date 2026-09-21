@@ -15,7 +15,7 @@ export default async function OrderPage({ params }: { params: Promise<{ id: stri
 
   const [profileResult, orderResult, itemsResult, cocktails, menuItemsRaw, configResult] = await Promise.all([
     supabase.from('users').select('role, full_name, pos_permissions').eq('id', user.id).single(),
-    supabase.from('pos_orders').select('id, table_id, table_name, section, server_name, covers, status, subtotal, discount_amount, service_charge, tax_amount, total, notes, opened_at, customer_name').eq('id', id).single(),
+    supabase.from('pos_orders').select('id, table_id, table_name, section, server_name, covers, status, subtotal, discount_amount, discount_label, service_charge, tax_amount, total, notes, opened_at, customer_name').eq('id', id).single(),
     supabase.from('pos_order_items').select('id, order_id, item_type, item_id, item_name, category, quantity, unit_price, unit_cost, discount, modifiers, notes, status, voided_at').eq('order_id', id).order('created_at'),
     getCachedCocktails(),
     getCachedMenuItems(),

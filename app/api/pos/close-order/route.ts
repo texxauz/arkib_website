@@ -29,7 +29,7 @@ export async function POST(req: NextRequest) {
   //    NEVER trust client-supplied discountAmount / serviceCharge / taxAmount.
   const { data: order, error: orderErr } = await supabase
     .from('pos_orders')
-    .select('id, status, table_id, server_id, opened_at, discount_amount, discount_label, service_charge, tax_amount, shift_id')
+    .select('id, status, table_id, server_id, opened_at, discount_amount, discount_label, service_charge, tax_amount, shift_id, member_id')
     .eq('id', orderId)
     .single()
   if (orderErr || !order) return NextResponse.json({ error: 'Order not found' }, { status: 404 })
@@ -365,6 +365,52 @@ export async function POST(req: NextRequest) {
       payments,
     },
   })
+
+  // 16. Award membership credits — non-blocking, isolated from POS completion.
+  //     Runs only if a member was attached to this order.
+  //     Any failure queues the credit for later retry — never prevents the POS sale returning.
+  if (order.member_id) {
+    try {
+      const { data: settings } = await supabase
+        .from('membership_settings').select('key, value')
+      const settingsMap = Object.fromEntries(
+        (settings ?? []).map((s: { key: string; value: string }) => [s.key, s.value])
+      )
+      const creditsPerRm = parseFloat(settingsMap['credits_per_rm'] ?? '1')
+      const minSpend = parseFloat(settingsMap['min_spend_to_earn'] ?? '0')
+      const creditsToAward = total >= minSpend ? Math.floor(total * creditsPerRm) : 0
+
+      if (creditsToAward > 0) {
+        const { error: rpcErr } = await supabase.rpc('award_membership_credits', {
+          p_member_id:   order.member_id,
+          p_order_id:    orderId,
+          p_credits:     creditsToAward,
+          p_order_total: total,
+          p_staff_id:    user.id,
+        })
+        if (rpcErr) throw new Error(rpcErr.message)
+      }
+    } catch (memberErr: unknown) {
+      const message = memberErr instanceof Error ? memberErr.message : String(memberErr)
+      // Enqueue for retry — UNIQUE on order_id prevents duplicate queue entries
+      const { error: queueErr } = await supabase.from('membership_credit_queue').insert({
+        order_id:        orderId,
+        member_id:       order.member_id,
+        credits_to_award: Math.floor(total),
+        order_total:     total,
+      }).select().limit(1)
+      // If even the queue insert fails, log to audit — manual recovery
+      if (queueErr && queueErr.code !== '23505') { // 23505 = unique_violation (already queued)
+        await supabase.from('pos_audit_log').insert({
+          actor_id:    user.id,
+          event:       'membership.credit_queue_failed',
+          entity_type: 'pos_orders',
+          entity_id:   orderId,
+          payload:     { error: message, queue_error: queueErr.message },
+        })
+      }
+    }
+  }
 
   return NextResponse.json({ success: true, total, subtotal, discountAmount, serviceCharge, taxAmount })
 }
