@@ -10,14 +10,15 @@ import { cn } from '@/lib/utils'
 import {
   Plus, Minus, Trash2, Send, CreditCard, Search,
   ChevronLeft, UtensilsCrossed, Clock, Users, User, ArrowRightLeft, UserRound, WifiOff,
-  Printer, Mail, Wand2,
+  Printer, Mail, Wand2, Phone, Star, X as XIcon, ChevronDown, Gift,
 } from 'lucide-react'
+import { normalizePhone } from '@/lib/phone'
 import { ReceiptPrint, ReceiptData } from './ReceiptPrint'
 
 type PosOrder = {
   id: string; table_id: string | null; table_name: string | null; section: string | null
   server_name: string | null; covers: number; status: string
-  subtotal: number; discount_amount: number; service_charge: number
+  subtotal: number; discount_amount: number; discount_label: string | null; service_charge: number
   tax_amount: number; total: number; notes: string | null; opened_at: string
   customer_name: string | null
 }
@@ -104,6 +105,85 @@ export function OrderTicketClient({
   const [customCategory, setCustomCategory] = useState('cocktail')
   const [customQty, setCustomQty] = useState('1')
   const [customLoading, setCustomLoading] = useState(false)
+
+  // Membership
+  type MemberInfo = { id: string; name: string | null; phone_normalized: string; credits_balance: number; total_spend: number; total_visits: number }
+  type RewardInfo = { id: string; name: string; reward_type: string; reward_value: number; credits_required: number }
+  const [memberPanel, setMemberPanel] = useState(false)
+  const [memberPhone, setMemberPhone] = useState('')
+  const [memberLookupLoading, setMemberLookupLoading] = useState(false)
+  const [memberFound, setMemberFound] = useState<MemberInfo | null>(null)
+  const [memberAttached, setMemberAttached] = useState(false)
+  const [attachedMemberId, setAttachedMemberId] = useState<string | null>(null)
+  const [rewardModal, setRewardModal] = useState(false)
+  const [rewards, setRewards] = useState<RewardInfo[]>([])
+  const [rewardLoading, setRewardLoading] = useState(false)
+
+  async function handleMemberLookup() {
+    if (!memberPhone.trim()) return
+    const normalized = normalizePhone(memberPhone)
+    if (!normalized) { toast('Invalid phone number format', 'error'); return }
+    setMemberLookupLoading(true)
+    try {
+      const res = await fetch(`/api/members/lookup?phone=${encodeURIComponent(memberPhone)}`)
+      const json = await res.json()
+      if (!res.ok) { toast(json.error ?? 'Lookup failed', 'error'); return }
+      setMemberFound(json.member ?? null)
+      if (!json.member) toast('No member found for this number', 'info')
+    } catch {
+      toast('Lookup failed', 'error')
+    } finally {
+      setMemberLookupLoading(false)
+    }
+  }
+
+  async function handleAttachMember(member: MemberInfo) {
+    try {
+      const res = await fetch(`/api/pos/orders/${order.id}/attach-member`, {
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: member.id }),
+      })
+      if (!res.ok) { const j = await res.json(); toast(j.error ?? 'Failed to attach member', 'error'); return }
+      setAttachedMemberId(member.id)
+      setMemberAttached(true)
+      setMemberFound(member)
+      toast(`${member.name ?? 'Member'} attached — ${member.credits_balance.toFixed(0)} credits`, 'success')
+    } catch {
+      toast('Failed to attach member', 'error')
+    }
+  }
+
+  async function handleOpenRewards() {
+    setRewardLoading(true)
+    setRewardModal(true)
+    try {
+      const res = await fetch('/api/membership/rewards')
+      const json = await res.json()
+      setRewards(json.rewards ?? [])
+    } finally {
+      setRewardLoading(false)
+    }
+  }
+
+  async function handleRedeem(reward: RewardInfo) {
+    if (!attachedMemberId) return
+    try {
+      const res = await fetch('/api/membership/redeem', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ memberId: attachedMemberId, rewardId: reward.id, orderId: order.id }),
+      })
+      const json = await res.json()
+      if (!res.ok) { toast(json.error ?? 'Redemption failed', 'error'); return }
+      setCurrentOrder(prev => ({ ...prev, discount_amount: json.discount_amount, discount_label: json.discount_label ?? prev.discount_label }))
+      if (memberFound) setMemberFound(prev => prev ? { ...prev, credits_balance: json.credits_remaining ?? prev.credits_balance } : prev)
+      setRewardModal(false)
+      toast(`${reward.name} applied — RM${json.discount_amount?.toFixed(2)} off`, 'success')
+    } catch {
+      toast('Redemption failed', 'error')
+    }
+  }
 
   useEffect(() => {
     const update = () => setIsOnline(navigator.onLine)
@@ -616,7 +696,7 @@ export function OrderTicketClient({
 
         {/* Quick actions row */}
         {currentOrder.status === 'open' && (
-          <div className="flex gap-2 mb-2">
+          <div className="flex gap-2 mb-2 flex-wrap">
             <button
               onClick={async () => {
                 setMoveModal(true)
@@ -637,6 +717,80 @@ export function OrderTicketClient({
               <UserRound size={11} />
               {currentOrder.customer_name ? currentOrder.customer_name : 'Add Guest'}
             </button>
+            <button
+              onClick={() => setMemberPanel(p => !p)}
+              className={cn(
+                'flex items-center gap-1.5 px-2.5 py-1 rounded-lg text-xs font-medium border transition-colors',
+                memberAttached
+                  ? 'bg-[#8B5CF6]/20 border-[#8B5CF6]/50 text-[#A78BFA]'
+                  : 'bg-[#1A1A1E] border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:border-[#3A3A42]'
+              )}
+            >
+              <Star size={11} />
+              {memberAttached ? `${memberFound?.name ?? 'Member'} · ${memberFound?.credits_balance.toFixed(0)}cr` : 'Member'}
+              <ChevronDown size={10} className={cn('transition-transform', memberPanel && 'rotate-180')} />
+            </button>
+          </div>
+        )}
+
+        {/* Member panel */}
+        {memberPanel && currentOrder.status === 'open' && (
+          <div className="mb-2 p-3 bg-[#0D0D10] border border-[#8B5CF6]/30 rounded-lg space-y-2">
+            {!memberAttached ? (
+              <>
+                <p className="text-xs text-[#9896A4] font-medium">Member Lookup</p>
+                <div className="flex gap-2">
+                  <div className="relative flex-1">
+                    <Phone size={11} className="absolute left-2.5 top-1/2 -translate-y-1/2 text-[#9896A4]" />
+                    <input
+                      value={memberPhone}
+                      onChange={e => setMemberPhone(e.target.value)}
+                      onKeyDown={e => e.key === 'Enter' && handleMemberLookup()}
+                      placeholder="012-345 6789"
+                      className="w-full bg-[#141417] border border-[#2A2A30] rounded-lg pl-7 pr-3 py-1.5 text-xs text-[#F0EEF6] placeholder-[#9896A4] focus:outline-none focus:border-[#8B5CF6]"
+                    />
+                  </div>
+                  <button
+                    onClick={handleMemberLookup}
+                    disabled={memberLookupLoading}
+                    className="px-3 py-1.5 text-xs font-semibold bg-[#8B5CF6] text-white rounded-lg disabled:opacity-50"
+                  >
+                    {memberLookupLoading ? '…' : 'Find'}
+                  </button>
+                </div>
+                {memberFound && (
+                  <div className="flex items-center justify-between bg-[#141417] rounded-lg px-3 py-2">
+                    <div>
+                      <p className="text-[#F0EEF6] text-xs font-medium">{memberFound.name ?? 'Member'}</p>
+                      <p className="text-[#9896A4] text-[10px]">{memberFound.credits_balance.toFixed(0)} credits · {memberFound.total_visits} visits</p>
+                    </div>
+                    <button
+                      onClick={() => handleAttachMember(memberFound)}
+                      className="px-2.5 py-1 text-[10px] font-semibold bg-[#8B5CF6] text-white rounded-lg"
+                    >
+                      Attach
+                    </button>
+                  </div>
+                )}
+              </>
+            ) : (
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-2">
+                  <Star size={13} className="text-[#8B5CF6]" />
+                  <div>
+                    <p className="text-[#F0EEF6] text-xs font-medium">{memberFound?.name ?? 'Member'}</p>
+                    <p className="text-[#9896A4] text-[10px]">{memberFound?.credits_balance.toFixed(0)} credits</p>
+                  </div>
+                </div>
+                <button
+                  onClick={handleOpenRewards}
+                  className="flex items-center gap-1 px-2.5 py-1 text-[10px] font-semibold bg-[#8B5CF6]/20 border border-[#8B5CF6]/40 text-[#A78BFA] rounded-lg hover:bg-[#8B5CF6]/30"
+                >
+                  <Gift size={10} />
+                  Redeem Reward
+                </button>
+              </div>
+            )}
           </div>
         )}
 
@@ -1173,6 +1327,40 @@ export function OrderTicketClient({
               {customLoading ? 'Adding…' : 'Add Item'}
             </button>
           </div>
+        </div>
+      </Modal>
+
+      {/* Reward redemption modal */}
+      <Modal isOpen={rewardModal} onClose={() => setRewardModal(false)} title="Redeem Reward" size="sm">
+        <div className="space-y-3">
+          {rewardLoading ? (
+            <p className="text-center text-sm text-[#9896A4] py-4">Loading rewards…</p>
+          ) : rewards.length === 0 ? (
+            <p className="text-center text-sm text-[#9896A4] py-4">No active rewards available</p>
+          ) : rewards.map(r => {
+            const canAfford = (memberFound?.credits_balance ?? 0) >= r.credits_required
+            return (
+              <div key={r.id} className={cn('flex items-center justify-between p-3 rounded-lg border', canAfford ? 'border-[#2A2A30] bg-[#141417]' : 'border-[#1E1E24] bg-[#0D0D10] opacity-60')}>
+                <div>
+                  <p className="text-[#F0EEF6] text-sm font-medium">{r.name}</p>
+                  <p className="text-[#9896A4] text-xs">
+                    {r.reward_type === 'discount_fixed' ? `RM${r.reward_value} off` : `${r.reward_value}% off`}
+                    {' · '}{r.credits_required.toFixed(0)} credits
+                  </p>
+                </div>
+                <button
+                  onClick={() => handleRedeem(r)}
+                  disabled={!canAfford}
+                  className="px-3 py-1.5 text-xs font-semibold bg-[#8B5CF6] text-white rounded-lg disabled:opacity-40 disabled:cursor-not-allowed hover:bg-[#7C3AED] transition-colors"
+                >
+                  Redeem
+                </button>
+              </div>
+            )
+          })}
+          <p className="text-xs text-[#9896A4] text-center pt-1">
+            Balance: {(memberFound?.credits_balance ?? 0).toFixed(0)} credits
+          </p>
         </div>
       </Modal>
     </div>
