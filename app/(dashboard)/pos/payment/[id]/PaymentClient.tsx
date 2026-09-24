@@ -26,6 +26,8 @@ type PosOrder = {
   covers: number
   opened_at: string
   server_name: string | null
+  discount_amount: number | null
+  discount_label: string | null
 }
 
 type OrderItem = {
@@ -120,7 +122,11 @@ export function PaymentClient({
   const afterDiscount = subtotal - discountAmount
   const serviceChargeAmount = serviceChargeOn ? afterDiscount * (serviceChargePct / 100) : 0
   const taxAmount = taxOn ? (afterDiscount + serviceChargeAmount) * (taxPct / 100) : 0
-  const total = afterDiscount + serviceChargeAmount + taxAmount + tipAmount
+
+  // Member reward discount already persisted to pos_orders by the redeem_reward RPC.
+  // Keep separate from selectedDiscount — do NOT send to close-order as clientDiscountAmount.
+  const memberRewardDiscount = order.discount_amount ?? 0
+  const total = afterDiscount - memberRewardDiscount + serviceChargeAmount + taxAmount + tipAmount
 
   const cashValue = parseFloat(cashEntered || '0')
   const change = payMethod === 'cash' ? cashValue - total : 0
@@ -232,7 +238,7 @@ export function PaymentClient({
         items: items.map(i => ({ ...i, voided_at: null })),
         subtotal: data.subtotal ?? subtotal,
         discountAmount: data.discountAmount ?? discountAmount,
-        discountLabel: selectedDiscount?.name ?? null,
+        discountLabel: selectedDiscount?.name ?? order.discount_label ?? null,
         serviceCharge: data.serviceCharge ?? (serviceChargeAmount + tipAmount),
         taxAmount: data.taxAmount ?? taxAmount,
         total: data.total ?? total,
@@ -476,6 +482,14 @@ export function PaymentClient({
                   value={`− RM ${fmt(discountAmount)}`}
                   muted
                   accent="text-emerald-400"
+                />
+              )}
+              {memberRewardDiscount > 0 && (
+                <TotalRow
+                  label={order.discount_label ?? 'Member Reward'}
+                  value={`− RM ${fmt(memberRewardDiscount)}`}
+                  muted
+                  accent="text-violet-400"
                 />
               )}
               {serviceChargeOn && (
