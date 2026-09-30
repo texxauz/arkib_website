@@ -1075,19 +1075,32 @@ export function PurchaseRequestsClient({ requests: initial, currentUserId, curre
     const items = byStatus.approved
     if (items.length === 0) return ''
     const date = new Date().toLocaleDateString('en-MY', { day: 'numeric', month: 'long', year: 'numeric' })
-    const lines = items.map((r, i) => {
-      const qty = r.adjusted_quantity ?? r.quantity
-      let line = `${i + 1}. ${r.item_name}`
-      if (r.brand) line += ` (${r.brand})`
-      line += ` — ${qty} ${r.unit}`
-      if (r.unit_price != null) line += ` — RM ${(r.unit_price * qty).toFixed(2)}`
-      if (r.urgency === 'urgent') line += ' ⚡ URGENT'
-      if (r.needed_by) line += ` — needed by ${formatDate(r.needed_by)}`
-      return line
-    })
+    // Group by supplier for cleaner copy output
+    const grouped = new Map<string, typeof items>()
+    for (const r of items) {
+      const key = r.supplier_name ?? 'No Supplier'
+      if (!grouped.has(key)) grouped.set(key, [])
+      grouped.get(key)!.push(r)
+    }
+    const sections: string[] = []
+    let n = 1
+    for (const [supplier, group] of grouped) {
+      const supplierHeader = `[${supplier}]`
+      const lines = group.map(r => {
+        const qty = r.adjusted_quantity ?? r.quantity
+        let line = `${n++}. ${r.item_name}`
+        if (r.brand) line += ` (${r.brand})`
+        line += ` — ${qty} ${r.unit}`
+        if (r.unit_price != null) line += ` — RM ${(r.unit_price * qty).toFixed(2)}`
+        if (r.urgency === 'urgent') line += ' ⚡ URGENT'
+        if (r.needed_by) line += ` — needed by ${formatDate(r.needed_by)}`
+        return line
+      })
+      sections.push(`${supplierHeader}\n${lines.join('\n')}`)
+    }
     const total = items.reduce((sum, r) => r.unit_price ? sum + r.unit_price * (r.adjusted_quantity ?? r.quantity) : sum, 0)
     const totalLine = total > 0 ? `\nTotal: RM ${total.toFixed(2)}` : ''
-    return `ARKIB Stock Order — ${date}\n\n${lines.join('\n')}${totalLine}`
+    return `ARKIB Stock Order — ${date}\n\n${sections.join('\n\n')}${totalLine}`
   })()
 
   return (
