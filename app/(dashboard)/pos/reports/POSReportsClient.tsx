@@ -130,7 +130,7 @@ type CocktailSaleRow = {
   category: string | null
 }
 
-type Period = 'today' | 'yesterday' | '7d' | '30d' | '90d' | '6m' | 'mtd' | 'ytd' | 'all'
+type Period = 'today' | 'yesterday' | '7d' | '30d' | '90d' | '6m' | 'mtd' | 'ytd' | 'all' | 'month' | 'custom'
 
 const PERIOD_LABELS: Record<Period, string> = {
   today: 'Today',
@@ -142,11 +142,14 @@ const PERIOD_LABELS: Record<Period, string> = {
   mtd: 'Month to Date',
   ytd: 'Year to Date',
   all: 'All Time',
+  month: 'By Month',
+  custom: 'Custom Range',
 }
 
 const PERIOD_SHORT: Record<Period, string> = {
   today: 'Today', yesterday: 'Yesterday', '7d': '7D', '30d': '30D',
   '90d': '90D', '6m': '6M', mtd: 'MTD', ytd: 'YTD', all: 'All',
+  month: 'Month', custom: 'Custom',
 }
 
 interface PeriodRange {
@@ -161,7 +164,7 @@ function localDateStr(d: Date): string {
   return `${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}-${String(d.getDate()).padStart(2, '0')}`
 }
 
-function getPeriodRange(period: Period, now: Date): PeriodRange {
+function getPeriodRange(period: Period, now: Date, customFrom?: string, customTo?: string, customMonth?: string): PeriodRange {
   const sod = (d: Date) => new Date(d.getFullYear(), d.getMonth(), d.getDate())
   const today = sod(now)
   const tomorrow = new Date(today.getTime() + 86400000)
@@ -203,6 +206,29 @@ function getPeriodRange(period: Period, now: Date): PeriodRange {
     }
     case 'all':
       return { start: null, end: null, prevStart: null, prevEnd: null, compLabel: '' }
+    case 'month': {
+      if (customMonth) {
+        const [y, m] = customMonth.split('-').map(Number)
+        const s = new Date(y, m - 1, 1)
+        const e = new Date(y, m, 1)
+        const ps = new Date(y, m - 2, 1)
+        const pe = s
+        return { start: s, end: e, prevStart: ps, prevEnd: pe, compLabel: 'vs Prev Month' }
+      }
+      // fallback: current month
+      const s = new Date(today.getFullYear(), today.getMonth(), 1)
+      const ps = new Date(today.getFullYear(), today.getMonth() - 1, 1)
+      return { start: s, end: null, prevStart: ps, prevEnd: s, compLabel: 'vs Prev Month' }
+    }
+    case 'custom': {
+      const s = customFrom ? new Date(customFrom + 'T00:00:00') : null
+      const rawEnd = customTo ? new Date(customTo + 'T00:00:00') : null
+      const e = rawEnd ? new Date(rawEnd.getTime() + 86400000) : null
+      const durationMs = s && e ? e.getTime() - s.getTime() : null
+      const ps = s && durationMs ? new Date(s.getTime() - durationMs) : null
+      const pe = s
+      return { start: s, end: e, prevStart: ps, prevEnd: pe, compLabel: 'vs Prior Period' }
+    }
   }
 }
 
@@ -288,13 +314,20 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
   const [itemSearch, setItemSearch] = useState('')
   const [itemSort, setItemSort] = useState<'qty' | 'revenue'>('revenue')
   const [period, setPeriod] = useState<Period>('30d')
+  const [showPicker, setShowPicker] = useState(false)
+  const [customFrom, setCustomFrom] = useState('')
+  const [customTo, setCustomTo] = useState('')
+  const [customMonth, setCustomMonth] = useState(() => {
+    const n = new Date()
+    return `${n.getFullYear()}-${String(n.getMonth() + 1).padStart(2, '0')}`
+  })
   const [chartMetric, setChartMetric] = useState<'revenue' | 'orders' | 'covers' | 'avgSpend'>('revenue')
   const [heatmapMetric, setHeatmapMetric] = useState<'revenue' | 'orders' | 'covers' | 'revPerCover'>('revenue')
 
   // ── Period range ─────────────────────────────────────────────────────────────
   // eslint-disable-next-line react-hooks/exhaustive-deps
-  const now = useMemo(() => new Date(), [period])
-  const range = useMemo(() => getPeriodRange(period, now), [period, now])
+  const now = useMemo(() => new Date(), [period, customFrom, customTo, customMonth])
+  const range = useMemo(() => getPeriodRange(period, now, customFrom, customTo, customMonth), [period, now, customFrom, customTo, customMonth])
 
   // ── Current period filtering ─────────────────────────────────────────────────
   const orders = useMemo(() => allOrders.filter(o => inRange(new Date(o.opened_at), range.start, range.end)), [allOrders, range])
@@ -1112,22 +1145,82 @@ export function POSReportsClient({ orders: allOrders, items: allItems, payments:
     <div className="space-y-6">
       <TopBar
         title="POS Reports"
-        subtitle={PERIOD_LABELS[period]}
+        subtitle={
+          period === 'custom' && customFrom && customTo
+            ? `${customFrom} → ${customTo}`
+            : period === 'month' && customMonth
+              ? new Date(customMonth + '-01').toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })
+              : PERIOD_LABELS[period]
+        }
         actions={
-          <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1 flex-wrap">
-            {(Object.keys(PERIOD_SHORT) as Period[]).map(p => (
+          <div className="flex flex-col gap-2 items-end">
+            <div className="flex gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1 flex-wrap">
+              {(Object.keys(PERIOD_SHORT) as Period[])
+                .filter(p => p !== 'month' && p !== 'custom')
+                .map(p => (
+                  <button
+                    key={p}
+                    onClick={() => { setPeriod(p); setShowPicker(false) }}
+                    className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                      period === p
+                        ? 'bg-[#8B5CF6] text-white'
+                        : 'text-[#9896A4] hover:text-[#F0EEF6]'
+                    }`}
+                  >
+                    {PERIOD_SHORT[p]}
+                  </button>
+                ))}
+              <div className="w-px bg-[#2A2A30] mx-0.5 self-stretch" />
               <button
-                key={p}
-                onClick={() => setPeriod(p)}
+                onClick={() => { setPeriod('month'); setShowPicker(p => p && period === 'month' ? !p : true) }}
                 className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
-                  period === p
-                    ? 'bg-[#8B5CF6] text-white'
-                    : 'text-[#9896A4] hover:text-[#F0EEF6]'
+                  period === 'month' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'
                 }`}
               >
-                {PERIOD_SHORT[p]}
+                Month
               </button>
-            ))}
+              <button
+                onClick={() => { setPeriod('custom'); setShowPicker(p => p && period === 'custom' ? !p : true) }}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${
+                  period === 'custom' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'
+                }`}
+              >
+                Custom
+              </button>
+            </div>
+            {showPicker && period === 'month' && (
+              <div className="flex items-center gap-2 bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-2">
+                <span className="text-xs text-[#9896A4]">Month</span>
+                <input
+                  type="month"
+                  value={customMonth}
+                  max={`${new Date().getFullYear()}-${String(new Date().getMonth() + 1).padStart(2, '0')}`}
+                  onChange={e => setCustomMonth(e.target.value)}
+                  className="bg-transparent text-xs text-[#F0EEF6] border border-[#2A2A30] rounded px-2 py-1 focus:outline-none focus:border-[#8B5CF6]"
+                />
+              </div>
+            )}
+            {showPicker && period === 'custom' && (
+              <div className="flex items-center gap-2 bg-[#141417] border border-[#2A2A30] rounded-lg px-3 py-2 flex-wrap">
+                <span className="text-xs text-[#9896A4]">From</span>
+                <input
+                  type="date"
+                  value={customFrom}
+                  max={customTo || undefined}
+                  onChange={e => setCustomFrom(e.target.value)}
+                  className="bg-transparent text-xs text-[#F0EEF6] border border-[#2A2A30] rounded px-2 py-1 focus:outline-none focus:border-[#8B5CF6]"
+                />
+                <span className="text-xs text-[#9896A4]">To</span>
+                <input
+                  type="date"
+                  value={customTo}
+                  min={customFrom || undefined}
+                  max={new Date().toISOString().slice(0, 10)}
+                  onChange={e => setCustomTo(e.target.value)}
+                  className="bg-transparent text-xs text-[#F0EEF6] border border-[#2A2A30] rounded px-2 py-1 focus:outline-none focus:border-[#8B5CF6]"
+                />
+              </div>
+            )}
           </div>
         }
       />
