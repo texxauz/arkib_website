@@ -63,12 +63,18 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
   const [now, setNow] = useState(new Date())
   const [clockLoading, setClockLoading] = useState(false)
   const [payrollMonth, setPayrollMonth] = useState(CURRENT_MONTH)
+  const [payrollMode, setPayrollMode] = useState<'month' | 'custom'>('month')
+  const [payrollFrom, setPayrollFrom] = useState('')
+  const [payrollTo, setPayrollTo] = useState('')
   const [modalOpen, setModalOpen] = useState(false)
   const [editShift, setEditShift] = useState<Shift | null>(null)
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const [filterStaff, setFilterStaff] = useState('')
+  const [filterMode, setFilterMode] = useState<'month' | 'custom'>('month')
   const [filterMonth, setFilterMonth] = useState('')
+  const [filterFrom, setFilterFrom] = useState('')
+  const [filterTo, setFilterTo] = useState('')
   const [form, setForm] = useState({
     user_id: currentUserId,
     clock_in_date: new Date().toISOString().split('T')[0],
@@ -164,12 +170,26 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
   const filteredHistory = useMemo(() => shifts.filter(s => {
     if (!s.clock_out) return false
     if (filterStaff && s.user_id !== filterStaff) return false
-    if (filterMonth && !s.clock_in.startsWith(filterMonth)) return false
+    if (filterMode === 'month') {
+      if (filterMonth && !s.clock_in.startsWith(filterMonth)) return false
+    } else {
+      if (filterFrom && s.clock_in < filterFrom) return false
+      if (filterTo) {
+        const endOfDay = filterTo + 'T23:59:59'
+        if (s.clock_in > endOfDay) return false
+      }
+    }
     return true
-  }), [shifts, filterStaff, filterMonth])
+  }), [shifts, filterStaff, filterMode, filterMonth, filterFrom, filterTo])
 
   const payrollData = useMemo(() => {
-    const monthShifts = shifts.filter(s => s.clock_out && s.clock_in.startsWith(payrollMonth))
+    const monthShifts = shifts.filter(s => {
+      if (!s.clock_out) return false
+      if (payrollMode === 'month') return s.clock_in.startsWith(payrollMonth)
+      if (payrollFrom && s.clock_in < payrollFrom) return false
+      if (payrollTo && s.clock_in > payrollTo + 'T23:59:59') return false
+      return true
+    })
     const byUser: Record<string, { name: string; shifts: Shift[]; totalHours: number; totalPay: number; isFullTime: boolean; monthlySalary: number | null }> = {}
     for (const s of monthShifts) {
       const name = s.users?.full_name ?? 'Unknown'
@@ -187,7 +207,7 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       if (d.isFullTime) d.totalPay = d.monthlySalary ?? 0
     }
     return Object.entries(byUser).map(([userId, d]) => ({ userId, ...d }))
-  }, [shifts, payrollMonth])
+  }, [shifts, payrollMode, payrollMonth, payrollFrom, payrollTo])
 
   const openAddModal = () => {
     setEditShift(null)
@@ -254,7 +274,8 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
     const blob = new Blob([csv], { type: 'text/csv' })
     const url = URL.createObjectURL(blob)
     const a = document.createElement('a')
-    a.href = url; a.download = `ARKIB_Payroll_${payrollMonth}.csv`; a.click()
+    const label = payrollMode === 'custom' && payrollFrom ? `${payrollFrom}_${payrollTo || 'now'}` : payrollMonth
+    a.href = url; a.download = `ARKIB_Payroll_${label}.csv`; a.click()
     URL.revokeObjectURL(url)
   }
 
@@ -426,16 +447,33 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       {/* ── HISTORY TAB ── */}
       {activeTab === 'history' && isAdmin && (
         <div className="space-y-4">
-          <div className="flex gap-3 flex-wrap">
+          <div className="flex gap-3 flex-wrap items-center">
             {isAdmin && (
               <select value={filterStaff} onChange={e => setFilterStaff(e.target.value)} className="input w-48 text-sm">
                 <option value="">All staff</option>
                 {staffUsers.map(u => <option key={u.id} value={u.id}>{u.full_name}</option>)}
               </select>
             )}
-            <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="input w-40 text-sm" />
-            {(filterStaff || filterMonth) && (
-              <button onClick={() => { setFilterStaff(''); setFilterMonth('') }} className="btn-secondary text-xs">Clear</button>
+            <div className="flex items-center gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1">
+              <button
+                onClick={() => setFilterMode('month')}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${filterMode === 'month' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+              >Month</button>
+              <button
+                onClick={() => setFilterMode('custom')}
+                className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${filterMode === 'custom' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+              >Custom</button>
+            </div>
+            {filterMode === 'month'
+              ? <input type="month" value={filterMonth} onChange={e => setFilterMonth(e.target.value)} className="input w-40 text-sm" />
+              : <div className="flex items-center gap-2">
+                  <input type="date" value={filterFrom} onChange={e => setFilterFrom(e.target.value)} className="input w-36 text-sm" placeholder="From" />
+                  <span className="text-[#5A5865] text-xs">→</span>
+                  <input type="date" value={filterTo} onChange={e => setFilterTo(e.target.value)} className="input w-36 text-sm" placeholder="To" />
+                </div>
+            }
+            {(filterStaff || filterMonth || filterFrom || filterTo) && (
+              <button onClick={() => { setFilterStaff(''); setFilterMonth(''); setFilterFrom(''); setFilterTo('') }} className="btn-secondary text-xs">Clear</button>
             )}
           </div>
 
@@ -477,31 +515,47 @@ export function ShiftsClient({ shifts: initialShifts, currentUserId, currentUser
       {/* ── PAYROLL TAB ── */}
       {activeTab === 'payroll' && isAdmin && (
         <div className="space-y-4">
-          <div className="flex items-center justify-between">
-            <div className="flex items-center gap-2">
-              <button
-                onClick={() => {
-                  const [y, m] = payrollMonth.split('-').map(Number)
-                  const d = new Date(y, m - 2, 1)
-                  setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-                }}
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
-              >
-                <ChevronLeft size={16} />
-              </button>
-              <span className="text-[#F0EEF6] font-medium text-sm min-w-[120px] text-center">
-                {new Date(payrollMonth + '-01').toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })}
-              </span>
-              <button
-                onClick={() => {
-                  const [y, m] = payrollMonth.split('-').map(Number)
-                  const d = new Date(y, m, 1)
-                  setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
-                }}
-                className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
-              >
-                <ChevronRight size={16} />
-              </button>
+          <div className="flex items-center justify-between flex-wrap gap-3">
+            <div className="flex items-center gap-2 flex-wrap">
+              <div className="flex items-center gap-1 bg-[#0D0D0F] border border-[#2A2A30] rounded-lg p-1">
+                <button
+                  onClick={() => setPayrollMode('month')}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${payrollMode === 'month' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+                >Month</button>
+                <button
+                  onClick={() => setPayrollMode('custom')}
+                  className={`px-2.5 py-1 rounded text-xs font-medium transition-all ${payrollMode === 'custom' ? 'bg-[#8B5CF6] text-white' : 'text-[#9896A4] hover:text-[#F0EEF6]'}`}
+                >Custom</button>
+              </div>
+              {payrollMode === 'month' ? (
+                <div className="flex items-center gap-2">
+                  <button
+                    onClick={() => {
+                      const [y, m] = payrollMonth.split('-').map(Number)
+                      const d = new Date(y, m - 2, 1)
+                      setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+                    }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
+                  ><ChevronLeft size={16} /></button>
+                  <span className="text-[#F0EEF6] font-medium text-sm min-w-[120px] text-center">
+                    {new Date(payrollMonth + '-01').toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })}
+                  </span>
+                  <button
+                    onClick={() => {
+                      const [y, m] = payrollMonth.split('-').map(Number)
+                      const d = new Date(y, m, 1)
+                      setPayrollMonth(`${d.getFullYear()}-${String(d.getMonth() + 1).padStart(2, '0')}`)
+                    }}
+                    className="w-8 h-8 flex items-center justify-center rounded-lg border border-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] hover:bg-[#1A1A1E] transition-all"
+                  ><ChevronRight size={16} /></button>
+                </div>
+              ) : (
+                <div className="flex items-center gap-2">
+                  <input type="date" value={payrollFrom} onChange={e => setPayrollFrom(e.target.value)} className="input w-36 text-sm" placeholder="From" />
+                  <span className="text-[#5A5865] text-xs">→</span>
+                  <input type="date" value={payrollTo} onChange={e => setPayrollTo(e.target.value)} className="input w-36 text-sm" placeholder="To" />
+                </div>
+              )}
             </div>
             {payrollData.length > 0 && (
               <button onClick={exportPayroll} className="btn-secondary flex items-center gap-2 text-xs">
