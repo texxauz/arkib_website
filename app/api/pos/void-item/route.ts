@@ -23,9 +23,8 @@ export async function POST(req: NextRequest) {
   const { data: profile } = await supabase.from('users').select('role, full_name').eq('id', user.id).single()
   const isAdmin = profile?.role === 'owner' || profile?.role === 'manager'
 
-  if (!isAdmin && parentOrder?.server_id !== user.id) {
-    return NextResponse.json({ error: 'You can only void items from your own orders' }, { status: 403 })
-  }
+  // Any authenticated staff can void items on any open order.
+  // Sent/made/served items still require a manager PIN (checked below).
 
   // Non-admin voiding a sent/made/served item requires a verified manager PIN, not just a reason string.
   if (!isAdmin && item.status !== 'pending') {
