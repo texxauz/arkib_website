@@ -19,6 +19,7 @@ interface Ingredient { name: string; cost_per_unit: number | null; unit: string 
 
 interface Props {
   isAdmin: boolean
+  canEdit: boolean
   spirits: Spirit[]
   premixes: Premix[]
   menuItems: MenuItem[]
@@ -40,7 +41,7 @@ const TYPE_COLOR: Record<string, string> = {
   restock: 'text-emerald-400',
 }
 
-export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassware: initialGlassware, ingredients }: Props) {
+export function BarWastageClient({ isAdmin, canEdit, spirits, premixes, menuItems, glassware: initialGlassware, ingredients }: Props) {
   const [tab, setTab] = useState<'spoilage' | 'rnd' | 'glassware'>('spoilage')
   const [entries, setEntries] = useState<WastageEntry[]>([])
   const [glassware, setGlassware] = useState<Glassware[]>(initialGlassware)
@@ -314,10 +315,12 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
             {/* Header */}
             <div className="flex items-center justify-between">
               <h2 className="font-semibold text-lg">Glassware Inventory</h2>
-              <button onClick={() => { setGlassForm({ id: '', name: '', quantity: '', cost_per_unit: '', par_level: '', mode: 'add' }); setShowGlassForm(true) }}
-                className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6] hover:bg-[#7B5EA7] rounded-lg text-sm font-medium">
-                <Plus className="w-4 h-4" /> Add Type
-              </button>
+              {canEdit && (
+                <button onClick={() => { setGlassForm({ id: '', name: '', quantity: '', cost_per_unit: '', par_level: '', mode: 'add' }); setShowGlassForm(true) }}
+                  className="flex items-center gap-1.5 px-3 py-1.5 bg-[#8B5CF6] hover:bg-[#7B5EA7] rounded-lg text-sm font-medium">
+                  <Plus className="w-4 h-4" /> Add Type
+                </button>
+              )}
             </div>
 
             {/* Inventory table */}
@@ -377,8 +380,10 @@ export function BarWastageClient({ isAdmin, spirits, premixes, menuItems, glassw
                                 className="px-2 py-1 text-xs rounded bg-emerald-500/10 text-emerald-400 hover:bg-emerald-500/20 font-medium">
                                 <RefreshCw className="w-3 h-3 inline mr-1" />Restock
                               </button>
-                              <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
-                                className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
+                              {canEdit && (
+                                <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
+                                  className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
+                              )}
                               {isAdmin && (
                                 <button onClick={() => deleteGlassType(g.id, g.name)}
                                   className="px-2 py-1 text-xs rounded bg-rose-500/10 text-rose-400 hover:bg-rose-500/20">

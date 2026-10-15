@@ -15,10 +15,21 @@ export async function GET() {
   return NextResponse.json({ glassware: data ?? [] })
 }
 
+async function canEditGlassware(supabase: Awaited<ReturnType<typeof import('@/lib/supabase/server').createClient>>) {
+  const { data: { user } } = await supabase.auth.getUser()
+  if (!user) return false
+  const { data: profile } = await supabase.from('users').select('role, tab_permissions').eq('id', user.id).single()
+  if (!profile) return false
+  if (profile.role === 'owner' || profile.role === 'manager') return true
+  const perms = profile.tab_permissions as Record<string, string> | null
+  return (perms?.['bar-wastage'] ?? 'none') === 'edit'
+}
+
 export async function POST(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!await canEditGlassware(supabase)) return NextResponse.json({ error: 'Edit permission required' }, { status: 403 })
 
   const body = await req.json()
   const { name, quantity, cost_per_unit, par_level } = body
@@ -38,6 +49,7 @@ export async function PUT(req: NextRequest) {
   const supabase = await createClient()
   const { data: { user } } = await supabase.auth.getUser()
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
+  if (!await canEditGlassware(supabase)) return NextResponse.json({ error: 'Edit permission required' }, { status: 403 })
 
   const body = await req.json()
   const { id, name, quantity, cost_per_unit, par_level } = body

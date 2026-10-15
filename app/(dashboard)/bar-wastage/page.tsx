@@ -21,9 +21,12 @@ export default async function BarWastagePage() {
     supabase.from('ingredients').select('name, cost_per_unit, unit').eq('is_active', true),
   ])
 
+  const canEdit = isAdmin || (perms?.['bar-wastage'] ?? 'none') === 'edit'
+
   return (
     <BarWastageClient
       isAdmin={isAdmin}
+      canEdit={canEdit}
       spirits={spirits ?? []}
       premixes={premixes ?? []}
       menuItems={menuItems ?? []}
