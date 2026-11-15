@@ -126,82 +126,104 @@ export function KDSClient({ initialItems }: Props) {
 
   useEffect(() => {
     const supabase = createClient()
+    let itemsChannel: ReturnType<typeof supabase.channel> | null = null
+    let ordersChannel: ReturnType<typeof supabase.channel> | null = null
 
-    const itemsChannel = supabase
-      .channel('kds-order-items')
-      .on(
-        'postgres_changes',
-        { event: '*', schema: 'public', table: 'pos_order_items' },
-        (payload) => {
-          if (payload.eventType === 'INSERT') {
-            const newItem = payload.new as KDSItem
-            if (['pending', 'sent', 'making'].includes(newItem.status)) {
-              // Fetch the related order info
-              supabase
-                .from('pos_order_items')
-                .select('*, pos_orders!inner(table_name, section, covers, status)')
-                .eq('id', newItem.id)
-                .single()
-                .then(({ data }) => {
-                  if (data) {
-                    setItems((prev) => {
-                      if (prev.find((i) => i.id === data.id)) return prev
-                      playNewOrderChime()
-                      return [...prev, data as KDSItem]
-                    })
-                  }
-                })
-            }
-          } else if (payload.eventType === 'UPDATE') {
-            const updated = payload.new as KDSItem
-            if (['pending', 'sent', 'making'].includes(updated.status)) {
-              setItems((prev) => {
-                const exists = prev.find((i) => i.id === updated.id)
-                if (exists) {
-                  return prev.map((i) => i.id === updated.id ? { ...i, ...updated } : i)
-                }
-                // Item not in state yet (e.g. KDS opened after order was placed) — fetch with join and add
+    function subscribe() {
+      // Remove stale channels before re-subscribing
+      if (itemsChannel) supabase.removeChannel(itemsChannel)
+      if (ordersChannel) supabase.removeChannel(ordersChannel)
+
+      itemsChannel = supabase
+        .channel('kds-order-items')
+        .on(
+          'postgres_changes',
+          { event: '*', schema: 'public', table: 'pos_order_items' },
+          (payload) => {
+            if (payload.eventType === 'INSERT') {
+              const newItem = payload.new as KDSItem
+              if (['pending', 'sent', 'making'].includes(newItem.status)) {
                 supabase
                   .from('pos_order_items')
                   .select('*, pos_orders!inner(table_name, section, covers, status)')
-                  .eq('id', updated.id)
+                  .eq('id', newItem.id)
                   .single()
                   .then(({ data }) => {
                     if (data) {
-                      setItems((p) => p.find((i) => i.id === data.id) ? p : [...p, data as KDSItem])
-                      playNewOrderChime()
+                      setItems((prev) => {
+                        if (prev.find((i) => i.id === data.id)) return prev
+                        playNewOrderChime()
+                        return [...prev, data as KDSItem]
+                      })
                     }
                   })
-                return prev
-              })
-            } else {
-              // served or voided — remove from view
-              setItems((prev) => prev.filter((i) => i.id !== updated.id))
+              }
+            } else if (payload.eventType === 'UPDATE') {
+              const updated = payload.new as KDSItem
+              if (['pending', 'sent', 'making'].includes(updated.status)) {
+                setItems((prev) => {
+                  const exists = prev.find((i) => i.id === updated.id)
+                  if (exists) {
+                    return prev.map((i) => i.id === updated.id ? { ...i, ...updated } : i)
+                  }
+                  supabase
+                    .from('pos_order_items')
+                    .select('*, pos_orders!inner(table_name, section, covers, status)')
+                    .eq('id', updated.id)
+                    .single()
+                    .then(({ data }) => {
+                      if (data) {
+                        setItems((p) => p.find((i) => i.id === data.id) ? p : [...p, data as KDSItem])
+                        playNewOrderChime()
+                      }
+                    })
+                  return prev
+                })
+              } else {
+                setItems((prev) => prev.filter((i) => i.id !== updated.id))
+              }
+            } else if (payload.eventType === 'DELETE') {
+              setItems((prev) => prev.filter((i) => i.id !== (payload.old as KDSItem).id))
             }
-          } else if (payload.eventType === 'DELETE') {
-            setItems((prev) => prev.filter((i) => i.id !== (payload.old as KDSItem).id))
           }
-        }
-      )
-      .subscribe()
+        )
+        .subscribe()
 
-    const ordersChannel = supabase
-      .channel('kds-orders')
-      .on(
-        'postgres_changes',
-        { event: 'UPDATE', schema: 'public', table: 'pos_orders' },
-        (payload) => {
-          const updated = payload.new as { id: string; status: string }
-          if (['closed', 'voided', 'cancelled'].includes(updated.status)) {
-            setItems((prev) => prev.filter((i) => i.order_id !== updated.id))
+      ordersChannel = supabase
+        .channel('kds-orders')
+        .on(
+          'postgres_changes',
+          { event: 'UPDATE', schema: 'public', table: 'pos_orders' },
+          (payload) => {
+            const updated = payload.new as { id: string; status: string }
+            if (['closed', 'voided', 'cancelled'].includes(updated.status)) {
+              setItems((prev) => prev.filter((i) => i.order_id !== updated.id))
+            }
           }
-        }
-      )
-      .subscribe()
+        )
+        .subscribe()
+    }
+
+    // Re-fetch current open items and re-subscribe when iPad comes back from background
+    async function handleVisibilityChange() {
+      if (document.visibilityState !== 'visible') return
+      // Refresh state from DB in case we missed events while hidden
+      const { data } = await supabase
+        .from('pos_order_items')
+        .select('*, pos_orders!inner(table_name, section, covers, status)')
+        .in('status', ['pending', 'sent', 'making'])
+        .eq('pos_orders.status', 'open')
+      if (data) setItems(data as KDSItem[])
+      subscribe()
+    }
+
+    subscribe()
+    document.addEventListener('visibilitychange', handleVisibilityChange)
 
     return () => {
-      supabase.removeChannel(itemsChannel)
-      supabase.removeChannel(ordersChannel)
+      document.removeEventListener('visibilitychange', handleVisibilityChange)
+      if (itemsChannel) supabase.removeChannel(itemsChannel)
+      if (ordersChannel) supabase.removeChannel(ordersChannel)
     }
   }, [])
 
