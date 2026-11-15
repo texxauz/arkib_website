@@ -264,6 +264,15 @@ export function OrderTicketClient({
       if (error) {
         setItems(prev => prev.map(i => i.id === existing.id ? { ...i, quantity: existing.quantity, status: existing.status } : i))
         toast(error.message, 'error')
+        return
+      }
+      // Decrement stock by 1 for the extra qty added
+      if (type === 'menu_item') {
+        fetch('/api/pos/stock-adjust', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: item.id, delta: -1 }),
+        })
       }
       return
     }
@@ -286,6 +295,14 @@ export function OrderTicketClient({
     } else if (data) {
       // Realtime INSERT may have already added this item — skip if so
       setItems(prev => prev.find(i => i.id === (data as OrderItem).id) ? prev : [...prev, data as OrderItem])
+      // Decrement stock immediately on add
+      if (type === 'menu_item') {
+        fetch('/api/pos/stock-adjust', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify({ item_id: item.id, delta: -1 }),
+        })
+      }
     }
   }, [activeItems, order.id, userId, supabase, toast])
 
@@ -350,6 +367,15 @@ export function OrderTicketClient({
     if (error) {
       setItems(prev => prev.map(i => i.id === itemId ? { ...i, quantity: item.quantity, status: item.status } : i))
       toast(error.message, 'error')
+      return
+    }
+    // Adjust stock in real-time for menu_items (delta>0 = adding = decrement stock, delta<0 = removing = increment stock)
+    if (item.item_type === 'menu_item' && item.item_id) {
+      fetch('/api/pos/stock-adjust', {
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json' },
+        body: JSON.stringify({ item_id: item.item_id, delta: -delta }),
+      })
     }
   }, [items, supabase, toast])
 

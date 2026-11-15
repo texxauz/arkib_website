@@ -151,31 +151,8 @@ export async function POST(req: NextRequest) {
     }
   }
 
-  // 8. Decrement menu_item stock_qty for items that have a limited stock count.
-  const menuItemDelta = new Map<string, number>()
-  for (const item of items) {
-    if (item.item_type === 'menu_item' && item.item_id) {
-      menuItemDelta.set(item.item_id, (menuItemDelta.get(item.item_id) ?? 0) + item.quantity)
-    }
-  }
-  if (menuItemDelta.size > 0) {
-    const { data: stockRows } = await supabase
-      .from('menu_items').select('id, stock_qty').in('id', [...menuItemDelta.keys()])
-    for (const row of stockRows ?? []) {
-      if (row.stock_qty === null) continue
-      const delta = menuItemDelta.get(row.id) ?? 0
-      const { error: stockErr } = await supabase.from('menu_items')
-        .update({ stock_qty: Math.max(0, row.stock_qty - delta) })
-        .eq('id', row.id)
-      if (stockErr) await supabase.from('pos_audit_log').insert({
-        actor_id: user.id,
-        event: 'inventory.stock_decrement_failed',
-        entity_type: 'menu_items',
-        entity_id: row.id,
-        payload: { order_id: orderId, delta, error: stockErr.message },
-      })
-    }
-  }
+  // 8. Stock is now decremented in real-time when items are added (stock-adjust route)
+  //    and restored when items are voided (void-item route). Nothing to do here.
 
   // 9. Insert cocktail_sales rows (analytics — non-fatal on failure).
   //    order_id is included so reopen-order can cleanly reverse these rows.

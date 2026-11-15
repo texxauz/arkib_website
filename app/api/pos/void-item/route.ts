@@ -59,6 +59,17 @@ export async function POST(req: NextRequest) {
   if (error) return NextResponse.json({ error: error.message }, { status: 500 })
   if (!voided?.length) return NextResponse.json({ error: 'Item was already voided' }, { status: 409 })
 
+  // Return stock immediately when item is voided (real-time stock management)
+  if (item.item_type === 'menu_item' && item.item_id) {
+    const { data: menuItem } = await supabase
+      .from('menu_items').select('id, stock_qty').eq('id', item.item_id).single()
+    if (menuItem && menuItem.stock_qty !== null) {
+      await supabase.from('menu_items')
+        .update({ stock_qty: menuItem.stock_qty + item.quantity })
+        .eq('id', item.item_id)
+    }
+  }
+
   await supabase.from('pos_audit_log').insert({
     actor_id: user.id,
     actor_name: profile?.full_name ?? null,
