@@ -12,7 +12,7 @@ export async function POST(req: NextRequest) {
   if (!user) return NextResponse.json({ error: 'Unauthorised' }, { status: 401 })
 
   const body = await req.json()
-  const { orderId, payments, discountAmount: clientDiscountAmount, discountLabel: clientDiscountLabel } = body
+  const { orderId, payments, discountAmount: clientDiscountAmount, discountLabel: clientDiscountLabel, serviceChargeOn: clientServiceChargeOn } = body
 
   if (!orderId || !Array.isArray(payments) || !payments.length) {
     return NextResponse.json({ error: 'orderId and payments required' }, { status: 400 })
@@ -90,9 +90,17 @@ export async function POST(req: NextRequest) {
     discountLabel = clientDiscountLabel ?? null
   }
 
-  const serviceCharge = order.service_charge ?? 0
+  // Service charge: compute server-side from pos_config so it can never be zero-ed out
+  // by a stale DB value. The client sends `serviceChargeOn` to convey the toggle state;
+  // the percentage and enabled flag are authoritative from pos_config.
+  const scEnabledConfig = cfgMap['service_charge_enabled'] === 'true'
+  const scPct = parseFloat(cfgMap['service_charge_pct'] ?? '10')
+  const afterDiscount = subtotal - discountAmount
+  // Respect the toggle: if the client explicitly turned it off (serviceChargeOn === false), honour that.
+  const scActive = clientServiceChargeOn === false ? false : scEnabledConfig
+  const serviceCharge = scActive ? Math.round(afterDiscount * scPct) / 100 : 0
   const taxAmount = order.tax_amount ?? 0
-  const total = subtotal - discountAmount + serviceCharge + taxAmount
+  const total = afterDiscount + serviceCharge + taxAmount
 
   // 4. Validate payment total — must cover the order total (within 1 cent rounding tolerance).
   const paymentTotal = payments.reduce((s: number, p: { method: string; amount: number }) => s + (p.amount ?? 0), 0)
@@ -102,12 +110,13 @@ export async function POST(req: NextRequest) {
     }, { status: 400 })
   }
 
-  // 5. Business date (MYT UTC+8 with configurable cutoff hour).
+  // 5. Business date + service charge config
   const { data: config } = await supabase
     .from('pos_config')
     .select('key, value')
-    .eq('key', 'business_day_cutoff_hour')
-  const cutoffHour = parseInt(config?.find((c: { key: string; value: string }) => c.key === 'business_day_cutoff_hour')?.value ?? '6', 10)
+    .in('key', ['business_day_cutoff_hour', 'service_charge_enabled', 'service_charge_pct'])
+  const cfgMap = Object.fromEntries((config ?? []).map((c: { key: string; value: string }) => [c.key, c.value]))
+  const cutoffHour = parseInt(cfgMap['business_day_cutoff_hour'] ?? '6', 10)
   const orderDate = getBusinessDate(order.opened_at, cutoffHour)
 
   const now = new Date().toISOString()

@@ -218,6 +218,7 @@ export function PaymentClient({
           payments,
           discountAmount,
           discountLabel: selectedDiscount?.name ?? null,
+          serviceChargeOn,
           serviceCharge: serviceChargeAmount + tipAmount,
           taxAmount,
         }),
