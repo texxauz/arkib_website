@@ -6,7 +6,7 @@ import { useToast } from '@/components/ui/Toast'
 import { EmptyState } from '@/components/ui/EmptyState'
 import { formatCurrency, formatDate, EXPENSE_CATEGORY_LABELS, PAYMENT_METHOD_LABELS } from '@/lib/utils'
 import { createClient } from '@/lib/supabase/client'
-import { Plus, Receipt, Filter, Trash2, CheckCircle2 } from 'lucide-react'
+import { Plus, Receipt, Filter, Trash2, CheckCircle2, ChevronLeft, ChevronRight } from 'lucide-react'
 import type { Database, ExpenseCategory, PaymentMethod } from '@/types/database'
 
 type Expense = Database['public']['Tables']['expenses']['Row']
@@ -52,24 +52,42 @@ export function ExpensesClient({
   const [loading, setLoading] = useState(false)
   const [filterCategory, setFilterCategory] = useState<string>('all')
   const [filterPaid, setFilterPaid] = useState<'all' | 'paid' | 'unpaid'>('all')
+  const [filterMonth, setFilterMonth] = useState<string>(() => new Date().toISOString().slice(0, 7)) // 'YYYY-MM'
   const [deleteId, setDeleteId] = useState<string | null>(null)
   const [deleteLoading, setDeleteLoading] = useState(false)
   const { toast } = useToast()
   const supabase = createClient()
 
+  const monthExpenses = useMemo(() =>
+    expenses.filter(e => e.date.slice(0, 7) === filterMonth),
+    [expenses, filterMonth]
+  )
+
   const filtered = useMemo(() =>
-    expenses.filter(e => {
+    monthExpenses.filter(e => {
       if (filterCategory !== 'all' && e.category !== filterCategory) return false
       if (filterPaid === 'paid' && !e.is_paid) return false
       if (filterPaid === 'unpaid' && e.is_paid) return false
       return true
     }),
-    [expenses, filterCategory, filterPaid]
+    [monthExpenses, filterCategory, filterPaid]
   )
 
   const totalFiltered = filtered.reduce((sum, e) => sum + e.amount, 0)
-  const totalPaid = expenses.filter(e => e.is_paid).reduce((sum, e) => sum + e.amount, 0)
-  const totalOutstanding = expenses.filter(e => !e.is_paid).reduce((sum, e) => sum + e.amount, 0)
+  const totalPaid = monthExpenses.filter(e => e.is_paid).reduce((sum, e) => sum + e.amount, 0)
+  const totalOutstanding = monthExpenses.filter(e => !e.is_paid).reduce((sum, e) => sum + e.amount, 0)
+
+  const prevMonth = () => setFilterMonth(m => {
+    const d = new Date(m + '-01')
+    d.setMonth(d.getMonth() - 1)
+    return d.toISOString().slice(0, 7)
+  })
+  const nextMonth = () => setFilterMonth(m => {
+    const d = new Date(m + '-01')
+    d.setMonth(d.getMonth() + 1)
+    return d.toISOString().slice(0, 7)
+  })
+  const monthLabel = new Date(filterMonth + '-01').toLocaleDateString('en-MY', { month: 'long', year: 'numeric' })
 
   const handleTogglePaid = async (expense: Expense) => {
     const newPaid = !expense.is_paid
@@ -80,11 +98,11 @@ export function ExpensesClient({
   }
 
   const byCategory = useMemo(() =>
-    expenses.reduce((acc: Record<string, number>, e) => {
+    monthExpenses.reduce((acc: Record<string, number>, e) => {
       acc[e.category] = (acc[e.category] ?? 0) + e.amount
       return acc
     }, {}),
-    [expenses]
+    [monthExpenses]
   )
 
   const openCreate = () => { setEditId(null); setForm(emptyForm); setModalOpen(true) }
@@ -167,6 +185,24 @@ export function ExpensesClient({
         }
       />
 
+      {/* Month navigator */}
+      <div className="flex items-center justify-between bg-[#141417] border border-[#2A2A30] rounded-xl px-4 py-3">
+        <button onClick={prevMonth} className="p-1.5 rounded-lg hover:bg-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all">
+          <ChevronLeft size={18} />
+        </button>
+        <div className="text-center">
+          <p className="text-[#F0EEF6] font-semibold">{monthLabel}</p>
+          <p className="text-[#5A5865] text-xs">{monthExpenses.length} expense{monthExpenses.length !== 1 ? 's' : ''} · {formatCurrency(monthExpenses.reduce((s, e) => s + e.amount, 0))}</p>
+        </div>
+        <button
+          onClick={nextMonth}
+          disabled={filterMonth >= new Date().toISOString().slice(0, 7)}
+          className="p-1.5 rounded-lg hover:bg-[#2A2A30] text-[#9896A4] hover:text-[#F0EEF6] transition-all disabled:opacity-30 disabled:cursor-not-allowed"
+        >
+          <ChevronRight size={18} />
+        </button>
+      </div>
+
       {/* Category summary */}
       <div className="grid grid-cols-2 sm:grid-cols-3 lg:grid-cols-6 gap-2">
         {Object.entries(byCategory).sort((a, b) => b[1] - a[1]).slice(0, 6).map(([cat, amt]) => (
@@ -184,7 +220,7 @@ export function ExpensesClient({
       {/* Paid/Outstanding summary */}
       <div className="grid grid-cols-3 gap-3">
         {([
-          { label: 'Total Expenses', value: expenses.reduce((s, e) => s + e.amount, 0), color: 'text-[#F0EEF6]' },
+          { label: 'Total Expenses', value: monthExpenses.reduce((s, e) => s + e.amount, 0), color: 'text-[#F0EEF6]' },
           { label: 'Paid', value: totalPaid, color: 'text-emerald-400' },
           { label: 'Outstanding', value: totalOutstanding, color: 'text-rose-400' },
         ]).map(({ label, value, color }) => (
@@ -206,7 +242,7 @@ export function ExpensesClient({
                   : 'bg-[#8B5CF6]/20 text-[#A78BFA] border-[#8B5CF6]/30'
                 : 'bg-transparent text-[#5A5865] border-[#2A2A30] hover:text-[#9896A4]'
             }`}>
-            {v === 'all' ? `All (${expenses.length})` : v === 'paid' ? `Paid (${expenses.filter(e => e.is_paid).length})` : `Unpaid (${expenses.filter(e => !e.is_paid).length})`}
+            {v === 'all' ? `All (${monthExpenses.length})` : v === 'paid' ? `Paid (${monthExpenses.filter(e => e.is_paid).length})` : `Unpaid (${monthExpenses.filter(e => !e.is_paid).length})`}
           </button>
         ))}
       </div>
