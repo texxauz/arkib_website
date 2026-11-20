@@ -194,6 +194,27 @@ export function ReservationClient({
         .from('pos_reservations').update({ status }).eq('id', id).select().single()
       if (error) throw error
       setReservations(prev => prev.map(r => r.id === id ? (data as Reservation) : r))
+
+      // When completing a reservation, void the linked POS order if it has no items.
+      // This prevents orphaned open orders from blocking shift close.
+      if (status === 'completed' && data?.order_id) {
+        const { data: items } = await supabase
+          .from('pos_order_items')
+          .select('id')
+          .eq('order_id', data.order_id)
+          .is('voided_at', null)
+          .limit(1)
+        if (!items?.length) {
+          // Empty order — void it silently so it doesn't block shift close
+          await supabase
+            .from('pos_orders')
+            .update({ status: 'voided', closed_at: new Date().toISOString() })
+            .eq('id', data.order_id)
+            .eq('status', 'open')
+        }
+        // If the order has items, it means they ordered something — staff should
+        // close the order properly via the POS. We leave it open in that case.
+      }
     } catch (err: unknown) {
       toast(err instanceof Error ? err.message : 'Failed to update status', 'error')
     }
