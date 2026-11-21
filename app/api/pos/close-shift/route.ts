@@ -30,10 +30,33 @@ export async function POST(req: NextRequest) {
   ])
   const openOrders = [...(shiftOpenOrders ?? []), ...(nullShiftOpenOrders ?? [])]
   if (openOrders.length > 0) {
-    const names = openOrders.map(o => o.table_name ?? 'Walk-in').join(', ')
-    return NextResponse.json({
-      error: `Cannot close shift — ${openOrders.length} table${openOrders.length > 1 ? 's' : ''} still open: ${names}`,
-    }, { status: 400 })
+    // Auto-void orders that have no active (non-voided) items — these are orphaned
+    // reservation placeholder orders that were never used.
+    const now_check = new Date().toISOString()
+    const reallyOpen: typeof openOrders = []
+    for (const order of openOrders) {
+      const { data: activeItems } = await supabase
+        .from('pos_order_items')
+        .select('id')
+        .eq('order_id', order.id)
+        .is('voided_at', null)
+        .limit(1)
+      if (!activeItems?.length) {
+        // Empty order — auto-void it
+        await supabase.from('pos_orders')
+          .update({ status: 'voided', closed_at: now_check })
+          .eq('id', order.id)
+          .eq('status', 'open')
+      } else {
+        reallyOpen.push(order)
+      }
+    }
+    if (reallyOpen.length > 0) {
+      const names = reallyOpen.map(o => o.table_name ?? 'Walk-in').join(', ')
+      return NextResponse.json({
+        error: `Cannot close shift — ${reallyOpen.length} table${reallyOpen.length > 1 ? 's' : ''} still open: ${names}`,
+      }, { status: 400 })
+    }
   }
 
   // Gather all data needed for auto night report generation
