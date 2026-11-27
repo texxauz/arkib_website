@@ -381,7 +381,7 @@ export function BarWastageClient({ isAdmin, canEdit, spirits, premixes, menuItem
                                 <RefreshCw className="w-3 h-3 inline mr-1" />Restock
                               </button>
                               {canEdit && (
-                                <button onClick={() => { setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
+                                <button onClick={() => { setGlassAction(null); setGlassQty(''); setGlassNote(''); setGlassForm({ id: g.id, name: g.name, quantity: String(g.quantity), cost_per_unit: String(g.cost_per_unit), par_level: String(g.par_level), mode: 'edit' }); setShowGlassForm(true) }}
                                   className="px-2 py-1 text-xs rounded bg-[#2A2A30] hover:bg-[#333340]">Edit</button>
                               )}
                               {isAdmin && (
