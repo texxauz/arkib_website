@@ -26,16 +26,19 @@ export default async function POSReportsPage() {
       .eq('status', 'closed')
       .order('opened_at', { ascending: false })
       .limit(5000),
-    supabase.from('pos_order_items')
+    admin.from('pos_order_items')
       .select('item_name, category, quantity, unit_price, discount, voided_at, created_at, order_id, added_by')
       .is('voided_at', null)
+      .order('created_at', { ascending: false })
       .limit(20000),
-    supabase.from('pos_payments')
+    admin.from('pos_payments')
       .select('method, amount, captured_at')
+      .order('captured_at', { ascending: false })
       .limit(20000),
-    supabase.from('pos_order_items')
+    admin.from('pos_order_items')
       .select('item_name, quantity, unit_price, voided_at, void_reason, created_at, voided_by, order_id')
       .not('voided_at', 'is', null)
+      .order('created_at', { ascending: false })
       .limit(2000),
     // entity_id = orderId for discount.applied events — used for true per-staff discount incidence
     supabase.from('pos_audit_log')
