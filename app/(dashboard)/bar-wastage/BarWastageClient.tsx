@@ -435,38 +435,40 @@ export function BarWastageClient({ isAdmin, canEdit, spirits, premixes, menuItem
               ) : null
             })()}
 
-            {/* Add / edit glass type form */}
+            {/* Add / edit glass type form — modal overlay */}
             {showGlassForm && (
-              <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-4">
-                <h3 className="font-semibold mb-3">{glassForm.mode === 'edit' ? 'Edit Glass Type' : 'Add Glass Type'}</h3>
-                <form onSubmit={submitGlassType} className="grid grid-cols-2 gap-3">
-                  <div className="col-span-2">
-                    <label className="block text-xs text-[#9997A3] mb-1">Name *</label>
-                    <input required value={glassForm.name} onChange={e => setGlassForm(f => ({ ...f, name: e.target.value }))}
-                      className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#9997A3] mb-1">Current Qty</label>
-                    <input type="number" min="0" value={glassForm.quantity} onChange={e => setGlassForm(f => ({ ...f, quantity: e.target.value }))}
-                      className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#9997A3] mb-1">Par Level</label>
-                    <input type="number" min="0" value={glassForm.par_level} onChange={e => setGlassForm(f => ({ ...f, par_level: e.target.value }))}
-                      className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
-                  </div>
-                  <div>
-                    <label className="block text-xs text-[#9997A3] mb-1">Cost per piece (RM)</label>
-                    <input type="number" min="0" step="0.01" value={glassForm.cost_per_unit} onChange={e => setGlassForm(f => ({ ...f, cost_per_unit: e.target.value }))}
-                      className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
-                  </div>
-                  <div className="col-span-2 flex gap-2">
-                    <button type="submit" className="px-4 py-2 rounded-lg text-sm font-medium bg-[#8B5CF6] hover:bg-[#7B5EA7]">
-                      {glassForm.mode === 'edit' ? 'Save Changes' : 'Add'}
-                    </button>
-                    <button type="button" onClick={() => setShowGlassForm(false)} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2A2A30] hover:bg-[#333340]">Cancel</button>
-                  </div>
-                </form>
+              <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/60 p-4" onClick={e => { if (e.target === e.currentTarget) setShowGlassForm(false) }}>
+                <div className="bg-[#141417] border border-[#2A2A30] rounded-xl p-5 w-full max-w-sm">
+                  <h3 className="font-semibold mb-4 text-base">{glassForm.mode === 'edit' ? 'Edit Glass Type' : 'Add Glass Type'}</h3>
+                  <form onSubmit={submitGlassType} className="grid grid-cols-2 gap-3">
+                    <div className="col-span-2">
+                      <label className="block text-xs text-[#9997A3] mb-1">Name *</label>
+                      <input required value={glassForm.name} onChange={e => setGlassForm(f => ({ ...f, name: e.target.value }))}
+                        className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#9997A3] mb-1">Current Qty</label>
+                      <input type="number" min="0" value={glassForm.quantity} onChange={e => setGlassForm(f => ({ ...f, quantity: e.target.value }))}
+                        className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#9997A3] mb-1">Par Level</label>
+                      <input type="number" min="0" value={glassForm.par_level} onChange={e => setGlassForm(f => ({ ...f, par_level: e.target.value }))}
+                        className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
+                    </div>
+                    <div>
+                      <label className="block text-xs text-[#9997A3] mb-1">Cost per piece (RM)</label>
+                      <input type="number" min="0" step="0.01" value={glassForm.cost_per_unit} onChange={e => setGlassForm(f => ({ ...f, cost_per_unit: e.target.value }))}
+                        className="w-full bg-[#0D0D10] border border-[#2A2A30] rounded-lg px-3 py-2 text-sm focus:outline-none focus:border-[#8B5CF6]" />
+                    </div>
+                    <div className="col-span-2 flex gap-2">
+                      <button type="submit" className="px-4 py-2 rounded-lg text-sm font-medium bg-[#8B5CF6] hover:bg-[#7B5EA7]">
+                        {glassForm.mode === 'edit' ? 'Save Changes' : 'Add'}
+                      </button>
+                      <button type="button" onClick={() => setShowGlassForm(false)} className="px-4 py-2 rounded-lg text-sm font-medium bg-[#2A2A30] hover:bg-[#333340]">Cancel</button>
+                    </div>
+                  </form>
+                </div>
               </div>
             )}
 
